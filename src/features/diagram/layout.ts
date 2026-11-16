@@ -1,12 +1,23 @@
 /**
- * Deterministic layered layout for the database diagram.
+ * Deterministic layered (Sugiyama) layout for the database diagram.
  *
- * Ranks run parents-first (referenced tables sit to the left of the tables that reference them, reversing the FK
- * direction parent -> child), computed as longest-path ranks with a cycle-safe DFS. Within each rank the tables are
- * ordered by barycenter sweeps to reduce edge crossings. Isolated tables (no edges) are packed into a grid after the
- * connected components. No external layout dependency.
+ * Per connected component: cycles are broken by reversing DFS back edges; tables are ranked by longest path and then
+ * tightened so a root sits next to its closest child; edges that span several ranks get one dummy node per crossed
+ * layer (they reserve a corridor between the real boxes); crossings are reduced by barycenter sweeps plus adjacent
+ * transposition, keeping the best order seen; the position across the layer comes from Brandes-Koepf (long edges end
+ * up straight, linked tables stay close) with the real box sizes. Components, and the tables without relations, are
+ * then packed together with a skyline packer. Every coordinate is a multiple of `DGM.grid`, so edge ports line up
+ * with the router's lattice, and a final separation pass guarantees that no two boxes overlap.
+ *
+ * Referenced tables sit before the tables that reference them (left, or above for `TB`). No layout dependency.
  */
-import type { DiagramModel } from "./model";
+import { DGM, type DiagramModel } from "./model";
+
+export type Direction = "LR" | "TB";
+
+export interface LayoutOptions {
+  direction?: Direction;
+}
 
 export interface NodeBox {
   index: number;
@@ -23,112 +34,545 @@ export interface LayoutResult {
   nodes: NodeBox[];
   width: number;
   height: number;
+  direction: Direction;
 }
 
-const HGAP = 48; // between ranks
-const VGAP = 24; // between tables in a rank
-const COMP_GAP = 72; // between connected components
-const GRID_GAP = 48; // between isolated tables in the grid
+const G = DGM.grid;
+const snap = (v: number): number => Math.round(v / G) * G;
+const snapUp = (v: number): number => Math.ceil(v / G) * G;
 
-type Adj = Map<number, Set<number>>;
+/** Gap between packed components / unrelated tables. */
+const PACK_GAP = 80;
+/** Room kept to the right of a table that references itself (the loop is drawn there). */
+export const LOOP_ROOM = 40;
 
-const add = (m: Adj, k: number, v: number): void => {
-  let s = m.get(k);
-  if (!s) m.set(k, (s = new Set()));
-  s.add(v);
-};
+const SEP = {
+  LR: { real: 40, mixed: 30, dummy: 20 },
+  TB: { real: 60, mixed: 40, dummy: 20 },
+} as const;
 
-/** Referenced tables of `from` (its "parents") and referencing tables of `to` (its "children"). */
-function adjacency(model: DiagramModel): { refs: Adj; children: Adj } {
-  const refs: Adj = new Map();
-  const children: Adj = new Map();
-  for (const e of model.edges) {
-    add(refs, e.from, e.to);
-    add(children, e.to, e.from);
+// ---------------------------------------------------------------- helpers
+
+/** A table has a self-referencing foreign key. */
+function selfLoops(model: DiagramModel): Set<number> {
+  const s = new Set<number>();
+  for (const e of model.edges) if (e.from === e.to) s.add(e.from);
+  return s;
+}
+
+/** Fenwick tree used to count inversions. */
+class Fenwick {
+  private t: Int32Array;
+  constructor(n: number) {
+    this.t = new Int32Array(n + 2);
   }
-  return { refs, children };
+  add(i: number): void {
+    for (i++; i < this.t.length; i += i & -i) this.t[i]++;
+  }
+  /** Count of added values at index >= i. */
+  atLeast(i: number, total: number): number {
+    let s = 0;
+    for (; i > 0; i -= i & -i) s += this.t[i];
+    return total - s;
+  }
 }
 
-/** Longest-path ranks within `indices`, cycle-safe (back edges are ignored). Sources get rank 0. */
-function ranks(indices: number[], refs: Adj): Map<number, number> {
-  const rank = new Map<number, number>();
-  const state = new Map<number, number>(); // 0 unvisited, 1 on stack, 2 done
-  const inSet = new Set(indices);
-  const dfs = (i: number): number => {
-    const st = state.get(i) ?? 0;
-    if (st === 2) return rank.get(i)!;
-    if (st === 1) return 0; // back edge of a cycle: contributes no depth
-    state.set(i, 1);
-    let best = 0;
-    for (const p of refs.get(i) ?? []) if (inSet.has(p)) best = Math.max(best, dfs(p) + 1);
-    state.set(i, 2);
-    rank.set(i, best);
-    return best;
+// ---------------------------------------------------------------- one component
+
+interface Layered {
+  /** Real nodes come first (0..m-1), dummies follow. */
+  layers: number[][];
+  up: number[][];
+  down: number[][];
+  isDummy: boolean[];
+  size: number[]; // extent along the layer (order axis)
+}
+
+/** Crossings between layer `r` and `r + 1`. */
+function crossingsBetween(g: Layered, pos: Int32Array, r: number): number {
+  const upper = g.layers[r];
+  const lower = g.layers[r + 1];
+  const pairs: number[] = [];
+  const W = lower.length;
+  for (const a of upper) for (const b of g.down[a]) pairs.push(pos[a] * W + pos[b]);
+  pairs.sort((x, y) => x - y);
+  const fw = new Fenwick(W);
+  let count = 0;
+  for (let i = 0; i < pairs.length; i++) {
+    const b = pairs[i] % W;
+    count += fw.atLeast(b + 1, i);
+    fw.add(b);
+  }
+  return count;
+}
+
+function totalCrossings(g: Layered, pos: Int32Array): number {
+  let c = 0;
+  for (let r = 0; r + 1 < g.layers.length; r++) c += crossingsBetween(g, pos, r);
+  return c;
+}
+
+/** Reduces crossings in place: barycenter sweeps, then adjacent transpositions, keeping the best order seen. */
+function minimizeCrossings(g: Layered, budget: number): void {
+  const N = g.size.length;
+  const pos = new Int32Array(N);
+  const reindex = (): void => g.layers.forEach((l) => l.forEach((v, i) => (pos[v] = i)));
+  reindex();
+  let best = totalCrossings(g, pos);
+  let bestOrder = g.layers.map((l) => [...l]);
+  if (best === 0) return;
+
+  const orderLayer = (r: number, nbrs: number[][]): void => {
+    const layer = g.layers[r];
+    const keyed = layer.map((v, i) => {
+      const ns = nbrs[v];
+      if (ns.length === 0) return { v, k: i, i };
+      let sum = 0;
+      for (const n of ns) sum += pos[n];
+      return { v, k: sum / ns.length, i };
+    });
+    keyed.sort((a, b) => a.k - b.k || a.i - b.i);
+    keyed.forEach((e, i) => {
+      layer[i] = e.v;
+      pos[e.v] = i;
+    });
   };
-  for (const i of indices) dfs(i);
-  return rank;
+
+  const pairCross = (a: number, b: number): number => {
+    // crossings among the edges of a and b towards both neighbouring layers when a is left of b
+    let c = 0;
+    for (const x of g.up[a]) for (const y of g.up[b]) if (pos[x] > pos[y]) c++;
+    for (const x of g.down[a]) for (const y of g.down[b]) if (pos[x] > pos[y]) c++;
+    return c;
+  };
+  const transpose = (): void => {
+    for (let round = 0; round < 3; round++) {
+      let improved = false;
+      for (const layer of g.layers) {
+        for (let i = 0; i + 1 < layer.length; i++) {
+          const a = layer[i];
+          const b = layer[i + 1];
+          if (pairCross(b, a) < pairCross(a, b)) {
+            layer[i] = b;
+            layer[i + 1] = a;
+            pos[a] = i + 1;
+            pos[b] = i;
+            improved = true;
+          }
+        }
+      }
+      if (!improved) break;
+    }
+  };
+
+  let stale = 0;
+  for (let it = 0; it < budget && best > 0 && stale < 5; it++) {
+    if (it % 2 === 0) for (let r = 1; r < g.layers.length; r++) orderLayer(r, g.up);
+    else for (let r = g.layers.length - 2; r >= 0; r--) orderLayer(r, g.down);
+    transpose();
+    const c = totalCrossings(g, pos);
+    if (c < best) {
+      best = c;
+      bestOrder = g.layers.map((l) => [...l]);
+      stale = 0;
+    } else stale++;
+  }
+  for (let r = 0; r < g.layers.length; r++) g.layers[r] = bestOrder[r];
 }
 
-/** Reorders `layer` so that its nodes sit near the average position of their neighbours in `neighbourLayer`. */
-function barycenter(layer: number[], neighbourLayer: number[], adj: Adj): number[] {
-  const pos = new Map<number, number>();
-  neighbourLayer.forEach((n, i) => pos.set(n, i));
-  const scored = layer.map((node, idx) => {
-    const nbs = adj.get(node);
-    let sum = 0;
-    let count = 0;
-    if (nbs) for (const nb of nbs) {
-      const p = pos.get(nb);
-      if (p !== undefined) {
-        sum += p;
-        count++;
+/** Brandes-Koepf coordinates along the layer axis: the centre of every node, for the four alignments averaged. */
+function assignOrderAxis(g: Layered, sep: (a: number, b: number) => number): number[] {
+  const { layers, up, down, isDummy, size } = g;
+  const N = size.length;
+  const pos = new Int32Array(N);
+  layers.forEach((l) => l.forEach((v, i) => (pos[v] = i)));
+
+  // Type 1 conflicts: a non-inner segment crossing an inner (dummy-dummy) one must not take part in an alignment.
+  const conflicts = new Set<number>();
+  for (let i = 0; i + 1 < layers.length; i++) {
+    const upper = layers[i];
+    const lower = layers[i + 1];
+    let k0 = 0;
+    let l = 0;
+    for (let l1 = 0; l1 < lower.length; l1++) {
+      const v = lower[l1];
+      let inner = -1;
+      if (isDummy[v]) for (const u of up[v]) if (isDummy[u]) inner = pos[u];
+      if (l1 === lower.length - 1 || inner >= 0) {
+        const k1 = inner >= 0 ? inner : upper.length - 1;
+        for (; l <= l1; l++) {
+          const w = lower[l];
+          for (const u of up[w]) {
+            const k = pos[u];
+            if (k < k0 || k > k1) conflicts.add(u * N + w);
+          }
+        }
+        k0 = k1;
       }
     }
-    return { node, bary: count ? sum / count : idx, idx };
-  });
-  scored.sort((a, b) => a.bary - b.bary || a.idx - b.idx);
-  return scored.map((s) => s.node);
+  }
+
+  const variant = (vertUp: boolean, rev: boolean): Float64Array => {
+    const seq = (vertUp ? [...layers].reverse() : layers).map((l) => (rev ? [...l].reverse() : l));
+    const p = new Int32Array(N);
+    seq.forEach((l) => l.forEach((v, i) => (p[v] = i)));
+    const nbr = vertUp ? down : up;
+    const conflict = (prev: number, cur: number): boolean => (vertUp ? conflicts.has(cur * N + prev) : conflicts.has(prev * N + cur));
+
+    const root = new Int32Array(N).map((_, i) => i);
+    const align = new Int32Array(N).map((_, i) => i);
+    for (let li = 1; li < seq.length; li++) {
+      let r = -1;
+      for (const v of seq[li]) {
+        const ns = [...nbr[v]].sort((a, b) => p[a] - p[b]);
+        if (ns.length === 0) continue;
+        const d = ns.length;
+        const meds = d % 2 === 1 ? [ns[(d - 1) / 2]] : [ns[d / 2 - 1], ns[d / 2]];
+        for (const u of meds) {
+          if (align[v] === v && !conflict(u, v) && r < p[u]) {
+            align[u] = v;
+            root[v] = root[u];
+            align[v] = root[v];
+            r = p[u];
+          }
+        }
+      }
+    }
+
+    const sink = new Int32Array(N).map((_, i) => i);
+    const shift = new Float64Array(N).fill(Infinity);
+    const x = new Float64Array(N).fill(NaN);
+    const predOf = (w: number): number => {
+      const i = p[w];
+      return i > 0 ? seq[layerOfV[w]][i - 1] : -1;
+    };
+    const layerOfV = new Int32Array(N);
+    seq.forEach((l, li) => l.forEach((v) => (layerOfV[v] = li)));
+
+    const place = (v: number): void => {
+      if (!Number.isNaN(x[v])) return;
+      x[v] = 0;
+      let w = v;
+      do {
+        const pw = predOf(w);
+        if (pw >= 0) {
+          const u = root[pw];
+          place(u);
+          if (sink[v] === v) sink[v] = sink[u];
+          const delta = (size[pw] + size[w]) / 2 + sep(pw, w);
+          if (sink[v] !== sink[u]) shift[sink[u]] = Math.min(shift[sink[u]], x[v] - x[u] - delta);
+          else x[v] = Math.max(x[v], x[u] + delta);
+        }
+        w = align[w];
+      } while (w !== v);
+    };
+    for (let v = 0; v < N; v++) if (root[v] === v) place(v);
+
+    const out = new Float64Array(N);
+    for (let v = 0; v < N; v++) {
+      const r = root[v];
+      let xv = x[r];
+      const s = shift[sink[r]];
+      if (s < Infinity) xv += s;
+      out[v] = rev ? -xv : xv;
+    }
+    return out;
+  };
+
+  const four = [variant(false, false), variant(false, true), variant(true, false), variant(true, true)];
+  const lo = four.map((a) => a.reduce((m, v) => Math.min(m, v), Infinity));
+  const hi = four.map((a) => a.reduce((m, v) => Math.max(m, v), -Infinity));
+  let ref = 0;
+  for (let i = 1; i < 4; i++) if (hi[i] - lo[i] < hi[ref] - lo[ref]) ref = i;
+  // left alignments line up on the smallest layout's minimum, right ones on its maximum
+  const shifts = four.map((_, i) => (i % 2 === 0 ? lo[ref] - lo[i] : hi[ref] - hi[i]));
+  const centre = new Array<number>(N);
+  for (let v = 0; v < N; v++) {
+    const vals = four.map((a, i) => a[v] + shifts[i]).sort((a, b) => a - b);
+    centre[v] = (vals[1] + vals[2]) / 2;
+  }
+  return centre;
 }
 
-/** Local coordinates (top-left at 0,0) of one connected component. */
-function layoutComponent(indices: number[], model: DiagramModel, refs: Adj, children: Adj): { pos: Map<number, { x: number; y: number }>; width: number; height: number } {
-  const rank = ranks(indices, refs);
-  const maxRank = indices.reduce((m, i) => Math.max(m, rank.get(i)!), 0);
-  const layers: number[][] = Array.from({ length: maxRank + 1 }, () => []);
-  for (const i of indices) layers[rank.get(i)!].push(i);
-  for (const l of layers) l.sort((a, b) => a - b);
+/** Local coordinates (top-left of the bounding box at 0,0) of one connected component with 2+ tables. */
+function layoutComponent(indices: number[], model: DiagramModel, dir: Direction, loops: Set<number>): { pos: Map<number, { x: number; y: number }>; width: number; height: number } {
+  const m = indices.length;
+  const local = new Map<number, number>();
+  indices.forEach((g, i) => local.set(g, i));
 
-  for (let pass = 0; pass < 4; pass++) {
-    if (pass % 2 === 0) {
-      for (let r = 1; r < layers.length; r++) layers[r] = barycenter(layers[r], layers[r - 1], refs);
-    } else {
-      for (let r = layers.length - 2; r >= 0; r--) layers[r] = barycenter(layers[r], layers[r + 1], children);
+  // Arcs parent -> child, deduplicated (parallel foreign keys count once and carry a weight).
+  const weight = new Map<number, number>();
+  for (const e of model.edges) {
+    if (e.from === e.to) continue;
+    const u = local.get(e.to);
+    const v = local.get(e.from);
+    if (u === undefined || v === undefined) continue;
+    weight.set(u * m + v, (weight.get(u * m + v) ?? 0) + 1);
+  }
+  const arcList = [...weight.keys()].sort((a, b) => a - b).map((k) => [Math.floor(k / m), k % m] as const);
+  const out: number[][] = Array.from({ length: m }, () => []);
+  const indeg = new Array<number>(m).fill(0);
+  for (const [u, v] of arcList) {
+    out[u].push(v);
+    indeg[v]++;
+  }
+
+  // Cycle breaking: iterative DFS, back edges are reversed.
+  const dagOut: number[][] = Array.from({ length: m }, () => []);
+  const dagKeys = new Set<number>();
+  const addDag = (u: number, v: number): void => {
+    if (!dagKeys.has(u * m + v)) {
+      dagKeys.add(u * m + v);
+      dagOut[u].push(v);
+    }
+  };
+  const state = new Uint8Array(m);
+  const roots = [...Array(m).keys()].sort((a, b) => (indeg[a] === 0 ? 0 : 1) - (indeg[b] === 0 ? 0 : 1) || a - b);
+  for (const s of roots) {
+    if (state[s]) continue;
+    const stack: [number, number][] = [[s, 0]];
+    state[s] = 1;
+    while (stack.length) {
+      const top = stack[stack.length - 1];
+      const [u, i] = top;
+      if (i >= out[u].length) {
+        state[u] = 2;
+        stack.pop();
+        continue;
+      }
+      top[1]++;
+      const v = out[u][i];
+      if (state[v] === 1) addDag(v, u);
+      else {
+        addDag(u, v);
+        if (state[v] === 0) {
+          state[v] = 1;
+          stack.push([v, 0]);
+        }
+      }
     }
   }
 
-  const layerW = layers.map((l) => l.reduce((m, i) => Math.max(m, model.nodes[i].width), 0));
-  const layerH = layers.map((l) => l.reduce((s, i) => s + model.nodes[i].height, 0) + (l.length - 1) * VGAP);
-  const maxH = layerH.reduce((m, h) => Math.max(m, h), 0);
+  // Longest-path ranks over the DAG (Kahn), then tightening.
+  const dagIn: number[][] = Array.from({ length: m }, () => []);
+  dagOut.forEach((vs, u) => vs.forEach((v) => dagIn[v].push(u)));
+  const inCount = dagIn.map((l) => l.length);
+  const topo: number[] = [];
+  const queue = [...Array(m).keys()].filter((i) => inCount[i] === 0);
+  for (let h = 0; h < queue.length; h++) {
+    const u = queue[h];
+    topo.push(u);
+    for (const v of dagOut[u]) if (--inCount[v] === 0) queue.push(v);
+  }
+  const rank = new Array<number>(m).fill(0);
+  for (const u of topo) for (const v of dagOut[u]) rank[v] = Math.max(rank[v], rank[u] + 1);
+  const w = (u: number, v: number): number => weight.get(u * m + v) ?? weight.get(v * m + u) ?? 1;
+  const sumW = (list: number[], self: number, outward: boolean): number => list.reduce((s, o) => s + (outward ? w(self, o) : w(o, self)), 0);
+  for (let pass = 0; pass < 8; pass++) {
+    let changed = false;
+    for (let t = topo.length - 1; t >= 0; t--) {
+      const v = topo[t];
+      if (dagOut[v].length === 0) continue;
+      if (sumW(dagOut[v], v, true) > sumW(dagIn[v], v, false)) {
+        const hi = Math.min(...dagOut[v].map((s) => rank[s])) - 1;
+        if (hi > rank[v]) {
+          rank[v] = hi;
+          changed = true;
+        }
+      }
+    }
+    for (const v of topo) {
+      if (dagIn[v].length === 0) continue;
+      if (sumW(dagIn[v], v, false) > sumW(dagOut[v], v, true)) {
+        const lo = Math.max(...dagIn[v].map((p) => rank[p])) + 1;
+        if (lo < rank[v]) {
+          rank[v] = lo;
+          changed = true;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+  const minRank = Math.min(...rank);
+  for (let i = 0; i < m; i++) rank[i] -= minRank;
+  const R = Math.max(...rank) + 1;
+
+  // Layered graph with dummy nodes for the arcs that span several ranks.
+  const LR = dir === "LR";
+  const orderSize = (g: number): number => {
+    const nd = model.nodes[g];
+    return LR ? nd.height : nd.width + (loops.has(g) ? LOOP_ROOM : 0);
+  };
+  const size: number[] = indices.map((g) => orderSize(g));
+  const isDummy: boolean[] = new Array(m).fill(false);
+  const layerOf: number[] = [...rank];
+  const up: number[][] = Array.from({ length: m }, () => []);
+  const down: number[][] = Array.from({ length: m }, () => []);
+  const link = (a: number, b: number): void => {
+    down[a].push(b);
+    up[b].push(a);
+  };
+  const addDummy = (layer: number): number => {
+    const id = size.length;
+    size.push(0);
+    isDummy.push(true);
+    layerOf.push(layer);
+    up.push([]);
+    down.push([]);
+    return id;
+  };
+  const segCount = new Array<number>(R).fill(0);
+  for (let u = 0; u < m; u++) {
+    for (const v of dagOut[u]) {
+      let prev = u;
+      for (let r = rank[u] + 1; r < rank[v]; r++) {
+        const d = addDummy(r);
+        link(prev, d);
+        segCount[r - 1]++;
+        prev = d;
+      }
+      link(prev, v);
+      segCount[rank[v] - 1]++;
+    }
+  }
+
+  // Initial order: DFS discovery from the first layer, children first.
+  const N = size.length;
+  const seen = new Uint8Array(N);
+  const discovery: number[] = [];
+  const visit = (s: number): void => {
+    const stack = [s];
+    while (stack.length) {
+      const v = stack.pop()!;
+      if (seen[v]) continue;
+      seen[v] = 1;
+      discovery.push(v);
+      for (let i = down[v].length - 1; i >= 0; i--) if (!seen[down[v][i]]) stack.push(down[v][i]);
+    }
+  };
+  for (let v = 0; v < N; v++) if (up[v].length === 0 && layerOf[v] === 0) visit(v);
+  for (let v = 0; v < N; v++) visit(v);
+  const layers: number[][] = Array.from({ length: R }, () => []);
+  for (const v of discovery) layers[layerOf[v]].push(v);
+
+  const g: Layered = { layers, up, down, isDummy, size };
+  minimizeCrossings(g, N > 1500 ? 6 : N > 600 ? 12 : 24);
+
+  // Coordinates along the layer axis.
+  const table = SEP[dir];
+  const sep = (a: number, b: number): number => (isDummy[a] && isDummy[b] ? table.dummy : isDummy[a] || isDummy[b] ? table.mixed : table.real);
+  const centre = assignOrderAxis(g, sep);
+
+  // A last pass guarantees the separation (and puts every top edge on the lattice).
+  const top = new Array<number>(N).fill(0);
+  for (const layer of g.layers) {
+    layer.forEach((v, i) => {
+      let t = snap(centre[v] - size[v] / 2);
+      if (i > 0) {
+        const prev = layer[i - 1];
+        t = Math.max(t, top[prev] + snapUp(size[prev]) + snapUp(sep(prev, v)));
+      }
+      top[v] = t;
+    });
+  }
+
+  // Positions across the layers (rank axis): the gap between two layers grows with the edges that cross it.
+  const thick = (v: number): number => (v >= m ? 0 : LR ? model.nodes[indices[v]].width : model.nodes[indices[v]].height);
+  const layerThick = layers.map((l) => l.reduce((mx, v) => Math.max(mx, thick(v)), 0));
+  const layerStart: number[] = [];
+  let cursor = 0;
+  for (let r = 0; r < R; r++) {
+    layerStart.push(cursor);
+    const segs = r < R - 1 ? segCount[r] : 0;
+    const base = LR ? 60 : 70;
+    let gap = base + 6 * Math.min(segs, 12);
+    if (LR && layers[r].some((v) => v < m && loops.has(indices[v]))) gap += LOOP_ROOM;
+    cursor += snapUp(layerThick[r]) + snapUp(gap);
+  }
 
   const pos = new Map<number, { x: number; y: number }>();
-  let x = 0;
-  for (let r = 0; r < layers.length; r++) {
-    let y = (maxH - layerH[r]) / 2;
-    for (const i of layers[r]) {
-      pos.set(i, { x, y });
-      y += model.nodes[i].height + VGAP;
-    }
-    x += layerW[r] + HGAP;
+  let minOrder = Infinity;
+  for (let v = 0; v < m; v++) minOrder = Math.min(minOrder, top[v]);
+  let width = 0;
+  let height = 0;
+  for (let v = 0; v < m; v++) {
+    const nd = model.nodes[indices[v]];
+    const across = layerStart[layerOf[v]] + Math.floor((snapUp(layerThick[layerOf[v]]) - thick(v)) / 2 / G) * G;
+    const along = top[v] - minOrder;
+    const p = LR ? { x: across, y: along } : { x: along, y: across };
+    pos.set(indices[v], p);
+    width = Math.max(width, p.x + nd.width + (loops.has(indices[v]) ? LOOP_ROOM : 0));
+    height = Math.max(height, p.y + nd.height);
   }
-  return { pos, width: Math.max(0, x - HGAP), height: maxH };
+  return { pos, width, height };
 }
 
-export function layoutDiagram(model: DiagramModel): LayoutResult {
-  const n = model.nodes.length;
-  const { refs, children } = adjacency(model);
+// ---------------------------------------------------------------- packing
 
-  // Union-find over edges -> connected components (tables with at least one edge).
-  const parent = new Array(n).fill(0).map((_, i) => i);
+interface Item {
+  w: number;
+  h: number;
+}
+
+/** Skyline packer: places each item at the lowest, then leftmost, position of a strip `targetW` wide. */
+export function packItems(items: readonly Item[], targetW: number, gap: number): { x: number; y: number }[] {
+  let sky: { x: number; w: number; y: number }[] = [{ x: 0, w: targetW + gap, y: 0 }];
+  const out: { x: number; y: number }[] = new Array(items.length);
+  for (let k = 0; k < items.length; k++) {
+    const W = items[k].w + gap;
+    const H = items[k].h + gap;
+    let bx = 0;
+    let by = Infinity;
+    for (let i = 0; i < sky.length; i++) {
+      const x = sky[i].x;
+      if (x + W > targetW + gap + 1e-9) break;
+      let y = 0;
+      let covered = 0;
+      for (let j = i; j < sky.length && covered < W; j++) {
+        y = Math.max(y, sky[j].y);
+        covered += sky[j].w;
+      }
+      if (covered < W - 1e-9) break;
+      if (y < by) {
+        by = y;
+        bx = x;
+      }
+    }
+    if (!Number.isFinite(by)) {
+      by = sky.reduce((mx, s) => Math.max(mx, s.y), 0);
+      bx = 0;
+    }
+    out[k] = { x: bx, y: by };
+    const next: typeof sky = [];
+    for (const s of sky) {
+      const end = s.x + s.w;
+      if (end <= bx || s.x >= bx + W) next.push(s);
+      else {
+        if (s.x < bx) next.push({ x: s.x, w: bx - s.x, y: s.y });
+        if (end > bx + W) next.push({ x: bx + W, w: end - (bx + W), y: s.y });
+      }
+    }
+    next.push({ x: bx, w: W, y: by + H });
+    next.sort((a, b) => a.x - b.x);
+    sky = [];
+    for (const s of next) {
+      const last = sky[sky.length - 1];
+      if (last && Math.abs(last.y - s.y) < 1e-9 && Math.abs(last.x + last.w - s.x) < 1e-9) last.w += s.w;
+      else sky.push({ ...s });
+    }
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------- entry point
+
+export function layoutDiagram(model: DiagramModel, opts: LayoutOptions = {}): LayoutResult {
+  const dir: Direction = opts.direction ?? "LR";
+  const n = model.nodes.length;
+  const loops = selfLoops(model);
+
+  // Union-find over the foreign keys: connected components.
+  const parent = Array.from({ length: n }, (_, i) => i);
   const find = (i: number): number => {
     while (parent[i] !== i) {
       parent[i] = parent[parent[i]];
@@ -136,61 +580,98 @@ export function layoutDiagram(model: DiagramModel): LayoutResult {
     }
     return i;
   };
-  const union = (a: number, b: number): void => {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra !== rb) parent[ra] = rb;
-  };
-  const touched = new Set<number>();
   for (const e of model.edges) {
-    union(e.from, e.to);
-    touched.add(e.from);
-    touched.add(e.to);
+    if (e.from === e.to) continue;
+    const a = find(e.from);
+    const b = find(e.to);
+    if (a !== b) parent[Math.max(a, b)] = Math.min(a, b);
   }
-
   const comps = new Map<number, number[]>();
-  for (const i of touched) {
+  for (let i = 0; i < n; i++) {
     const root = find(i);
-    let list = comps.get(root);
-    if (!list) comps.set(root, (list = []));
-    list.push(i);
+    const list = comps.get(root);
+    if (list) list.push(i);
+    else comps.set(root, [i]);
   }
-  for (const list of comps.values()) list.sort((a, b) => a - b);
-  const compKeys = [...comps.keys()].sort((a, b) => comps.get(a)![0] - comps.get(b)![0]);
 
-  const pos: { x: number; y: number }[] = new Array(n).fill(null).map(() => ({ x: 0, y: 0 }));
-  let cursorX = 0;
-  let maxY = 0;
-
-  for (const key of compKeys) {
-    const idx = comps.get(key)!;
-    const { pos: local, width, height } = layoutComponent(idx, model, refs, children);
-    for (const i of idx) {
-      const p = local.get(i)!;
-      pos[i] = { x: cursorX + p.x, y: p.y };
+  interface Block {
+    members: number[];
+    local: Map<number, { x: number; y: number }>;
+    w: number;
+    h: number;
+  }
+  const blocks: Block[] = [];
+  for (const members of [...comps.values()].sort((a, b) => a[0] - b[0])) {
+    if (members.length > 1) {
+      const r = layoutComponent(members, model, dir, loops);
+      blocks.push({ members, local: r.pos, w: r.width, h: r.height });
+    } else {
+      const nd = model.nodes[members[0]];
+      blocks.push({ members, local: new Map([[members[0], { x: 0, y: 0 }]]), w: nd.width + (loops.has(members[0]) ? LOOP_ROOM : 0), h: nd.height });
     }
-    cursorX += width + COMP_GAP;
-    maxY = Math.max(maxY, height);
   }
 
-  // Isolated tables: a roughly square grid after the components.
-  const isolated = model.nodes.filter((_, i) => !touched.has(i));
-  if (isolated.length) {
-    const cols = Math.max(1, Math.ceil(Math.sqrt(isolated.length)));
-    const cellW = isolated.reduce((m, nd) => Math.max(m, nd.width), 0) + GRID_GAP;
-    const cellH = isolated.reduce((m, nd) => Math.max(m, nd.height), 0) + GRID_GAP;
-    isolated.forEach((nd, k) => {
-      const col = k % cols;
-      const row = Math.floor(k / cols);
-      pos[nd.index] = { x: cursorX + col * cellW, y: row * cellH };
-    });
-    cursorX += cols * cellW;
-    maxY = Math.max(maxY, Math.ceil(isolated.length / cols) * cellH);
-  }
+  // Related components first (largest area), then the single tables, name order within equals.
+  const related = (b: Block): number => (b.members.length > 1 ? 0 : 1);
+  const order = blocks.map((_, i) => i).sort((a, b) => related(blocks[a]) - related(blocks[b]) || blocks[b].w * blocks[b].h - blocks[a].w * blocks[a].h || a - b);
+  const area = blocks.reduce((s, b) => s + (b.w + PACK_GAP) * (b.h + PACK_GAP), 0);
+  const maxW = blocks.reduce((mx, b) => Math.max(mx, b.w), 0);
+  const targetW = snapUp(Math.max(maxW, Math.sqrt(area * 1.7)));
+  const placed = packItems(
+    order.map((i) => ({ w: blocks[i].w, h: blocks[i].h })),
+    targetW,
+    PACK_GAP,
+  );
 
-  return {
-    nodes: model.nodes.map((nd) => ({ index: nd.index, key: nd.key, x: pos[nd.index].x, y: pos[nd.index].y, width: nd.width, height: nd.height })),
-    width: Math.max(0, cursorX - (comps.size ? COMP_GAP : 0) - (isolated.length ? GRID_GAP : 0)),
-    height: Math.max(0, maxY),
-  };
+  const pos = new Array<{ x: number; y: number }>(n);
+  order.forEach((bi, k) => {
+    const b = blocks[bi];
+    for (const [g, p] of b.local) pos[g] = { x: snap(placed[k].x + p.x), y: snap(placed[k].y + p.y) };
+  });
+
+  let width = 0;
+  let height = 0;
+  const nodes = model.nodes.map((nd) => {
+    const p = pos[nd.index];
+    width = Math.max(width, p.x + nd.width);
+    height = Math.max(height, p.y + nd.height);
+    return { index: nd.index, key: nd.key, x: p.x, y: p.y, width: nd.width, height: nd.height };
+  });
+  return { nodes, width, height, direction: dir };
+}
+
+// ---------------------------------------------------------------- dropping a dragged box
+
+/**
+ * The nearest lattice position to `want` where a `width` x `height` box keeps `gap` of clear space around it from
+ * every other box, so a dropped table never lands on top of another. `want` itself when it is already free.
+ */
+export function resolveDrop(
+  want: { x: number; y: number },
+  size: { width: number; height: number },
+  others: readonly { x: number; y: number; width: number; height: number }[],
+  gap = G * 2,
+): { x: number; y: number } {
+  const x0 = snap(want.x);
+  const y0 = snap(want.y);
+  const free = (x: number, y: number): boolean => others.every((o) => x + size.width + gap <= o.x || o.x + o.width + gap <= x || y + size.height + gap <= o.y || o.y + o.height + gap <= y);
+  if (free(x0, y0)) return { x: x0, y: y0 };
+  for (let ring = 1; ring < 400; ring++) {
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (let dx = -ring; dx <= ring; dx++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+        const x = x0 + dx * G;
+        const y = y0 + dy * G;
+        const d = dx * dx + dy * dy;
+        if (d < bestD && free(x, y)) {
+          best = { x, y };
+          bestD = d;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  return { x: x0, y: y0 };
 }

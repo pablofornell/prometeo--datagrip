@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_FONT_MONO, FALLBACK_FONT_UI, resolvePalette } from "./palette";
+import { FALLBACK_FONT_MONO, FALLBACK_FONT_UI, FALLBACK_RAINBOW_DARK, FALLBACK_RAINBOW_LIGHT, contrast, inkOn, luminance, mix, parseColor, resolvePalette } from "./palette";
 
 const read = (vars: Record<string, string>) => (name: string): string => vars[name] ?? "";
 
@@ -23,5 +23,50 @@ describe("resolvePalette", () => {
     expect(p.fontUi).toBe(FALLBACK_FONT_UI);
     expect(p.fontMono).not.toContain("var(");
     expect(p.fontUi).not.toContain("var(");
+  });
+
+  it("has a 12 colour rainbow: the dark fallback on a dark canvas, the light one on a light canvas", () => {
+    const dark = resolvePalette(() => "");
+    expect(dark.isDark).toBe(true);
+    expect(dark.rainbow).toEqual(FALLBACK_RAINBOW_DARK);
+    const light = resolvePalette(read({ "--dg-editor-bg": "#ffffff" }));
+    expect(light.isDark).toBe(false);
+    expect(light.rainbow).toEqual(FALLBACK_RAINBOW_LIGHT);
+    expect(light.rainbow).toHaveLength(12);
+    expect(new Set(light.rainbow).size).toBe(12);
+  });
+
+  it("takes the rainbow from the --dgd-cN variables (which follow --rainbow-N) in any css colour syntax", () => {
+    const p = resolvePalette(read({ "--dgd-c1": "#123456", "--dgd-c2": "rgb(255, 0, 0)", "--dgd-c3": "hsl(120 100% 25%)", "--dgd-c4": "not a colour" }));
+    expect(p.rainbow[0]).toBe("#123456");
+    expect(p.rainbow[1]).toBe("#ff0000");
+    expect(p.rainbow[2]).toBe("#008000");
+    expect(p.rainbow[3]).toBe(FALLBACK_RAINBOW_DARK[3]);
+  });
+});
+
+describe("colour maths", () => {
+  it("parses hex, rgb and hsl", () => {
+    expect(parseColor("#fff")).toEqual([255, 255, 255]);
+    expect(parseColor("#10203040")).toEqual([16, 32, 48]);
+    expect(parseColor("rgba(1, 2, 3, 0.5)")).toEqual([1, 2, 3]);
+    expect(parseColor("hsl(0, 100%, 50%)")).toEqual([255, 0, 0]);
+    expect(parseColor("var(--x)")).toBeNull();
+  });
+
+  it("computes WCAG contrast", () => {
+    expect(contrast("#000000", "#ffffff")).toBeCloseTo(21, 5);
+    expect(contrast("#777777", "#777777")).toBeCloseTo(1, 5);
+    expect(luminance([255, 255, 255])).toBeCloseTo(1, 5);
+  });
+
+  it("picks the ink with the better contrast", () => {
+    expect(inkOn("#ffe066", "#ffffff", "#15171b")).toBe("#15171b");
+    expect(inkOn("#1b3a8a", "#ffffff", "#15171b")).toBe("#ffffff");
+  });
+
+  it("mixes colours", () => {
+    expect(mix("#000000", "#ffffff", 0.5)).toBe("#808080");
+    expect(mix("nope", "#ffffff", 0.5)).toBe("nope");
   });
 });

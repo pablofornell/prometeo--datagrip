@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDiagram, measureTable, nodeKey, prunePositions, subsetOf, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
+import { DGM, buildDiagram, clip, displayRows, footerText, measureTable, nodeKey, prunePositions, subsetOf, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -111,6 +111,74 @@ describe("visibleColumns / measureTable", () => {
     const noTypes = measureTable("long_table_name", cols(), { ...opts, showTypes: false });
     expect(noTypes.width).toBeLessThan(withTypes.width);
     expect(noTypes.height).toBe(withTypes.height);
+  });
+
+  it("sizes boxes on the routing lattice, within the width cap", () => {
+    for (const mode of ["all", "keys", "none"] as const) {
+      const { width, height } = measureTable("t".repeat(300), [{ name: "c".repeat(300), typeName: "t".repeat(90), isPk: true, isFk: false }], { columns: mode, showTypes: true });
+      expect(width % DGM.grid).toBe(0);
+      expect(height % DGM.grid).toBe(0);
+      expect(width).toBeLessThanOrEqual(DGM.maxW);
+    }
+  });
+});
+
+describe("displayRows", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0, isFk: i === 45, isRef: i === 50 }));
+
+  it("shows everything up to the row cap", () => {
+    const r = displayRows(many(DGM.maxRows), "all");
+    expect(r.rows).toHaveLength(DGM.maxRows);
+    expect(r.hidden).toBe(0);
+  });
+
+  it("past the cap keeps every key and the first other columns, in their original order", () => {
+    const r = displayRows(many(80), "all");
+    expect(r.rows).toHaveLength(DGM.maxRows);
+    expect(r.hidden).toBe(80 - DGM.maxRows);
+    const names = r.rows.map((c) => c.name);
+    for (const key of ["c0", "c45", "c50"]) expect(names).toContain(key);
+    expect(names).toEqual([...names].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1))));
+  });
+
+  it("keys-only mode also keeps the columns other tables reference, and counts the rest as hidden", () => {
+    const r = displayRows(many(60), "keys");
+    expect(r.rows.map((c) => c.name)).toEqual(["c0", "c45", "c50"]);
+    expect(r.hidden).toBe(57);
+    expect(displayRows(many(5), "none")).toEqual({ rows: [], hidden: 5 });
+  });
+
+  it("builds a footer row into the box height", () => {
+    const withFooter = measureTable("t", many(5), { columns: "keys", showTypes: false });
+    const none = measureTable("t", [], { columns: "keys", showTypes: false });
+    expect(withFooter.height).toBeGreaterThan(none.height);
+    expect(footerText(7, 0)).toBe("7 columns");
+    expect(footerText(1, 0)).toBe("1 column");
+    expect(footerText(7, 3)).toBe("+7 more");
+  });
+});
+
+describe("referenced columns", () => {
+  it("are flagged on the referenced table and stay visible in keys-only mode", () => {
+    const m = buildDiagram(
+      [
+        obj("s", "country", ["code", "name"]),
+        obj("s", "city", ["id", "country_code"], [{ name: "fk", columns: ["country_code"], refSchema: "s", refTable: "country", refColumns: ["code"] }]),
+      ],
+      { columns: "keys", showTypes: true },
+    );
+    const country = m.nodes.find((n) => n.name === "country")!;
+    expect(country.columns.find((c) => c.name === "code")!.isRef).toBe(true);
+    expect(country.rows.map((c) => c.name)).toEqual(["code"]);
+    expect(country.hidden).toBe(1);
+  });
+});
+
+describe("clip", () => {
+  it("cuts with an ellipsis only when needed", () => {
+    expect(clip("abc", 5)).toBe("abc");
+    expect(clip("abcdef", 4)).toBe("abc…");
+    expect(clip("abc", 1)).toBe("…");
   });
 });
 
