@@ -2,7 +2,7 @@
 -- Generated from the schema compare. Review it before you run it.
 -- Statements that drop objects are included.
 
-SET search_path TO "cmpx_b";
+set search_path to "cmpx_b";
 
 -- table tag: create (from A)
 -- auto-generated definition
@@ -34,70 +34,70 @@ create table audit
 );
 
 -- table order_lines: foreign key order_lines_order_fk (dropped before primary key (id) is replaced)
-ALTER TABLE "order_lines" DROP CONSTRAINT "order_lines_order_fk";
+alter table "order_lines" drop constraint "order_lines_order_fk";
 
 -- table emp: check emp_salary_ck: replace
-ALTER TABLE "emp" DROP CONSTRAINT "emp_salary_ck";
+alter table "emp" drop constraint "emp_salary_ck";
 
 -- table emp: index emp_name_ix: replace
-DROP INDEX "emp_name_ix";
+drop index "emp_name_ix";
 
 -- table emp: index emp_salary_ix: replace
-DROP INDEX "emp_salary_ix";
+drop index "emp_salary_ix";
 
 -- table emp: index emp_old_ix (only in B)
-DROP INDEX "emp_old_ix";
+drop index "emp_old_ix";
 
 -- table orders: primary key (id) (replaced: same definition in A under another name)
-ALTER TABLE "orders" DROP CONSTRAINT "orders_pkey_old";
+alter table "orders" drop constraint "orders_pkey_old";
 
 -- table emp: change column name
-ALTER TABLE "emp" ALTER COLUMN "name" TYPE varchar(80);
+alter table "emp" alter column "name" type varchar(80);
 
 -- table emp: change column name
-ALTER TABLE "emp" ALTER COLUMN "name" SET NOT NULL;
+alter table "emp" alter column "name" set not null;
 
 -- table emp: change column code
-ALTER TABLE "emp" ALTER COLUMN "code" DROP NOT NULL;
+alter table "emp" alter column "code" drop not null;
 
 -- table emp: change column salary
-ALTER TABLE "emp" ALTER COLUMN "salary" SET DEFAULT 0;
+alter table "emp" alter column "salary" set default 0;
 
 -- table emp: add column status
-ALTER TABLE "emp" ADD COLUMN "status" varchar(10) DEFAULT 'new'::character varying NOT NULL;
+alter table "emp" add column "status" varchar(10) default 'new'::character varying not null;
 
 -- table dept: add unique dept_name_key
-ALTER TABLE "dept" ADD CONSTRAINT "dept_name_key" UNIQUE ("name");
+alter table "dept" add constraint "dept_name_key" unique ("name");
 
 -- table emp: add unique emp_code_key
-ALTER TABLE "emp" ADD CONSTRAINT "emp_code_key" UNIQUE ("code");
+alter table "emp" add constraint "emp_code_key" unique ("code");
 
 -- table emp: check emp_salary_ck: replace
-ALTER TABLE "emp" ADD CONSTRAINT "emp_salary_ck" CHECK ((salary >= (0)::numeric));
+alter table "emp" add constraint "emp_salary_ck" check ((salary >= (0)::numeric));
 
 -- table orders: add primary key (id)
-ALTER TABLE "orders" ADD CONSTRAINT "orders_pkey" PRIMARY KEY ("id");
+alter table "orders" add constraint "orders_pkey" primary key ("id");
 
 -- table order_lines: foreign key order_lines_order_fk: add again after the key is replaced
-ALTER TABLE "order_lines" ADD CONSTRAINT "order_lines_order_fk" FOREIGN KEY ("order_id") REFERENCES "orders" ("id");
+alter table "order_lines" add constraint "order_lines_order_fk" foreign key ("order_id") references "orders" ("id");
 
 -- table item_tag: foreign key item_tag_tag_fk
-ALTER TABLE "item_tag" ADD CONSTRAINT "item_tag_tag_fk" FOREIGN KEY ("tag_id") REFERENCES "tag" ("id");
+alter table "item_tag" add constraint "item_tag_tag_fk" foreign key ("tag_id") references "tag" ("id");
 
 -- table audit: foreign key audit_emp_fk
-ALTER TABLE "audit" ADD CONSTRAINT "audit_emp_fk" FOREIGN KEY ("emp_id") REFERENCES "emp" ("id");
+alter table "audit" add constraint "audit_emp_fk" foreign key ("emp_id") references "emp" ("id");
 
 -- table emp: index emp_name_ix: replace
-CREATE INDEX "emp_name_ix" ON "emp" ("name");
+create index "emp_name_ix" on "emp" ("name");
 
 -- table emp: index emp_salary_ix: replace
-CREATE INDEX "emp_salary_ix" ON "emp" ("salary" DESC);
+create index "emp_salary_ix" on "emp" ("salary" desc);
 
 -- view v_emp: replace
-CREATE OR REPLACE VIEW "v_emp" AS SELECT emp.id, emp.name FROM emp;
+create or replace view "v_emp" as SELECT emp.id, emp.name FROM emp;
 
 -- table emp: drop column old_flag (only in B)
-ALTER TABLE "emp" DROP COLUMN "old_flag";
+alter table "emp" drop column "old_flag";
 
 -- table old_log: only in B
-DROP TABLE "old_log";
+drop table "old_log";
