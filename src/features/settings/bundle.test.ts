@@ -16,6 +16,7 @@ const DEFAULTS = {
   colorOverrides: { dark: {}, light: {} },
   keymapOverrides: {},
   uiFontSize: 13,
+  uiScale: 100,
   dataSourceColors: false,
   dataSourceColorIntensity: 100,
 } as unknown as Settings;
@@ -50,6 +51,15 @@ describe("sanitizeSettings", () => {
     expect(sanitizeSettings({ dataSourceColorIntensity: 3.7 }, DEFAULTS)).toEqual({ dataSourceColorIntensity: 25 });
     expect(sanitizeSettings({ dataSourceColors: "yes" }, DEFAULTS)).toEqual({});
   });
+  it("snaps the UI scale to its 10 % steps inside 80..200", () => {
+    expect(sanitizeSettings({ uiScale: 120 }, DEFAULTS)).toEqual({ uiScale: 120 });
+    expect(sanitizeSettings({ uiScale: 124 }, DEFAULTS)).toEqual({ uiScale: 120 });
+    expect(sanitizeSettings({ uiScale: 10 }, DEFAULTS)).toEqual({ uiScale: 80 });
+    expect(sanitizeSettings({ uiScale: 900 }, DEFAULTS)).toEqual({ uiScale: 200 });
+    expect(sanitizeSettings({ uiScale: "150" }, DEFAULTS)).toEqual({});
+    expect(sanitizeSettings({ uiScale: NaN }, DEFAULTS)).toEqual({});
+  });
+
   it("rounds the settings that are whole numbers", () => {
     const r = sanitizeSettings({ gridPageSize: 99.6, editorFontSize: 13.4, uiFontSize: 14.5, editorLineHeight: 1.25 }, DEFAULTS);
     expect(r).toEqual({ gridPageSize: 100, editorFontSize: 13, uiFontSize: 15, editorLineHeight: 1.25 });

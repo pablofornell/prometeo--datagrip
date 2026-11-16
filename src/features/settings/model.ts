@@ -59,6 +59,7 @@ export const PAGES: PageNode[] = [
           "Font",
           "Size",
           "UI font size",
+          "UI scale",
           "zoom",
           "scale",
           "UI Options",

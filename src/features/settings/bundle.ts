@@ -4,6 +4,7 @@
  * validates what a file holds (it may come from anywhere and from another version) and returns only values that
  * are safe to apply.
  */
+import { sanitizeUiScale } from "../../state/appearance";
 import { type SchemeOverrides, sanitizeOverrides } from "../../state/colorScheme";
 import type { LayoutState, ToolWindowAnchor } from "../../state/layout";
 import type { Settings } from "../../state/settings";
@@ -74,6 +75,9 @@ export function sanitizeSettings(raw: unknown, defaults: Settings): Partial<Sett
     const v = raw[key];
     if (key === "colorOverrides") out[key] = sanitizeOverrides(v) satisfies SchemeOverrides;
     else if (key === "keymapOverrides") out[key] = keymapOf(v);
+    else if (key === "uiScale") {
+      if (typeof v === "number" && Number.isFinite(v)) out[key] = sanitizeUiScale(v);
+    }
     else if (typeof v !== typeof defaults[key]) continue;
     else if (typeof v === "number") {
       const [lo, hi] = RANGES[key] ?? [-Infinity, Infinity];

@@ -6,7 +6,7 @@
 import { Show, type JSX, createEffect, createSignal, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { SqlEditor } from "../../components/editor";
-import { Button, Icon, tip } from "../../components/ui";
+import { Button, CopyButton, Icon, tip } from "../../components/ui";
 import type { Driver } from "./model";
 import "./schema-editor.css";
 
@@ -136,10 +136,16 @@ export function EditorFrame(props: FrameProps): JSX.Element {
           <Show when={props.problem || props.applyError || props.warnings?.length}>
             <div class="dgse-notes">
               <Show when={props.applyError}>
-                <div class="dgse-error">{props.applyError}</div>
+                <div class="dg-errnote">
+                  <div class="dgse-error">{props.applyError}</div>
+                  <CopyButton tooltip="Copy error" text={() => props.applyError ?? ""} />
+                </div>
               </Show>
               <Show when={props.problem}>
-                <div class="dgse-error">{props.problem}</div>
+                <div class="dg-errnote">
+                  <div class="dgse-error">{props.problem}</div>
+                  <CopyButton tooltip="Copy error" text={() => props.problem ?? ""} />
+                </div>
               </Show>
               {(props.warnings ?? []).map((w) => (
                 <div class="dgse-warning">{w}</div>

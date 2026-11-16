@@ -1,7 +1,7 @@
 /** Small dialogs of the Files feature that have no view of their own. */
-import { createSignal, type JSX } from "solid-js";
+import { Show, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
-import { Dialog, TextField } from "../../components/ui";
+import { CopyButton, Dialog, TextField } from "../../components/ui";
 
 function mount(view: (close: () => void) => JSX.Element): void {
   const host = document.createElement("div");
@@ -45,7 +45,12 @@ export function promptName(o: { title: string; label: string; value: string; okL
               }
               onInput={setV}
             />
-            <div class="dgf-prompt-error">{err() && v().trim() ? err() : ""}</div>
+            <div class="dg-errnote">
+              <div class="dgf-prompt-error">{err() && v().trim() ? err() : ""}</div>
+              <Show when={err() && v().trim()}>
+                <CopyButton tooltip="Copy error" text={() => err() ?? ""} />
+              </Show>
+            </div>
           </div>
         </Dialog>
       );

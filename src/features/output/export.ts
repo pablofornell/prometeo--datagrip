@@ -1,12 +1,14 @@
 /** Export / copy of a result: the Export Data dialog (file, clipboard) and the quick copy of the Options menu. */
-import { type ExportFormat, type ExportOptions, defaultExportOptions, exportQueryToString, exportToString, isTauri } from "../../api/db";
+import { type ExportFormat, type ExportOptions, defaultExportOptions, exportQueryToString, exportToString } from "../../api/db";
 import { notify } from "../../components/ui";
+import { copyText } from "../../components/ui/clipboard";
 import { type ExportSource, openExportDialog } from "../table/exportData";
 import { type OutputHost, type ResultTab, currentOutput } from "./model";
 
 import { extractorLabel } from "./extractors";
 
 export { CLIPBOARD_EXTRACTORS, EXTRACTORS, extractorLabel, extractorMenuItems, isBinaryFormat } from "./extractors";
+export { copyText };
 export const formatLabel = extractorLabel;
 
 const errText = (e: unknown): string => String((e as Error)?.message ?? e).replace(/^Error:\s*/, "");
@@ -17,29 +19,6 @@ function optionsFor(tab: ResultTab, host: OutputHost, format: ExportFormat): Exp
     format,
     tableName: tab.meta.find((c) => c.tableRef)?.tableRef ?? "result",
   };
-}
-
-export async function copyText(text: string): Promise<void> {
-  if (isTauri()) {
-    try {
-      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-      await writeText(text);
-      return;
-    } catch {
-      /* fall through */
-    }
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.cssText = "position:fixed;opacity:0;pointer-events:none";
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  }
 }
 
 /** Text of the whole result in `format`. Re-runs the query when not every row is loaded. */

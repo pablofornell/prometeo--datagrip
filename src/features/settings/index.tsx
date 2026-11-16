@@ -8,10 +8,15 @@
  *                           `editor.code-style.sql`, `database.query-execution`, `database.data-editor`).
  *
  * Action: `app.settings` (Ctrl+Alt+S).
+ * UI scale actions: `view.zoomIn` (Ctrl+= / Ctrl++), `view.zoomOut` (Ctrl+-), `view.zoomReset` (Ctrl+0). The global keymap
+ * dispatches them inside text fields and with a dialog open too; each shows the new scale on screen.
  */
 import { render } from "solid-js/web";
+import { showOsd } from "../../components/ui";
 import { registerAction } from "../../state/actions";
+import { UI_SCALE_DEFAULT, stepUiScale, zoomMessage } from "../../state/appearance";
 import { loadLocal, saveUiState } from "../../state/persist";
+import { settings, updateSettings } from "../../state/settings";
 import { SettingsDialog } from "./SettingsDialog";
 import { exportSettings, importSettings } from "./transfer";
 import "./settings.css";
@@ -68,4 +73,31 @@ registerAction({
   id: "app.importSettings",
   title: "Import Settings…",
   run: () => void importSettings(),
+});
+
+/** Sets the UI scale (percent) and tells the user. */
+function setUiScale(percent: number): void {
+  updateSettings({ uiScale: percent });
+  showOsd(zoomMessage(percent));
+}
+
+registerAction({
+  id: "view.zoomIn",
+  title: "Zoom In (UI Scale)",
+  shortcut: ["Ctrl+=", "Ctrl+Plus", "Ctrl+Shift+Plus"],
+  run: () => setUiScale(stepUiScale(settings.uiScale, 1)),
+});
+
+registerAction({
+  id: "view.zoomOut",
+  title: "Zoom Out (UI Scale)",
+  shortcut: "Ctrl+-",
+  run: () => setUiScale(stepUiScale(settings.uiScale, -1)),
+});
+
+registerAction({
+  id: "view.zoomReset",
+  title: "Reset Zoom (UI Scale 100%)",
+  shortcut: "Ctrl+0",
+  run: () => setUiScale(UI_SCALE_DEFAULT),
 });

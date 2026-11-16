@@ -35,6 +35,9 @@ export function SettingsDialog(props: SettingsDialogProps) {
     query,
   };
 
+  // the zoom shortcuts change the live scale while the dialog is open: the draft follows, or Apply would undo them
+  createEffect(on(() => settings.uiScale, (v) => setValues("uiScale", v), { defer: true }));
+
   // values are primitives, except the colour and keymap edits (objects replaced as a whole by the pages)
   const same = (a: unknown, b: unknown) => a === b || (typeof a === "object" && JSON.stringify(a) === JSON.stringify(b));
 

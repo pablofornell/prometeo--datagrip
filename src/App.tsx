@@ -5,6 +5,7 @@ import { Shell } from "./components/shell/Shell";
 import { StatusBar } from "./components/shell/StatusBar";
 import { MenuHost } from "./components/ui/Menu";
 import { NotificationHost } from "./components/ui/Notification";
+import { OsdHost } from "./components/ui/Osd";
 import { TooltipHost } from "./components/ui/Tooltip";
 import { installKeymap } from "./state/actions";
 import { registerCoreActions } from "./state/core-actions";
@@ -31,6 +32,7 @@ const App: Component = () => {
       <MenuHost />
       <TooltipHost />
       <NotificationHost />
+      <OsdHost />
       <AboutDialog />
     </div>
   );

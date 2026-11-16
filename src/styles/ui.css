@@ -820,3 +820,127 @@ mark.dg-search-match {
     transform: rotate(360deg);
   }
 }
+
+/* ---------------------------------------------------------------- On-screen display ("UI scale 120%") */
+.dg-osd {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  z-index: 2500;
+  transform: translate(-50%, -50%);
+  padding: 10px 20px;
+  border-radius: var(--dg-notification-radius);
+  background: var(--dg-tooltip-bg);
+  border: 1px solid var(--dg-tooltip-border);
+  color: var(--dg-tooltip-fg);
+  font-size: 15px;
+  line-height: 20px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: var(--dg-menu-shadow);
+}
+
+/* ---------------------------------------------------------------- Copy button (errors, version info) */
+.dg-copy-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: default;
+  opacity: 0.75;
+}
+.dg-copy-btn:hover,
+.dg-copy-btn.dg-copy-done,
+.dg-copy-btn.dg-copy-failed {
+  opacity: 1;
+}
+.dg-copy-label {
+  font-size: var(--dg-font-size-small, 12px);
+  line-height: 16px;
+}
+.dg-copy-failed .dg-copy-label {
+  color: var(--dg-text-error);
+}
+
+/* ---------------------------------------------------------------- Selectable text: errors can be selected and copied
+   (the body is user-select: none, so every error area opts back in; the native context menu then offers Copy). */
+.dg-notification-title,
+.dg-notification-body,
+.dg-ntf-title,
+.dg-ntf-text,
+.dgc-banner-text,
+.ds-footer-error,
+.ds-error-text,
+.ds-balloon-body,
+.dgse-error,
+.dgr-error,
+.dgf-prompt-error,
+.dg-explorer-prompt-error,
+.dgi-error,
+.dgi-problem-error,
+.dgd-error,
+.dgu-error,
+.sd-error,
+.dgo-line {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.dg-notification-error .dg-notification-body,
+.dg-notification-error .dg-notification-title {
+  overflow-wrap: anywhere;
+}
+.dg-notification-copy {
+  margin-top: 1px;
+  color: var(--dg-notification-fg);
+}
+
+/* An error text with its copy button on the right. */
+.dg-errnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.dg-errnote > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.dg-errnote > .dg-copy-btn {
+  margin-top: 1px;
+}
+
+/* ---------------------------------------------------------------- About dialog */
+.dg-about {
+  line-height: 20px;
+}
+.dg-about-name {
+  font-size: 16px;
+  font-weight: var(--dg-font-ui-weight-title);
+  margin-bottom: 2px;
+}
+.dg-about-tagline {
+  color: var(--dg-text-secondary);
+}
+.dg-about-rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 14px 0 0;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.dg-about-rows dt {
+  color: var(--dg-text-secondary);
+}
+.dg-about-rows dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

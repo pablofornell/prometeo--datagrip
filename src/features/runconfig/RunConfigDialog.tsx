@@ -7,7 +7,7 @@ import { For, Show, createMemo, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { chooseOpenFiles } from "../../api/db";
 import { SqlEditor } from "../../components/editor";
-import { ActionButton, Checkbox, Dialog, Icon, TextField, Tree, type MenuItem, type TreeItem, ToolbarSeparator, openMenu } from "../../components/ui";
+import { ActionButton, Checkbox, CopyButton, Dialog, Icon, TextField, Tree, type MenuItem, type TreeItem, ToolbarSeparator, openMenu } from "../../components/ui";
 import { dsOf } from "../console/ds";
 import { connectedDataSourceIds, explorerDataSources, loadSchemaSnapshot } from "../explorer";
 import { dsIconUrl } from "../output/dsicon";
@@ -196,9 +196,12 @@ export function ConfigEditor(props: { cfg: RunConfig; onChange: (c: RunConfig) =
 
 const ErrorLine = (props: { error: string | null }): JSX.Element => (
   <Show when={props.error}>
-    <span class="dgr-error">
-      <Icon name="error" />
-      <b>Error:</b> {props.error}
+    <span class="dg-errnote">
+      <span class="dgr-error">
+        <Icon name="error" />
+        <b>Error:</b> {props.error}
+      </span>
+      <CopyButton tooltip="Copy error" text={() => props.error ?? ""} />
     </span>
   </Show>
 );

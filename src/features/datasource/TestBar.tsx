@@ -1,6 +1,5 @@
 import { Show, createEffect, createSignal, on, onCleanup } from "solid-js";
-import { isTauri } from "../../api/db";
-import { Icon } from "../../components/ui";
+import { CopyButton, Icon } from "../../components/ui";
 import { DBMS, type Dbms } from "./drivers";
 import { type TestInfo, shortVersion } from "./model";
 import type { Session } from "./session";
@@ -51,24 +50,6 @@ export function resultText(t: TestInfo, previous?: TestInfo): string {
   const lines = infoLines(t.ok ? t : (previous ?? t));
   const tail = t.ok ? ["", `Ping: ${t.elapsedMs} ms`, sslLine(t)].filter((x): x is string => x !== null) : ["", t.message];
   return [head, ...lines, ...tail].join("\n");
-}
-
-async function copyText(text: string) {
-  try {
-    if (isTauri()) {
-      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-      await writeText(text);
-      return;
-    }
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    ta.remove();
-  }
 }
 
 /** Bottom bar of the right pane: "Test Connection" link, result icon, driver / version text and the result balloon. */
@@ -152,7 +133,7 @@ export function TestBar(props: { s: Session; /** The dialog tab shown: a switch 
           <div class="ds-balloon-head">
             <span class={t().info!.ok ? "ds-ok" : "ds-fail"}>{t().info!.ok ? "Succeeded" : "Failed"}</span>
             <span class="ds-balloon-links">
-              <LinkButton onClick={() => void copyText(resultText(t().info!, t().lastOk))}>Copy</LinkButton>
+              <CopyButton tooltip="Copy test result" text={() => resultText(t().info!, t().lastOk)} />
             </span>
           </div>
           <div class="ds-balloon-body" classList={{ "ds-dim": !t().info!.ok }}>

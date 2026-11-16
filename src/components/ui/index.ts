@@ -26,6 +26,9 @@ export {
   unreadNotificationCount,
 } from "./Notification";
 export type { NotificationOptions, NotificationRecord } from "./Notification";
+export { copyText } from "./clipboard";
+export { CopyButton } from "./CopyButton";
+export { OsdHost, showOsd } from "./Osd";
 export { Dialog } from "./Dialog";
 export type { DialogButton, DialogProps } from "./Dialog";
 export { createSpeedSearch, matchRanges, Highlighted, SpeedSearchField } from "./SpeedSearch";

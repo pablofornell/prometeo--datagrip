@@ -15,7 +15,7 @@ import {
   defaultImportFormat,
   importPreview,
 } from "../../api/db";
-import { Checkbox, ComboBox, Dialog, Icon, Tabs, TextField, openMenu } from "../../components/ui";
+import { Checkbox, ComboBox, CopyButton, Dialog, Icon, Tabs, TextField, openMenu } from "../../components/ui";
 import { DataGrid, type GridColumn, highlightSql } from "../../components/grid";
 import { askChoice } from "../table/dialogs";
 import { errText } from "../table/ds";
@@ -474,7 +474,12 @@ export function ImportDialog(props: ImportDialogProps): JSX.Element {
               <Show when={pv()?.truncated || (pv()?.rows.length ?? 0) >= 10}> &nbsp;&nbsp;first 10 rows</Show>
             </div>
             <div class="dgi-preview">
-              <Show when={!previewError()} fallback={<div class="dgi-error">{previewError()}</div>}>
+              <Show when={!previewError()} fallback={
+                  <div class="dg-errnote dgi-error">
+                    <div>{previewError()}</div>
+                    <CopyButton tooltip="Copy error" text={() => previewError() ?? ""} />
+                  </div>
+                }>
                 <Show when={pv()}>
                   <DataGrid columns={gridColumns()} rowCount={gridRows().length} getRow={(i) => gridRows()[i]} version={gridRows().length} />
                 </Show>

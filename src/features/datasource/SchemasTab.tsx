@@ -1,6 +1,6 @@
 import { Show, createEffect, createMemo, createSignal, on, untrack } from "solid-js";
 import { introspect, type TreeNode } from "../../api/db";
-import { Icon, TextField, tip } from "../../components/ui";
+import { CopyButton, Icon, TextField, tip } from "../../components/ui";
 import { SchemaFilterTree, type SchemaTreeGroup } from "./SchemaFilterTree";
 import { withConnection } from "./remote";
 import { type SchemaFilter, type SchemaItem, filterOrDefault, pathKey, parsePatternText, patternText, serializeFilter } from "./schemaModel";
@@ -156,7 +156,10 @@ function SchemasPlaceholder(props: { s: Session; loading: boolean; err: string |
         <span>Loading schemas…</span>
       </Show>
       <Show when={!props.loading && props.err}>
-        <span class="ds-error-text">{props.err}</span>
+        <span class="dg-errnote">
+          <span class="ds-error-text">{props.err}</span>
+          <CopyButton tooltip="Copy error" text={() => props.err ?? ""} />
+        </span>
       </Show>
       <Show when={!props.loading && !props.err && !props.canLoad}>
         <span>
