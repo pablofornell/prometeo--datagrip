@@ -239,22 +239,33 @@ export function changeStatements(driver: Driver, ref: ObjectRef, columns: Column
   const typeOf = (name: string) => columns.find((c) => c.name === name)?.typeName ?? "";
   // a NULL key value is `is null` (`= null` never matches); an empty string is NULL in Oracle
   const isNull = (v: Cell) => v === null || v === undefined || (driver === "oracle" && v === "");
+  // the columns in the order of the table, as dbcore writes them (not in the order they were edited): a column the
+  // table does not have goes last, and equal positions fall back to the name (dbcore keeps its maps in key order)
+  const pos = (name: string) => {
+    const i = columns.findIndex((m) => m.name === name);
+    return i < 0 ? columns.length : i;
+  };
+  const inColumnOrder = <T,>(m: Record<string, T>): [string, T][] =>
+    Object.entries(m).sort(([a], [b]) => pos(a) - pos(b) || (a < b ? -1 : a > b ? 1 : 0));
+  // `col = DEFAULT` is not valid in SQLite: dbcore writes the column's default expression, or null
+  const setValue = (k: string, v: Cell) => {
+    if (isExprCell(v)) return `(${v.$expr.trim()})`;
+    if (isDefaultCell(v) && driver === "sqlite") {
+      const def = columns.find((m) => m.name === k)?.default?.trim();
+      return def ? `(${def})` : "null";
+    }
+    return literal(v, typeOf(k), driver);
+  };
   const where = (key: Record<string, Cell>) =>
-    Object.entries(key)
-      .sort(([a], [b]) => columns.findIndex((m) => m.name === a) - columns.findIndex((m) => m.name === b))
+    inColumnOrder(key)
       .map(([k, v]) => (isNull(v) ? `${id(k)} is null` : `${id(k)} = ${literal(v, typeOf(k), driver)}`))
       .join(" AND ");
   const out: string[] = [];
   for (const c of [...changes].sort((a, b) => ORDER[a.kind] - ORDER[b.kind])) {
-    // the columns in the order of the table, as dbcore writes them (not in the order they were edited)
-    const pos = (name: string) => {
-      const i = columns.findIndex((m) => m.name === name);
-      return i < 0 ? columns.length : i;
-    };
-    let entries = Object.entries(c.values).sort(([a], [b]) => pos(a) - pos(b));
+    let entries = inColumnOrder(c.values);
     if (c.kind === "delete") out.push(`DELETE\nFROM ${table}\nWHERE ${where(c.key)};`);
     else if (c.kind === "update")
-      out.push(`UPDATE ${table}\nSET ${entries.map(([k, v]) => `${id(k)} = ${literal(v, typeOf(k), driver)}`).join(",\n    ")}\nWHERE ${where(c.key)};`);
+      out.push(`UPDATE ${table}\nSET ${entries.map(([k, v]) => `${id(k)} = ${setValue(k, v)}`).join(",\n    ")}\nWHERE ${where(c.key)};`);
     else {
       // SQLite has no DEFAULT keyword in VALUES: dbcore leaves such a column out
       if (driver === "sqlite") entries = entries.filter(([, v]) => !isDefaultCell(v));
@@ -263,7 +274,7 @@ export function changeStatements(driver: Driver, ref: ObjectRef, columns: Column
         if (driver === "mysql") out.push(`INSERT INTO ${table} ()\nVALUES ();`);
         else if (driver === "oracle" && columns.length) out.push(`INSERT INTO ${table} (${id(columns[0].name)})\nVALUES (DEFAULT);`);
         else out.push(`INSERT INTO ${table}\nDEFAULT VALUES;`);
-      } else out.push(`INSERT INTO ${table} (${entries.map(([k]) => id(k)).join(", ")})\nVALUES (${entries.map(([k, v]) => literal(v, typeOf(k), driver)).join(", ")});`);
+      } else out.push(`INSERT INTO ${table} (${entries.map(([k]) => id(k)).join(", ")})\nVALUES (${entries.map(([k, v]) => setValue(k, v)).join(", ")});`);
     }
   }
   return out;

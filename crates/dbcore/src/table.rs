@@ -472,6 +472,7 @@ async fn table_data_with(
                 if let Some(i) = info.iter().find(|i| i.name == m.name) {
                     m.nullable = i.nullable;
                     m.is_pk = i.is_pk;
+                    m.default = i.default.clone();
                 }
                 m.table_ref = Some(tref.clone());
                 m
@@ -485,6 +486,7 @@ async fn table_data_with(
                 nullable: i.nullable,
                 is_pk: i.is_pk,
                 table_ref: Some(tref.clone()),
+                default: i.default.clone(),
             })
             .collect(),
     };

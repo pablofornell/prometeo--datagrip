@@ -681,6 +681,7 @@ fn meta(name: &str, type_name: String) -> ColumnMeta {
         nullable: true,
         is_pk: false,
         table_ref: None,
+        default: None,
     }
 }
 

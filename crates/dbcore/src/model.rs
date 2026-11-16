@@ -151,6 +151,10 @@ pub struct ColumnMeta {
     pub is_pk: bool,
     /// `schema.table` when the column is known to come from a single table.
     pub table_ref: Option<String>,
+    /// The column's default expression, only for the columns of a table page (`SET col = DEFAULT` on SQLite is
+    /// written with it); `None` when there is none or it is not known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

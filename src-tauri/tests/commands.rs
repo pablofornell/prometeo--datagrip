@@ -351,6 +351,7 @@ async fn bench_500x20_through_a_channel() {
         nullable: true,
         is_pk: false,
         table_ref: None,
+        default: None,
     };
     let ev = ExecEvent::ResultSet {
         index: 0,
