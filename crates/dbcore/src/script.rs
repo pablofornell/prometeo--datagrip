@@ -348,15 +348,16 @@ fn scan_delimiter(gap: &str, driver: Driver, current: Option<String>) -> Option<
 // ---------------------------------------------------------------- statements around the script
 
 /// The statement that makes `schema` the one that unqualified names resolve to on the connection (none for SQLite,
-/// which has one schema per file).
-fn schema_sql(d: Driver, schema: Option<&str>) -> Option<String> {
+/// which has one schema per file). The name is quoted with [`quote_ident`]: it is a user name / schema name taken
+/// from the server or typed by the user, never spliced in as it is.
+pub(crate) fn schema_sql(d: Driver, schema: Option<&str>) -> Option<String> {
     let s = schema.filter(|s| !s.trim().is_empty())?;
     match d {
         Driver::Postgres => Some(format!("SET search_path TO {}", quote_ident(d, s))),
         Driver::MySql => Some(format!("USE {}", quote_ident(d, s))),
         Driver::Oracle => Some(format!(
-            "ALTER SESSION SET CURRENT_SCHEMA = \"{}\"",
-            s.replace('"', "\"\"")
+            "ALTER SESSION SET CURRENT_SCHEMA = {}",
+            quote_ident(d, s)
         )),
         Driver::Sqlite => None,
     }
@@ -902,6 +903,24 @@ mod tests {
         assert_eq!(
             schema_sql(Driver::Oracle, Some("we\"ird")).as_deref(),
             Some("ALTER SESSION SET CURRENT_SCHEMA = \"we\"\"ird\"")
+        );
+        // a plain upper case name is written bare (Oracle folds unquoted names to upper case: same user), anything
+        // else is quoted so that its case and characters survive
+        assert_eq!(
+            schema_sql(Driver::Oracle, Some("HR")).as_deref(),
+            Some("ALTER SESSION SET CURRENT_SCHEMA = HR")
+        );
+        assert_eq!(
+            schema_sql(Driver::Oracle, Some("hr")).as_deref(),
+            Some("ALTER SESSION SET CURRENT_SCHEMA = \"hr\"")
+        );
+        assert_eq!(
+            schema_sql(Driver::Oracle, Some("USER")).as_deref(),
+            Some("ALTER SESSION SET CURRENT_SCHEMA = \"USER\"")
+        );
+        assert_eq!(
+            schema_sql(Driver::Oracle, Some("A\" = B; DROP USER X --")).as_deref(),
+            Some("ALTER SESSION SET CURRENT_SCHEMA = \"A\"\" = B; DROP USER X --\"")
         );
         assert_eq!(schema_sql(Driver::Sqlite, Some("main")), None);
         assert_eq!(schema_sql(Driver::Postgres, None), None);

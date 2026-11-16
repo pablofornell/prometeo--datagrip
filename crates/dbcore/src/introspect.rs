@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::conn::{Live, Pool};
@@ -29,6 +30,52 @@ pub struct IntrospectOptions {
     /// Show `pg_catalog` / `information_schema` (PG), system databases (MySQL), `temp` (SQLite), the schemas Oracle
     /// maintains itself (`SYS`, `SYSTEM`, ...).
     pub show_system: bool,
+}
+
+/// One entry of the User/Schema selector (see [`ConnectionManager::list_schemas`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SchemaChoice {
+    /// What the session is switched to: the Oracle user, the PostgreSQL schema, the MySQL database.
+    pub name: String,
+    /// Introspection path of the node (what the schema filter stores).
+    pub path: Vec<String>,
+    /// Maintained by the server itself (`SYS`, `pg_catalog`, `mysql`, SQLite `temp`).
+    pub system: bool,
+    /// The one the connection starts in (the login user, `public`, the connected database, `main`).
+    pub default: bool,
+    /// Oracle: the user owns objects the account can see; `None` where the server was not asked.
+    pub has_objects: Option<bool>,
+}
+
+/// The schema nodes of a listing as selector entries; `is_default` picks the one the connection starts in, which
+/// goes first (the order of the listing is kept otherwise).
+fn choices_of(nodes: &[TreeNode], is_default: impl Fn(&TreeNode) -> bool) -> Vec<SchemaChoice> {
+    let mut out: Vec<SchemaChoice> = nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Schema)
+        .map(|n| SchemaChoice {
+            name: n.name.clone(),
+            path: n.path.clone(),
+            system: n.extra["system"] == json!(true),
+            default: is_default(n),
+            has_objects: None,
+        })
+        .collect();
+    out.sort_by_key(|c| !c.default);
+    out
+}
+
+/// Oracle: every user (`ALL_USERS`) with whether it owns an object the account can see; `current` first, then by
+/// name. A user without objects is a valid target of `ALTER SESSION SET CURRENT_SCHEMA` too.
+fn ora_schema_choices_sql(current: &str) -> String {
+    format!(
+        "select u.username, u.oracle_maintained, case when o.owner is null then 'N' else 'Y' end \
+         from all_users u \
+         left join (select distinct owner from all_objects) o on o.owner = u.username \
+         order by case when u.username = {cur} then 0 else 1 end, lower(u.username), u.username",
+        cur = ORA_LIT(current)
+    )
 }
 
 type Row = Vec<Option<String>>;
@@ -162,6 +209,59 @@ impl ConnectionManager {
             Driver::MySql => my_children(&live, ds_id, path, opts).await,
             Driver::Sqlite => lite_children(&live, ds_id, path, opts).await,
             Driver::Oracle => ora_children(&live, ds_id, path, opts).await,
+        }
+    }
+
+    /// Every user / schema / database the account can switch the session to (the User/Schema selector): the system
+    /// ones included (`system` says which), the connection's own first. Unlike [`introspect`](Self::introspect),
+    /// Oracle lists ALL users of `ALL_USERS`, not only those that own objects, and says which do.
+    pub async fn list_schemas(&self, ds_id: &str) -> Result<Vec<SchemaChoice>> {
+        let live = self.live(ds_id)?;
+        let all = IntrospectOptions { show_system: true };
+        match live.driver() {
+            Driver::Oracle => {
+                let cur = ora_current_schema(&live.pool).await?;
+                let rows = live
+                    .pool
+                    .query_strings(&ora_schema_choices_sql(&cur))
+                    .await?;
+                Ok(rows
+                    .iter()
+                    .map(|r| SchemaChoice {
+                        name: s(r, 0),
+                        path: vec![s(r, 0)],
+                        system: s(r, 1) == "Y",
+                        default: s(r, 0) == cur,
+                        has_objects: Some(s(r, 2) == "Y"),
+                    })
+                    .collect())
+            }
+            Driver::Postgres => {
+                let dbs = pg_children(&live, ds_id, &[], &all).await?;
+                let Some(db) = dbs
+                    .iter()
+                    .find(|d| d.kind == NodeKind::Database && d.extra["current"] == json!(true))
+                else {
+                    return Ok(Vec::new());
+                };
+                let nodes = pg_children(&live, ds_id, &db.path, &all).await?;
+                Ok(choices_of(&nodes, |n| n.extra["default"] == json!(true)))
+            }
+            Driver::MySql => {
+                let cur = live
+                    .pool
+                    .query_strings("select database()")
+                    .await?
+                    .first()
+                    .map(|r| s(r, 0))
+                    .unwrap_or_default();
+                let nodes = my_children(&live, ds_id, &[], &all).await?;
+                Ok(choices_of(&nodes, |n| n.name == cur))
+            }
+            Driver::Sqlite => {
+                let nodes = lite_children(&live, ds_id, &[], &all).await?;
+                Ok(choices_of(&nodes, |n| n.name == "main"))
+            }
         }
     }
 
@@ -2745,4 +2845,68 @@ async fn snapshot_foreign_keys(
         Driver::Sqlite => {}
     }
     Ok(map)
+}
+
+#[cfg(test)]
+mod schema_choice_tests {
+    use super::*;
+
+    fn node(name: &str, system: bool, default: bool) -> TreeNode {
+        TreeNode {
+            id: name.into(),
+            kind: NodeKind::Schema,
+            name: name.into(),
+            hint: None,
+            path: vec![name.into()],
+            has_children: true,
+            extra: json!({ "system": system, "default": default }),
+        }
+    }
+
+    #[test]
+    fn choices_put_the_default_first_and_keep_the_rest_in_order() {
+        let nodes = [
+            node("a", false, false),
+            node("public", false, true),
+            node("pg_catalog", true, false),
+        ];
+        let c = choices_of(&nodes, |n| n.extra["default"] == json!(true));
+        let names: Vec<&str> = c.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["public", "a", "pg_catalog"]);
+        assert!(c[0].default && !c[1].default);
+        assert!(c[2].system && !c[0].system);
+        assert!(c.iter().all(|c| c.has_objects.is_none()));
+    }
+
+    #[test]
+    fn choices_skip_the_groups_of_the_listing() {
+        let mut group = node("Server Objects", false, false);
+        group.kind = NodeKind::Folder;
+        let c = choices_of(&[group, node("demo", false, false)], |_| false);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].path, ["demo"]);
+    }
+
+    #[test]
+    fn oracle_listing_reads_all_users_and_quotes_the_current_one() {
+        let sql = ora_schema_choices_sql("O'NEIL");
+        assert!(sql.contains("from all_users u"));
+        assert!(sql.contains("left join (select distinct owner from all_objects)"));
+        // the current user is a literal, not spliced in raw
+        assert!(sql.contains("u.username = 'O''NEIL'"), "{sql}");
+    }
+
+    #[test]
+    fn serializes_camel_case_for_the_ui() {
+        let v = serde_json::to_value(SchemaChoice {
+            name: "HR".into(),
+            path: vec!["HR".into()],
+            system: false,
+            default: true,
+            has_objects: Some(false),
+        })
+        .unwrap();
+        assert_eq!(v["hasObjects"], json!(false));
+        assert_eq!(v["default"], json!(true));
+    }
 }

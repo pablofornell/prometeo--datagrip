@@ -2,11 +2,13 @@
 import { Show, type JSX } from "solid-js";
 import { ActionButton, Icon, ToolbarSeparator, openMenu, overflowToolbar } from "../../components/ui";
 import { StopButton } from "../output/OutputToolbar";
+import { schemaNouns } from "../explorer/schemaChoices";
 import { openSettings } from "../settings";
 import type { ConsoleSession } from "./session";
 
 export function ConsoleToolbar(props: { session: ConsoleSession; /** Shown left of the schema switcher (the data source chooser of a file). */ trailing?: JSX.Element }): JSX.Element {
   const s = () => props.session;
+  const nouns = () => schemaNouns(s().driver);
   let txBtn!: HTMLButtonElement;
   let schemaBtn!: HTMLButtonElement;
   let explainBtn!: HTMLButtonElement;
@@ -61,13 +63,14 @@ export function ConsoleToolbar(props: { session: ConsoleSession; /** Shown left 
         ref={schemaBtn}
         type="button"
         class="dgc-text-btn dgc-schema"
-        title="Switch current schema"
+        title={`${nouns().title}: ${s().label() ?? "not known yet"}. Switch the current ${nouns().one} (searchable list${s().driver === "oracle" ? " of all users" : ""})`}
+        aria-haspopup="listbox"
         tabindex={-1}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => void s().openSchemaMenu(schemaBtn)}
       >
         <Icon name="dg/schema" size={16} />
-        <span>{s().label() ?? "<schema>"}</span>
+        <span>{s().label() ?? `<${nouns().one}>`}</span>
         <Icon name="chevron-down" size={16} />
       </button>
     </div>

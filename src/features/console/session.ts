@@ -15,9 +15,9 @@ import {
   execute,
   executeCollect,
   explainPlan,
-  introspect,
   openSession,
   sessionTxStatus,
+  setSessionSchema,
 } from "../../api/db";
 import type { ColumnMeta, TreeNode } from "../../api/types";
 import { type EditorError, type ExecMark, type ExecuteRequest, type SqlEditorHandle, splitStatements } from "../../components/editor";
@@ -27,7 +27,7 @@ import { type MenuItem, notify, openMenu } from "../../components/ui";
 import { showToolWindow } from "../../state/layout";
 import { settings } from "../../state/settings";
 import { activateTab, activeTab } from "../../state/tabs";
-import { visibleSchemaNodes } from "../datasource/schemas";
+import { storeCurrentSchema, storedCurrentSchema } from "../../state/schema-filter";
 import { autoSyncAfter, ensureConnected } from "../explorer";
 import {
   INTERNAL_MARK,
@@ -267,7 +267,9 @@ export class ConsoleSession implements OutputHost {
       } catch (e) {
         if (isSessionLost(e) || !(savedSchema(this.ds.id, this.consoleName) || savedSearchPath(this.ds.id, this.consoleName))) throw e;
         // the saved schema is gone (dropped / renamed): forget it, open with the session default
+        const tried = savedSchema(this.ds.id, this.consoleName);
         saveSchema(this.ds.id, this.consoleName, null);
+        if (tried && storedCurrentSchema(this.ds.id) === tried) storeCurrentSchema(this.ds.id, null);
         saveSearchPath(this.ds.id, this.consoleName, null);
         sid = await openSession(this.ds.id, this.initSql(false));
       }
@@ -1079,52 +1081,43 @@ export class ConsoleSession implements OutputHost {
 
   // ------------------------------------------------------------ schema switcher
 
-  /** Popup of the toolbar's `postgres.public` button. */
+  /**
+   * The User/Schema selector of the toolbar's `postgres.public` button: a searchable popup of every user / schema /
+   * database the account can reach, with the quick show / hide of the explorer's schema filter (explorer/SchemaPicker).
+   * Loaded on demand: the popup pulls in the UI, which the session itself does not need.
+   */
   async openSchemaMenu(anchor: HTMLElement | { left: number; bottom: number }): Promise<void> {
-    try {
-      await ensureConnected(this.ds.id);
-      const cur = this.schema();
-      let items: MenuItem[];
-      if (this.driver === "postgres") {
-        const dbs = (await introspect(this.ds.id, [])).filter(isNamespace);
-        const schemas = visibleSchemaNodes(this.ds, await introspect(this.ds.id, [this.ds.database], true)).filter(isNamespace);
-        items = dbs.map<MenuItem>((d) =>
-          d.name === this.ds.database
-            ? {
-                label: d.name,
-                children: schemas.map<MenuItem>((s) => ({ label: s.name, icon: "dg/schema", checked: s.name === cur, run: () => void this.switchSchema(s.name) })),
-              }
-            : { label: d.name, enabled: false },
-        );
-        items.push({ type: "separator" }, { type: "hint", label: "Connect to database (Enter)" });
-      } else {
-        const list = visibleSchemaNodes(this.ds, await introspect(this.ds.id, [], true)).filter(isNamespace);
-        items = list.map<MenuItem>((s) => ({ label: s.name, icon: "dg/schema", checked: s.name === cur, run: () => void this.switchSchema(s.name) }));
-      }
-      if (anchor instanceof HTMLElement) openMenu(items, { anchor, minWidth: 230 });
-      else openMenu(items, { x: anchor.left, y: anchor.bottom + 2, minWidth: 230 });
-    } catch (e) {
-      notify({ kind: "error", title: "Cannot list the schemas", body: errText(e) });
-    }
+    const { openSchemaPicker } = await import("../explorer/SchemaPicker");
+    openSchemaPicker({ ds: this.ds, anchor, current: () => this.schema(), onPick: (name) => this.switchSchema(name) });
   }
 
-  async switchSchema(name: string): Promise<void> {
-    if (this.driver === "sqlite") return;
-    if (this.out.running()) return;
+  /**
+   * Makes `name` the session's current schema (Oracle `ALTER SESSION SET CURRENT_SCHEMA`, PostgreSQL `SET search_path`,
+   * MySQL `USE`; the backend quotes the identifier). Resolves to whether the session is in `name` now; a refusal or a
+   * failure is told to the user.
+   */
+  async switchSchema(name: string): Promise<boolean> {
+    if (this.driver === "sqlite") return false;
+    if (this.out.running()) {
+      notify({ kind: "info", title: "Cannot switch the schema", body: "A statement is running in this console. Wait for it or stop it first." });
+      return false;
+    }
     if (this.ds.options?.switchSchema === "disabled") {
       notify({ kind: "info", title: "Switch schema is disabled", body: "Enable it in Data Sources > Options > Switch schema." });
-      return;
+      return false;
     }
     try {
       const sid = await this.ensureSession();
       this.releaseResults("the schema was switched on the same connection");
-      await this.silent(sid, this.useSchemaSql(name));
+      await setSessionSchema(sid, name);
       this.setSchema(name);
       saveSchema(this.ds.id, this.consoleName, name);
       if (this.driver === "postgres") saveSearchPath(this.ds.id, this.consoleName, null);
+      return true;
     } catch (e) {
       if (isSessionLost(e)) this.sessionLost();
       notify({ kind: "error", title: "Cannot switch the schema", body: errText(e) });
+      return false;
     }
   }
 

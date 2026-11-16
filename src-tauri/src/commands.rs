@@ -212,6 +212,31 @@ pub async fn introspect(
         .await
 }
 
+/// Everything the User/Schema selector offers for the data source: Oracle lists ALL users (`ALL_USERS`) and says
+/// which own objects, PostgreSQL the schemas of the connected database, MySQL the databases.
+#[tauri::command]
+pub async fn list_schemas(
+    state: State<'_, AppState>,
+    ds_id: String,
+) -> Res<Vec<dbcore::introspect::SchemaChoice>> {
+    state.mgr.list_schemas(&ds_id).await.map_err(String::from)
+}
+
+/// Switches the session's current schema (Oracle `ALTER SESSION SET CURRENT_SCHEMA`, PostgreSQL `SET search_path`,
+/// MySQL `USE`); the identifier is quoted by dbcore.
+#[tauri::command]
+pub async fn set_session_schema(
+    state: State<'_, AppState>,
+    session_id: String,
+    schema: String,
+) -> Res<()> {
+    state
+        .mgr
+        .set_session_schema(&dbcore::SessionId(session_id), &schema)
+        .await
+        .map_err(String::from)
+}
+
 #[tauri::command]
 pub async fn get_ddl(
     state: State<'_, AppState>,

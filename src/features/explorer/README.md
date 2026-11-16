@@ -11,6 +11,14 @@ persistence (`explorer.state`), status-bar crumbs. `model.ts` node kinds, icons,
 sequences / routines that the SQL editor's completion gets through `setCompletionExtrasProvider` (components/editor/extras.ts).
 `rename.ts` Shift+F6 (`ALTER ... RENAME` per DBMS, identifier quoting), `QuickDoc.tsx` Ctrl+Q popup,
 `SchemaSelector.tsx` popup of the schema badge (saves the schema filter in the UI state, then reloads the tree; no reconnect).
+`SchemaPicker.tsx` + `schemaChoices.ts` the **User/Schema selector** (console toolbar button and explorer toolbar button): a
+searchable popup of every user / schema / database the account reaches (`list_schemas`: Oracle lists ALL users of
+`ALL_USERS` and says which own objects; PostgreSQL the schemas of the connected database; MySQL the databases), current one
+first, system ones behind a checkbox. Enter switches the session (`set_session_schema`: the backend quotes the identifier with
+`quote_ident`), the eye / Ctrl+Enter shows or hides the schema in the explorer (the same UI-state filter as the badge popup, no
+reconnect), and switching to a hidden schema shows it. Labels per DBMS: `User/Schema` (Oracle), `Schema`, `Database` (MySQL).
+The explorer's button switches every open console of the data source and stores the schema (`state/schema-filter.ts`
+`storeCurrentSchema`) as the one new consoles start in; a console's own choice (`console/schemaPref.ts`) wins.
 `icons/` explorer-local icons (see icons/README.md).
 
 ## Module API (`src/features/explorer/index.ts`)

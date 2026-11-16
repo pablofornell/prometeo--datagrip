@@ -1633,7 +1633,9 @@ export const mockHandlers: Record<string, MockHandler> = {
   open_session: h((a) => {
     needConn(a.dsId);
     const id = uuid();
-    state.sessions.set(id, { ds: a.dsId, tx: false, running: null });
+    // the init statements (`ALTER SESSION SET CURRENT_SCHEMA` / `SET search_path` / `USE`) set the schema the session starts in
+    const schema = ((a.initSql as string[] | undefined) ?? []).reduce<string | undefined>((cur, sql) => schemaSwitch(sql) ?? cur, undefined);
+    state.sessions.set(id, { ds: a.dsId, tx: false, running: null, schema });
     return id;
   }),
   close_session: h((a) => {
@@ -1652,6 +1654,26 @@ export const mockHandlers: Record<string, MockHandler> = {
     useDs(a.dsId);
     await sleep(40 + Math.random() * 80);
     return introspect(a.dsId, a.path, !!a.showSystem);
+  }),
+  list_schemas: h(async (a) => {
+    needConn(a.dsId);
+    useDs(a.dsId);
+    await sleep(40 + Math.random() * 80);
+    const d = ds(a.dsId);
+    const cur = M.defaultSchema;
+    const known = Object.entries(M.schemas).map(([name, x]) => ({ name, path: [name], system: !!x.system, default: name === cur, hasObjects: M.oracle ? true : null }));
+    // Oracle: ALL_USERS also holds accounts that own nothing
+    const bare = M.oracle ? ["APP_RO", "REPORTING", "SCOTT"].filter((n) => !(n in M.schemas)).map((name) => ({ name, path: [name], system: false, default: false, hasObjects: false })) : [];
+    const list = [...known, ...bare].map((c) => (d.driver === "postgres" ? { ...c, path: [d.database, c.name] } : c));
+    return list.sort((x, y) => Number(y.default) - Number(x.default) || x.name.localeCompare(y.name));
+  }),
+  set_session_schema: h(async (a) => {
+    const sess = state.sessions.get(a.sessionId) ?? fail(`Session '${a.sessionId}' does not exist`);
+    useDs(sess.ds);
+    await sleep(30);
+    if (ds(sess.ds).driver === "sqlite") fail("SQLite has a single schema per file: there is nothing to switch");
+    if (M.oracle && !(a.schema in M.schemas) && !["APP_RO", "REPORTING", "SCOTT"].includes(a.schema as string)) fail(`ORA-01435: user does not exist`);
+    sess.schema = a.schema as string;
   }),
   get_ddl: h(async (a) => {
     needConn(a.dsId);

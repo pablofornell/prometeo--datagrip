@@ -1,5 +1,6 @@
 /** The schema chosen in a console's switcher, remembered per console across restarts (UI state `console.schemas`). */
 import { loadLocal, saveUiState } from "../../state/persist";
+import { storedCurrentSchema } from "../../state/schema-filter";
 
 const KEY = "console.schemas";
 let cache: Record<string, string> | undefined;
@@ -7,8 +8,9 @@ let cache: Record<string, string> | undefined;
 const all = () => (cache ??= loadLocal<Record<string, string>>(KEY, {}));
 const keyOf = (dsId: string, consoleName: string) => `${dsId}\u0000${consoleName}`;
 
+/** The console's own choice, else the one made for the data source in the explorer's User/Schema selector. */
 export function savedSchema(dsId: string, consoleName: string): string | null {
-  return all()[keyOf(dsId, consoleName)] ?? null;
+  return all()[keyOf(dsId, consoleName)] ?? storedCurrentSchema(dsId);
 }
 
 /** `null` forgets the choice (the schema was dropped, or the session default applies again). */

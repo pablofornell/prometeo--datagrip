@@ -160,6 +160,8 @@ pub fn run() {
             commands::session_tx_status,
             commands::session_state,
             commands::introspect,
+            commands::list_schemas,
+            commands::set_session_schema,
             commands::get_ddl,
             commands::find_usages,
             commands::schema_snapshot,

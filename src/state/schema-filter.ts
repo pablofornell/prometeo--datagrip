@@ -25,8 +25,9 @@ export function storeVisibleSchemas(dsId: string, raw: string | undefined): void
   saveUiState(KEY, m);
 }
 
-/** Drops the filter of a removed data source. */
+/** Drops the filter (and the chosen current schema, see `storeCurrentSchema`) of a removed data source. */
 export function forgetVisibleSchemas(dsId: string): void {
+  storeCurrentSchema(dsId, null);
   if (!(dsId in all())) return;
   const m = { ...all() };
   delete m[dsId];
@@ -34,7 +35,30 @@ export function forgetVisibleSchemas(dsId: string): void {
   saveUiState(KEY, m);
 }
 
+const CURRENT_KEY = "currentSchemas";
+let currentCache: Record<string, string> | undefined;
+const currents = () => (currentCache ??= loadLocal<Record<string, string>>(CURRENT_KEY, {}));
+
+/**
+ * The schema chosen in the explorer's User/Schema selector for a data source: the one its consoles start in (a console
+ * that was switched on its own keeps its own choice). `null` when none was chosen.
+ */
+export function storedCurrentSchema(dsId: string): string | null {
+  return currents()[dsId] ?? null;
+}
+
+/** Stores the data source's chosen schema; `null` forgets it (the session default applies again). */
+export function storeCurrentSchema(dsId: string, schema: string | null): void {
+  const m = { ...currents() };
+  if (schema) m[dsId] = schema;
+  else delete m[dsId];
+  if (JSON.stringify(m) === JSON.stringify(currents())) return;
+  currentCache = m;
+  saveUiState(CURRENT_KEY, m);
+}
+
 /** Tests: forget the in-memory copy. */
 export function resetVisibleSchemasCache(): void {
   cache = undefined;
+  currentCache = undefined;
 }
