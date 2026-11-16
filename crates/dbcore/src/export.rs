@@ -1709,6 +1709,7 @@ mod tests {
             nullable: true,
             is_pk: false,
             table_ref: None,
+            default: None,
         };
         ResultSet {
             columns: vec![col("id"), col("name"), col("data")],
@@ -1808,6 +1809,7 @@ mod tests {
                     nullable: true,
                     is_pk: false,
                     table_ref: None,
+                    default: None,
                 },
                 ColumnMeta {
                     name: "a".into(),
@@ -1815,6 +1817,7 @@ mod tests {
                     nullable: true,
                     is_pk: false,
                     table_ref: None,
+                    default: None,
                 },
             ],
             rows: vec![vec![json!(3.0), json!(2.5)], vec![json!(-4.0), json!(7)]],
@@ -1870,6 +1873,7 @@ mod tests {
             nullable: true,
             is_pk: false,
             table_ref: None,
+            default: None,
         };
         ResultSet {
             columns: vec![
@@ -1974,6 +1978,7 @@ mod tests {
             nullable: true,
             is_pk: pk,
             table_ref: None,
+            default: None,
         };
         let rs = ResultSet {
             columns: vec![
@@ -2161,6 +2166,7 @@ mod tests {
                 nullable: true,
                 is_pk: false,
                 table_ref: None,
+                default: None,
             }],
             rows: vec![vec![Value::String(text.into())]],
             ..Default::default()
@@ -2206,6 +2212,7 @@ mod tests {
                     nullable: true,
                     is_pk: false,
                     table_ref: None,
+                    default: None,
                 }],
                 rows: vec![vec![Value::String("café 中 ?".into())]],
                 ..Default::default()
@@ -2388,6 +2395,7 @@ mod tests {
             nullable: true,
             is_pk: false,
             table_ref: None,
+            default: None,
         }
     }
 

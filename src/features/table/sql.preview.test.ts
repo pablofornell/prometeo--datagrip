@@ -99,3 +99,48 @@ describe("statements", () => {
     expect(changeStatements("postgres", ref("t"), cols, [insert({ a: DEFAULT_VALUE, b: "x" })])[0]).toBe("INSERT INTO shop.t (a, b)\nVALUES (DEFAULT, 'x');");
   });
 });
+
+describe("UPDATE set to DEFAULT", () => {
+  const withDefault = (c: ColumnMeta, def: string | null): ColumnMeta => ({ ...c, default: def });
+  const update = (values: GridChange["values"]): GridChange => ({ kind: "update", row: 0, key: { id: 1 }, values });
+  const run = (driver: Driver, cols: ColumnMeta[], values: GridChange["values"]) => changeStatements(driver, ref("t", "main"), cols, [update(values)])[0];
+
+  it("SQLite has no DEFAULT keyword: writes the column's default expression, as dbcore does", () => {
+    const cols = [col("id", "int", true), withDefault(col("a", "int"), "5"), withDefault(col("b", "text"), " lower('X') ")];
+    expect(run("sqlite", cols, { a: DEFAULT_VALUE })).toBe("UPDATE main.t\nSET a = (5)\nWHERE id = 1;");
+    expect(run("sqlite", cols, { b: DEFAULT_VALUE })).toBe("UPDATE main.t\nSET b = (lower('X'))\nWHERE id = 1;");
+  });
+
+  it("SQLite without a default (or with a blank one) writes null", () => {
+    const cols = [col("id", "int", true), col("a", "int"), withDefault(col("b", "int"), null), withDefault(col("c", "int"), "  ")];
+    expect(run("sqlite", cols, { a: DEFAULT_VALUE, b: DEFAULT_VALUE, c: DEFAULT_VALUE })).toBe("UPDATE main.t\nSET a = null,\n    b = null,\n    c = null\nWHERE id = 1;");
+  });
+
+  it("the other dialects keep the DEFAULT keyword whatever the column default is", () => {
+    const cols = [col("id", "int", true), withDefault(col("a", "int"), "5")];
+    for (const d of ["postgres", "mysql", "oracle"] as const) expect(run(d, cols, { a: DEFAULT_VALUE })).toMatch(/\nSET \S*a\S* = DEFAULT\n/);
+  });
+
+  it("wraps a SQL expression in parentheses, like dbcore", () => {
+    const cols = [col("id", "int", true), col("at", "timestamp")];
+    expect(run("postgres", cols, { at: { $expr: " now() " } })).toBe("UPDATE main.t\nSET at = (now())\nWHERE id = 1;");
+    expect(changeStatements("postgres", ref("t"), cols, [insert({ at: { $expr: "now()" } })])[0]).toBe("INSERT INTO shop.t (at)\nVALUES ((now()));");
+  });
+});
+
+describe("column order", () => {
+  it("puts a column the table does not have last, in the SET list and in the WHERE, as dbcore does", () => {
+    const cols = [col("id", "int", true), col("name", "text")];
+    const [stmt] = changeStatements("postgres", ref("t"), cols, [
+      { kind: "update", row: 0, key: { zz: 1, name: "n", id: 2 }, values: { zz: 1, name: "y" } },
+    ]);
+    expect(stmt).toBe("UPDATE shop.t\nSET name = 'y',\n    zz = 1\nWHERE id = 2 AND name = 'n' AND zz = 1;");
+    const [del] = changeStatements("postgres", ref("t"), cols, [{ kind: "delete", row: 0, key: { zz: 1, id: 2 }, values: {} }]);
+    expect(del).toBe("DELETE\nFROM shop.t\nWHERE id = 2 AND zz = 1;");
+  });
+
+  it("orders the columns that are not in the table by name (dbcore keeps its maps sorted)", () => {
+    const [stmt] = changeStatements("postgres", ref("t"), [col("id", "int", true)], [{ kind: "update", row: 0, key: { id: 1 }, values: { y: 1, x: 2 } }]);
+    expect(stmt).toBe("UPDATE shop.t\nSET x = 2,\n    y = 1\nWHERE id = 1;");
+  });
+});

@@ -561,6 +561,7 @@ fn metas_of(cols: &[OraCol]) -> Vec<ColumnMeta> {
             nullable: c.nullable,
             is_pk: false,
             table_ref: None,
+            default: None,
         })
         .collect()
 }

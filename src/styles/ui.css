@@ -938,9 +938,23 @@ mark.dg-search-match {
   opacity: 0.75;
 }
 .dg-copy-btn:hover,
+.dg-copy-btn:focus-visible,
 .dg-copy-btn.dg-copy-done,
 .dg-copy-btn.dg-copy-failed {
   opacity: 1;
+}
+.dg-copy-btn:focus-visible {
+  outline: 1px solid var(--dg-focus-ring);
+  outline-offset: 1px;
+}
+/* the "Copied" announcement for screen readers (the visible label is aria-hidden) */
+.dg-copy-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 .dg-copy-label {
   font-size: var(--dg-font-size-small, 12px);

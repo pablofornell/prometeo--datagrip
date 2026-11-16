@@ -312,6 +312,8 @@ export interface ColumnMeta {
   isPk: boolean;
   /** `schema.table` when the column is known to come from a single table. */
   tableRef: string | null;
+  /** Default expression of the column; only the columns of a table page carry it (`SET col = DEFAULT` on SQLite needs it). */
+  default?: string | null;
 }
 
 export interface ResultSet {

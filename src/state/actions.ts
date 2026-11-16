@@ -154,8 +154,22 @@ function parseChord(s: string): Chord {
   };
 }
 
-function eventKey(e: KeyboardEvent): string {
+/** Printable ASCII punctuation: what a layout produces for the punctuation keys. */
+const PUNCTUATION = /^[!-/:-@[-`{-~]$/;
+
+/** Punctuation keys that a chord names by the key cap, whatever Shift turned them into (`Ctrl+Shift+/`, `Alt+Shift+.`). */
+const SHIFTED_PUNCTUATION_CODES = new Set(["Backslash", "Slash", "Quote", "Comma", "Period", "Backquote"]);
+
+/** The key a chord is matched against: the letter or digit by position, punctuation by what the layout produces. */
+export function eventKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey">): string {
   const c = e.code;
+  const key = e.key.toLowerCase();
+  if (PUNCTUATION.test(key)) {
+    // A Shift-ed punctuation key keeps its physical name, which is how the chords are written (US: Shift+/ is "?").
+    // A digit row that produces punctuation (AZERTY "&", "é") keeps its digit, except "-" and "+", the zoom keys.
+    const byPosition = (e.shiftKey && SHIFTED_PUNCTUATION_CODES.has(c)) || (/^Digit\d$/.test(c) && key !== "-" && key !== "+");
+    if (!byPosition) return key;
+  }
   if (/^Digit\d$/.test(c)) return c.slice(5);
   if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase();
   if (c === "Backslash") return "\\";
@@ -164,17 +178,20 @@ function eventKey(e: KeyboardEvent): string {
   if (c === "Comma") return ",";
   if (c === "Period") return ".";
   if (c === "Backquote") return "`";
-  return e.key.toLowerCase();
+  return key;
 }
 
 function matches(ch: Chord, e: KeyboardEvent): boolean {
-  return (
-    ch.ctrl === e.ctrlKey &&
-    ch.alt === e.altKey &&
-    ch.shift === e.shiftKey &&
-    ch.meta === e.metaKey &&
-    ch.key === eventKey(e)
-  );
+  if (ch.ctrl !== e.ctrlKey || ch.alt !== e.altKey || ch.meta !== e.metaKey) return false;
+  if (ch.shift === e.shiftKey && ch.key === eventKey(e)) return true;
+  // A punctuation mark typed with Shift on this layout (ES "Ctrl+Shift+0" types "=", FR "Ctrl+Shift+=" types "+"):
+  // a chord that names the mark itself, without Shift, still fires.
+  return !ch.shift && e.shiftKey && PUNCTUATION.test(ch.key) && ch.key === e.key.toLowerCase();
+}
+
+/** Whether a key event is the shortcut written as `shortcut` (e.g. "Ctrl+Shift+/"). */
+export function shortcutMatches(shortcut: string, e: KeyboardEvent): boolean {
+  return matches(parseChord(shortcut), e);
 }
 
 function isEditable(t: EventTarget | null): boolean {

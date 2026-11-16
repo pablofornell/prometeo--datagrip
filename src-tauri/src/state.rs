@@ -1880,6 +1880,7 @@ mod tests {
                     nullable: true,
                     is_pk: false,
                     table_ref: None,
+                    default: None,
                 }],
                 rows: vec![vec![serde_json::json!(1)]],
                 ..Default::default()
