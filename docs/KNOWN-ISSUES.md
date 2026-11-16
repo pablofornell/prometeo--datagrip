@@ -17,6 +17,16 @@ where it helps, what to do instead. Update the list when an item is fixed.
 - **Windows installer.** It is not built on the development machine (no MSVC linker there). The CI job on
   `windows-latest` builds it, and only for a version tag.
 
+## Oracle 10g / 11g / 12.1
+
+- Login works (the 10G and 11G password verifiers are supported), and the schema list, the Database Explorer
+  schema level and Find Usages tell system users apart by a list of Oracle's own account names, because
+  `ALL_USERS.ORACLE_MAINTAINED` only exists from 12.2. A custom account that has the name of an Oracle-shipped one
+  (`WMSYS`, `XDB`, ...) or starts with `APEX_` / `FLOWS_` shows as a system user there.
+- Not adapted to these versions, and not tested on them: paging of table data (`OFFSET .. FETCH`, 12.1+),
+  DDL of Oracle objects and the text search of Find Usages in views (`WITH FUNCTION`, 12.1+), and the list of
+  check constraints in the explorer (`SEARCH_CONDITION_VC`, 12.2+). Those features can fail with an ORA error.
+
 ## SQL dump and restore
 
 - **Oracle objects that are not dumped:** object tables (`CREATE TABLE .. OF type`), materialized view logs,
@@ -91,3 +101,11 @@ where it helps, what to do instead. Update the list when an item is fixed.
 
 - On Windows the fallback password file is restricted with `icacls`; this is not tested with a domain account.
   See [SECURITY.md](SECURITY.md).
+- The release build aborts on a panic (`panic = "abort"`): the panic and its backtrace are written to
+  `<data dir>/logs/panic.log`, which is not rotated.
+- Only one copy of the app runs per user, also when `PROMETEO_DATA_DIR` / `PROMETEO_CONFIG_DIR` point a second copy
+  at another profile (the single-instance lock does not look at them).
+- Copy / preview of a result as text (`export_query_to_string`, `export_to_string`) is refused above 64 MB; export to
+  a file instead.
+- The Content Security Policy is not tested against every screen in a packaged build; `freezePrototype` is not
+  enabled for the same reason.

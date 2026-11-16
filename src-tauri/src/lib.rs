@@ -228,12 +228,14 @@ pub fn run() {
         .expect("error while building Prometeo DataGrip");
 
     app.run(|handle, event| {
-        // make sure the debounced ui-state write is not lost on exit
         if let RunEvent::Exit = event {
             if let Some(state) = handle.try_state::<AppState>() {
+                // make sure the debounced ui-state write is not lost on exit
                 if let Err(e) = state.ui.flush() {
                     tracing::error!("cannot save ui state: {e}");
                 }
+                // roll back open transactions and close the connections in an orderly way
+                tauri::async_runtime::block_on(state.shutdown());
             }
         }
     });

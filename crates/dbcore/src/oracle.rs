@@ -1127,6 +1127,11 @@ fn worker_main(
             Cmd::Die => panic!("test: the Oracle worker dies"),
         }
     }
+    // Closing the session (a console tab, a disconnect, the app exiting) must never keep what a transaction still
+    // holds: an orderly Oracle logoff may commit it, so it is rolled back first, whatever the driver does on close.
+    if w.conn.in_transaction().unwrap_or(false) {
+        let _ = w.rollback();
+    }
     let _ = w.conn.close();
 }
 

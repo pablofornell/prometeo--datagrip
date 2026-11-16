@@ -886,6 +886,36 @@ async fn open_session_with_init_sql_and_tx_status() {
         .is_err());
 }
 
+/// `open_session` takes the schema to start in as a name; SQLite has one schema per file and ignores it.
+#[tokio::test]
+async fn open_session_in_takes_a_schema_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let st = state(&dir);
+    let cfg = DataSourceConfig {
+        name: "m".into(),
+        driver: Driver::Sqlite,
+        file: ":memory:".into(),
+        ..Default::default()
+    };
+    let ds = st.save_data_source(cfg).await.unwrap().cfg.id;
+    st.connect(&ds).await.unwrap();
+    for schema in [
+        None,
+        Some(""),
+        Some("  "),
+        Some("main"),
+        Some("a\"; drop table t; --"),
+    ] {
+        let s = st
+            .open_session_in(&ds, schema, &["pragma foreign_keys = off".to_string()])
+            .await
+            .unwrap();
+        let ev = run(&st, &s, "select * from pragma_foreign_keys", 10).await;
+        assert_eq!(first_rs(&ev), (1, 1, false), "{schema:?}");
+        st.close_session(&s).await.unwrap();
+    }
+}
+
 /// Import: only files picked in the open dialog are read; the error file is the default one or a save-dialog pick.
 #[tokio::test]
 async fn import_reads_only_picked_files_and_writes_only_allowed_error_files() {

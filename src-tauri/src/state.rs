@@ -53,6 +53,39 @@ const EXPORT_PATH_TTL: Duration = Duration::from_secs(300);
 /// How long a `cancel_import` for an unknown id waits for its `import_file`.
 const EARLY_CANCEL_TTL: Duration = Duration::from_secs(30);
 
+/// Largest text `export_query_to_string` / `export_to_string` build in memory (they feed the clipboard and the
+/// preview, both held again by the webview): a bigger result is exported to a file instead.
+const MAX_STRING_EXPORT: usize = 64 * 1024 * 1024;
+
+/// How long [`AppState::shutdown`] waits for the connections to close before the app exits anyway.
+pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// A growing buffer that refuses to pass `limit` bytes.
+struct CappedBuf {
+    buf: Vec<u8>,
+    limit: usize,
+}
+
+impl Write for CappedBuf {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        if self.buf.len() + data.len() > self.limit {
+            return Err(std::io::Error::other(too_big_for_text()));
+        }
+        self.buf.extend_from_slice(data);
+        Ok(data.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn too_big_for_text() -> String {
+    format!(
+        "The result is larger than {} MB: export it to a file instead",
+        MAX_STRING_EXPORT / (1024 * 1024)
+    )
+}
+
 /// How many finished SQL dump files `open_dump_folder` may open the folder of.
 const DUMPS_KEPT: usize = 20;
 
@@ -511,6 +544,32 @@ impl AppState {
         Ok(())
     }
 
+    /// Called once when the app exits: stops what is running (exports, imports, dumps, scripts, statements) and
+    /// closes every connection, so open transactions are rolled back by an orderly close instead of by the server
+    /// noticing a dead socket (or, on Oracle, never). Bounded by [`SHUTDOWN_GRACE`]; the process exits after it
+    /// whatever the servers answer.
+    pub async fn shutdown(&self) {
+        let tokens: Vec<CancellationToken> =
+            [&self.imports, &self.exports, &self.dumps, &self.scripts]
+                .into_iter()
+                .flat_map(|m| m.lock().unwrap().values().cloned().collect::<Vec<_>>())
+                .collect();
+        for t in tokens {
+            t.cancel();
+        }
+        let ids = self.connected_data_sources();
+        let closing = async {
+            for id in ids {
+                let _ = self.disconnect(&id).await;
+            }
+        };
+        if tokio::time::timeout(SHUTDOWN_GRACE, closing).await.is_err() {
+            tracing::warn!(
+                "some connections did not close within {SHUTDOWN_GRACE:?}; exiting anyway"
+            );
+        }
+    }
+
     pub fn connected_data_sources(&self) -> Vec<String> {
         self.sources
             .list()
@@ -533,9 +592,19 @@ impl AppState {
         ds_id: &str,
         init_sql: &[String],
     ) -> Result<String, String> {
+        self.open_session_in(ds_id, None, init_sql).await
+    }
+
+    /// [`open_session_with`](Self::open_session_with) that first switches to `schema` (the SQL is built by dbcore).
+    pub async fn open_session_in(
+        &self,
+        ds_id: &str,
+        schema: Option<&str>,
+        init_sql: &[String],
+    ) -> Result<String, String> {
         let s = self
             .mgr
-            .open_session_with(ds_id, init_sql)
+            .open_session_in(ds_id, schema, init_sql)
             .await
             .map_err(String::from)?;
         self.sessions
@@ -974,12 +1043,15 @@ impl AppState {
         sql: &str,
         opts: ExportOptions,
     ) -> Result<String, String> {
-        let mut buf = Vec::new();
+        let mut buf = CappedBuf {
+            buf: Vec::new(),
+            limit: MAX_STRING_EXPORT,
+        };
         self.mgr
             .export_query(ds_id, sql, &opts, &mut buf)
             .await
             .map_err(String::from)?;
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        Ok(String::from_utf8_lossy(&buf.buf).into_owned())
     }
 
     /// Explain Plan / Explain Analyse of the first statement of `sql` on a console session (not recorded in the history).
@@ -1044,7 +1116,12 @@ impl AppState {
         rs: ResultSet,
         opts: ExportOptions,
     ) -> Result<String, String> {
-        export_to_string(&rs, &opts).map_err(String::from)
+        // CPU work on the rows the webview sent: off the async workers
+        let text = blocking(move || export_to_string(&rs, &opts).map_err(String::from)).await?;
+        if text.len() > MAX_STRING_EXPORT {
+            return Err(too_big_for_text());
+        }
+        Ok(text)
     }
 
     // ------------------------------------------------------------ import
@@ -1408,6 +1485,37 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = AppState::open(dir.path().join("config"), dir.path().join("data")).unwrap();
         (s, dir)
+    }
+
+    #[test]
+    fn string_exports_stop_at_the_limit() {
+        let mut b = CappedBuf {
+            buf: Vec::new(),
+            limit: 4,
+        };
+        b.write_all(b"abcd").unwrap();
+        let e = b.write_all(b"e").unwrap_err();
+        assert!(e.to_string().contains("export it to a file"), "{e}");
+        assert_eq!(b.buf, b"abcd");
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_the_connections_and_sessions() {
+        let (s, _dir) = state();
+        let cfg = DataSourceConfig {
+            name: "m".into(),
+            driver: Driver::Sqlite,
+            file: ":memory:".into(),
+            ..Default::default()
+        };
+        let id = s.save_data_source(cfg).await.unwrap().cfg.id;
+        s.connect(&id).await.unwrap();
+        let sid = s.open_session(&id).await.unwrap();
+        assert_eq!(s.connected_data_sources(), vec![id.clone()]);
+        s.shutdown().await;
+        assert!(s.connected_data_sources().is_empty());
+        assert!(s.session_in_transaction(&sid).await.is_err());
+        s.shutdown().await; // idempotent
     }
 
     #[test]

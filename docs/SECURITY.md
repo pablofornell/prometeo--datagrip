@@ -49,6 +49,31 @@ Anyone who can read your account's files (other programs running as you, backups
 disk images) can read a password kept in the file. Prefer fixing the store (start a Secret
 Service, unlock the keychain) over living with the fallback.
 
+## What the web view may do
+
+The web view runs with a strict Content Security Policy (`src-tauri/tauri.conf.json`): `default-src 'self'`,
+`script-src 'self'` (no inline script, no `eval`), no objects, frames or form posts, and `connect-src` only to the
+Tauri IPC. The development policy (`devCsp`, which allows the Vite dev server and inline scripts) is used by
+`tauri dev` only; a packaged build gets the production one. `style-src` keeps `'unsafe-inline'` because the editor
+and the UI set inline styles; for that reason `dangerousDisableAssetCspModification` lists `style-src`, so Tauri does
+not add the nonces that would make the browser ignore `'unsafe-inline'`. Tauri still adds the hashes of
+the scripts it injects to `script-src`.
+
+The capability file (`src-tauri/capabilities/default.json`) gives the main window only what the UI calls: window
+minimize / maximize / close / drag / title (the title bar is custom), the page zoom (UI scale), the open dialog,
+clipboard read and write of text, and opening the log folder (the opener is limited to `$APPDATA/logs`). Files for
+export, import, scripts and cell values are read and written by the backend after a native dialog, never from a path
+the web view makes up.
+
+Every SQL text built in the backend writes identifiers with `quote_ident` / `qualified` and values with
+`quote_literal` or bind parameters, and the schema of a new session is turned into SQL by the backend alone
+(`open_session` takes the name, not a statement). The only raw SQL fragments are the ones the user types: the
+`WHERE` / `ORDER BY` of the table view (one statement only, `;` is refused) and the console text.
+
+On exit the app cancels running exports, imports, scripts and dumps, then rolls back open transactions and closes
+every connection (at most 5 s); an Oracle session also rolls back before it logs off. Logs are daily files in
+`<data dir>/logs`, the last 7 are kept, and connection errors are masked before they are logged or shown.
+
 ## Export and import of data sources
 
 *Data Sources dialog > More (...) > Export Data Sources / Import Data Sources.*

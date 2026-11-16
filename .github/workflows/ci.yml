@@ -76,10 +76,40 @@ jobs:
       - name: Frontend production build
         run: npm run build
 
+  # A release is cut from a tag: the tag must name the version the app was built with (package.json, the Cargo
+  # workspace and tauri.conf.json all say it), or the installers would be published under the wrong number.
+  version:
+    name: Tag matches the app version
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compare the tag with every version field
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(node -p "require('./package.json').version")
+          tauri=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          cargo=$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          echo "tag=$tag package.json=$pkg tauri.conf.json=$tauri Cargo.toml=$cargo"
+          status=0
+          for v in "$pkg" "$tauri" "$cargo"; do
+            if [ -z "$v" ] || [ "$v" != "$tag" ]; then status=1; fi
+          done
+          if [ "$status" -ne 0 ]; then
+            echo "::error::The tag $GITHUB_REF_NAME does not match the app version (package.json, src-tauri/tauri.conf.json and the workspace Cargo.toml must all be $tag)"
+            exit 1
+          fi
+
   bundle:
     name: Bundle (${{ matrix.os }})
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: check
+    needs: [check, version]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
