@@ -7,7 +7,7 @@ const be = {
   sessions: new Set<string>(),
   tx: new Map<string, TxStatus>(),
   next: 1,
-  opened: [] as { sid: string; initSql: string[] }[],
+  opened: [] as { sid: string; initSql: string[]; schema?: string | null }[],
   ran: [] as string[],
   txCalls: [] as string[],
   /** The names `setSessionSchema` was asked for (the backend quotes them). */
@@ -56,11 +56,11 @@ const gone = (sid: string) => new Error(`Session '${sid}' does not exist`);
 
 vi.mock("../../api/db", () => ({
   isTauri: () => false,
-  openSession: vi.fn(async (_ds: string, initSql: string[] = []) => {
+  openSession: vi.fn(async (_ds: string, initSql: string[] = [], schema?: string | null) => {
     const sid = `s${be.next++}`;
     be.sessions.add(sid);
     be.tx.set(sid, "idle");
-    be.opened.push({ sid, initSql });
+    be.opened.push({ sid, initSql, schema });
     return sid;
   }),
   closeSession: vi.fn(async (sid: string) => void be.sessions.delete(sid)),
@@ -126,7 +126,7 @@ vi.mock("./schemaPref", () => {
 });
 
 import { openSession } from "../../api/db";
-import { savedSchema, savedSearchPath } from "./schemaPref";
+import { saveSchema, saveSearchPath, savedSchema, savedSearchPath } from "./schemaPref";
 import { ConsoleSession, isNamespace, isolationLevels } from "./session";
 
 const ds = (driver: "postgres" | "mysql" = "postgres") => ({ id: "d1", name: "pg", driver, database: "shop", readOnly: false }) as never;
@@ -238,6 +238,17 @@ describe("the schema re-check after a run", () => {
     await s.run(req("select 1"));
     expect(be.opened.at(-1)!.initSql).toEqual(['SET search_path TO "$user", public']);
     expect(be.opened.at(-1)!.sid).not.toBe(first);
+  });
+  it("passes the schema picked in the switcher by name: the backend writes (and quotes) the SQL", async () => {
+    const s = mk();
+    const hostile = 'a"; DROP TABLE t; --`\n\u0000\u00e9';
+    saveSearchPath("d1", "console", null); // (the maps of this mock outlive the tests)
+    saveSchema("d1", "console", hostile);
+    await s.run(req("select 1"));
+    const reopened = be.opened.at(-1)!;
+    expect(reopened.schema).toBe(hostile);
+    expect(reopened.initSql.join(" ")).not.toContain("DROP"); // no schema SQL is built in TypeScript
+    saveSchema("d1", "console", null);
   });
   it("RESET search_path forgets the saved path", async () => {
     const s = mk();
