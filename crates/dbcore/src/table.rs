@@ -710,6 +710,26 @@ fn is_truncated_bin(v: &Value) -> bool {
     })
 }
 
+/// `{"$default": true}`: the grid asks for the column's default instead of a value.
+fn is_default_marker(v: &Value) -> bool {
+    v.as_object().is_some_and(|m| m.contains_key("$default"))
+}
+
+/// The entries of `map` in the order of the table's columns (names the table does not have last), so a statement
+/// reads like the table and not alphabetically.
+fn in_column_order<'a>(
+    info: &[ColInfo],
+    map: &'a BTreeMap<String, Value>,
+) -> Vec<(&'a String, &'a Value)> {
+    let mut entries: Vec<_> = map.iter().collect();
+    entries.sort_by_key(|(k, _)| {
+        info.iter()
+            .position(|c| c.name == **k)
+            .unwrap_or(usize::MAX)
+    });
+    entries
+}
+
 fn my_is_int(type_name: &str) -> bool {
     let t = type_name.to_ascii_lowercase();
     ["tinyint", "smallint", "mediumint", "bigint", "int"]
@@ -920,7 +940,7 @@ pub(crate) fn key_predicate(
 ) -> Result<String> {
     let has_pk = info.iter().any(|c| c.is_pk);
     let mut parts = Vec::new();
-    for (k, v) in keys {
+    for (k, v) in in_column_order(info, keys) {
         let c = info
             .iter()
             .find(|c| c.name == *k)
@@ -1007,10 +1027,21 @@ pub(crate) fn build_stmt(
                 return Err(DbError::InvalidArgument("Update without values".into()));
             }
             let mut sets = Vec::new();
-            for (k, v) in &ch.values {
+            for (k, v) in in_column_order(info, &ch.values) {
                 let c = find(k)?;
                 if let Some(e) = sql_expr(d, v)? {
                     sets.push(format!("{} = ({e})", ident(k)));
+                    continue;
+                }
+                if is_default_marker(v) {
+                    sets.push(match (d, c.default.as_deref().map(str::trim)) {
+                        // SQLite has no DEFAULT keyword: write the column's default expression, or NULL
+                        (Driver::Sqlite, Some(e)) if !e.is_empty() => {
+                            format!("{} = ({e})", ident(k))
+                        }
+                        (Driver::Sqlite, _) => format!("{} = null", ident(k)),
+                        _ => format!("{} = default", ident(k)),
+                    });
                     continue;
                 }
                 let p = placeholder(d, &mut binds, c, v)?;
@@ -1034,16 +1065,12 @@ pub(crate) fn build_stmt(
         ChangeKind::Insert => {
             let mut names = Vec::new();
             let mut vals = Vec::new();
-            for (k, v) in &ch.values {
+            for (k, v) in in_column_order(info, &ch.values) {
                 let c = find(k)?;
-                let is_default = v
-                    .as_object()
-                    .map(|m| m.contains_key("$default"))
-                    .unwrap_or(false);
                 if let Some(e) = sql_expr(d, v)? {
                     names.push(ident(k));
                     vals.push(format!("({e})"));
-                } else if is_default {
+                } else if is_default_marker(v) {
                     if d == Driver::Sqlite {
                         continue; // SQLite has no DEFAULT keyword in VALUES: omit the column
                     }
@@ -1215,15 +1242,16 @@ mod tests {
         let st = stmt(Driver::MySql, "`t`", &info, &RowAddr::None, &ch);
         assert_eq!(
             st.sql,
-            "delete from `t` where `big` = ? and (`d` = ? or abs(`d` - ?) <= abs(?) * 0.000000000001) \
-             and (`f` = ? or abs(`f` - ?) <= abs(?) * 0.00001) and cast(`j` as char) = ? \
-             and `n` = cast(? as decimal(65,30)) and `s` = ? collate utf8mb4_bin and `t` = ? limit 1"
+            // the key follows the column order of the table, not the alphabet
+            "delete from `t` where cast(`j` as char) = ? and (`f` = ? or abs(`f` - ?) <= abs(?) * 0.00001) \
+             and (`d` = ? or abs(`d` - ?) <= abs(?) * 0.000000000001) and `n` = cast(? as decimal(65,30)) \
+             and `s` = ? collate utf8mb4_bin and `t` = ? and `big` = ? limit 1"
         );
         assert!(
             !st.sql.contains("`bl`"),
             "a truncated binary preview is never part of the key"
         );
-        assert_eq!(st.binds[0], Bind::Int(9007199254740993));
+        assert_eq!(st.binds.last(), Some(&Bind::Int(9007199254740993)));
         // only a truncated preview: nothing left to identify the row
         let only = change(
             ChangeKind::Delete,
@@ -1362,6 +1390,64 @@ mod tests {
     }
 
     #[test]
+    fn update_to_default_writes_the_keyword_not_the_marker() {
+        let mut info = vec![col("id", "int", true), col("a", "int", false)];
+        let ch = change(
+            ChangeKind::Update,
+            &[("id", json!(1))],
+            &[("a", json!({"$default": true}))],
+        );
+        for (d, q, want) in [
+            (
+                Driver::Postgres,
+                "\"t\"",
+                "update \"t\" set \"a\" = default where \"id\" = cast($1 as int)",
+            ),
+            (
+                Driver::MySql,
+                "`t`",
+                "update `t` set `a` = default where `id` = ?",
+            ),
+        ] {
+            let st = stmt(d, q, &info, &RowAddr::None, &ch);
+            assert_eq!(st.sql, want);
+            assert_eq!(st.binds.len(), 1, "the marker is not bound as text");
+        }
+        // SQLite has no DEFAULT keyword: the column's default expression, or null
+        let sql = |info: &[ColInfo]| stmt(Driver::Sqlite, "\"t\"", info, &RowAddr::None, &ch).sql;
+        assert_eq!(sql(&info), "update \"t\" set \"a\" = null where \"id\" = ?");
+        info[1].default = Some("5".into());
+        assert_eq!(sql(&info), "update \"t\" set \"a\" = (5) where \"id\" = ?");
+    }
+
+    #[test]
+    fn statements_list_columns_in_table_order() {
+        let info = vec![
+            col("id", "int", true),
+            col("name", "text", false),
+            col("age", "int", false),
+        ];
+        let ins = change(
+            ChangeKind::Insert,
+            &[],
+            &[("name", json!("x")), ("id", json!(1)), ("age", json!(2))],
+        );
+        assert_eq!(
+            stmt(Driver::Sqlite, "\"t\"", &info, &RowAddr::None, &ins).sql,
+            "insert into \"t\" (\"id\", \"name\", \"age\") values (?, ?, ?)"
+        );
+        let upd = change(
+            ChangeKind::Update,
+            &[("id", json!(1))],
+            &[("name", json!("x")), ("age", json!(2))],
+        );
+        assert_eq!(
+            stmt(Driver::Sqlite, "\"t\"", &info, &RowAddr::None, &upd).sql,
+            "update \"t\" set \"name\" = ?, \"age\" = ? where \"id\" = ?"
+        );
+    }
+
+    #[test]
     fn sql_expression_values_are_inlined_without_binds() {
         let info = vec![col("id", "int", true), col("at", "timestamp", false)];
         let ch = change(
@@ -1480,14 +1566,14 @@ mod tests {
         let st = stmt(Driver::Oracle, q, &info, &RowAddr::None, &ch);
         assert_eq!(
             st.sql,
-            "update DEMO.T set D = to_date(:1, 'YYYY-MM-DD HH24:MI:SS'), NAME = :2, \
+            "update DEMO.T set NAME = :1, D = to_date(:2, 'YYYY-MM-DD HH24:MI:SS'), \
              TSZ = to_timestamp_tz(:3, 'YYYY-MM-DD HH24:MI:SS.FF9 TZH:TZM'), \"lower\" = :4 where ID = :5"
         );
         assert_eq!(
             st.binds,
             vec![
-                Bind::Text("2024-02-29 10:00:00".into()),
                 Bind::Text("O'Reilly".into()),
+                Bind::Text("2024-02-29 10:00:00".into()),
                 Bind::Text("2024-02-29 10:00:00.500000000 +02:00".into()),
                 Bind::Int(1),
                 Bind::Int(7)
@@ -1550,7 +1636,7 @@ mod tests {
             ],
         );
         let st = stmt(Driver::Oracle, "T", &info, &RowAddr::None, &ins);
-        assert_eq!(st.sql, "insert into T (B, ID) values (:1, default)");
+        assert_eq!(st.sql, "insert into T (ID, B) values (default, :1)");
         assert_eq!(st.binds, vec![Bind::Bytes(vec![0xca, 0xfe])]);
         let empty = change(ChangeKind::Insert, &[], &[]);
         assert_eq!(

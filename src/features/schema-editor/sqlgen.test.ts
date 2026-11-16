@@ -118,7 +118,7 @@ describe("alter table (postgres)", () => {
     expect(plan.statements).toEqual([
       "alter table shop.categories rename to cats;",
       "alter table shop.cats rename column name to title;",
-      "alter table shop.cats alter column title type varchar(200);",
+      "alter table shop.cats alter column title type varchar(200) using title::varchar(200);",
       "alter table shop.cats alter column title drop not null;",
       "alter table shop.cats alter column parent_id set default 0;",
     ]);
@@ -393,8 +393,11 @@ describe("Oracle", () => {
         "    constraint EMP_MGR_FK foreign key (MGR_ID) references DEMO.EMP (ID) on delete set null,",
         "    constraint EMP_NAME_CK check (length(name) > 1)",
         ");",
+        "",
         "create index DEMO.EMP_HIRED_IX on DEMO.EMP (HIRED);",
+        "",
         "comment on table DEMO.EMP is 'Employees';",
+        "",
         "comment on column DEMO.EMP.ID is 'key';",
       ].join("\n"),
     );

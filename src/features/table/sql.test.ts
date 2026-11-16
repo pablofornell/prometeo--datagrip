@@ -51,15 +51,15 @@ describe("sql helpers", () => {
     expect(appendCondition("a = 1 or c = 3", "b = 2")).toBe("(a = 1 or c = 3) and b = 2");
   });
 
-  it("escapes backslashes in MySQL string literals (not in PostgreSQL / SQLite)", () => {
+  it("escapes backslashes in MySQL string literals, writes them as E'..' in PostgreSQL (not in SQLite)", () => {
     // MySQL reads `\t` / `\'` inside '...' as escapes: `C:\temp` must be sent as 'C:\\temp'
     expect(buildCondition("mysql", cols[1], "=", "C:\\temp")).toBe("`Full Name` = 'C:\\\\temp'");
     expect(buildCondition("mysql", cols[1], "=", "a\\'b")).toBe("`Full Name` = 'a\\\\''b'");
     expect(buildCondition("mysql", cols[1], "like", "C:\\%")).toBe("`Full Name` like 'C:\\\\%'");
-    expect(buildCondition("postgres", cols[1], "=", "C:\\temp")).toBe(`"Full Name" = 'C:\\temp'`);
+    expect(buildCondition("postgres", cols[1], "=", "C:\\temp")).toBe(`"Full Name" = E'C:\\\\temp'`);
     expect(buildCondition("sqlite", cols[1], "=", "C:\\temp")).toBe(`"Full Name" = 'C:\\temp'`);
     expect(literal("C:\\temp", "varchar", "mysql")).toBe("'C:\\\\temp'");
-    expect(literal("C:\\temp", "varchar", "postgres")).toBe("'C:\\temp'");
+    expect(literal("C:\\temp", "varchar", "postgres")).toBe("E'C:\\\\temp'");
   });
 
   it("previews MySQL values with the same escaping", () => {
