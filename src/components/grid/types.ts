@@ -78,6 +78,10 @@ export interface GridChange {
 /** Where "Go To" of a cell leads: one foreign key target, shown as `table (column)`. */
 export interface GridNavTarget {
   label: string;
+  /** `schema.table` the target opens (the Ctrl+Click tooltip); the label stands in when absent. */
+  qualified?: string;
+  /** Columns of this table that hold the key (all need a value); lets the grid tell a NULL from a column missing in the result. */
+  columns?: string[];
   /** Opens the target; `row` holds the values of the active record by column name. */
   open: (row: Record<string, Cell>) => void;
   /** Disabled when the record lacks a value for it (a NULL foreign key). */
