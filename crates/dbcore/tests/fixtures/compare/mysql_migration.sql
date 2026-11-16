@@ -2,7 +2,7 @@
 -- Generated from the schema compare. Review it before you run it.
 -- Statements that drop objects are included.
 
-USE `cmpx_b`;
+use `cmpx_b`;
 
 -- table tag: create (from A)
 CREATE TABLE `tag` (
@@ -29,64 +29,64 @@ CREATE TABLE `audit` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- table order_lines: foreign key order_lines_order_fk (dropped before primary key (id) is replaced)
-ALTER TABLE `order_lines` DROP FOREIGN KEY `order_lines_order_fk`;
+alter table `order_lines` drop foreign key `order_lines_order_fk`;
 
 -- table emp: check emp_salary_ck: replace
-ALTER TABLE `emp` DROP CHECK `emp_salary_ck`;
+alter table `emp` drop check `emp_salary_ck`;
 
 -- table emp: index emp_name_ix: replace
-DROP INDEX `emp_name_ix` ON `emp`;
+drop index `emp_name_ix` on `emp`;
 
 -- table emp: index emp_old_ix (only in B)
-DROP INDEX `emp_old_ix` ON `emp`;
+drop index `emp_old_ix` on `emp`;
 
 -- table orders: primary key (id, ref): replace
-ALTER TABLE `orders` DROP PRIMARY KEY;
+alter table `orders` drop primary key;
 
 -- table emp: change column name
-ALTER TABLE `emp` MODIFY COLUMN `name` varchar(80) NOT NULL;
+alter table `emp` modify column `name` varchar(80) not null;
 
 -- table emp: change column code
-ALTER TABLE `emp` MODIFY COLUMN `code` varchar(10);
+alter table `emp` modify column `code` varchar(10);
 
 -- table emp: change column salary
-ALTER TABLE `emp` MODIFY COLUMN `salary` decimal(10,2) DEFAULT 0;
+alter table `emp` modify column `salary` decimal(10,2) default 0;
 
 -- table emp: add column status
-ALTER TABLE `emp` ADD COLUMN `status` varchar(10) DEFAULT 'new' NOT NULL;
+alter table `emp` add column `status` varchar(10) default 'new' not null;
 
 -- table dept: add unique dept_name_key
-ALTER TABLE `dept` ADD CONSTRAINT `dept_name_key` UNIQUE (`name`);
+alter table `dept` add constraint `dept_name_key` unique (`name`);
 
 -- table emp: add unique emp_code_key
-ALTER TABLE `emp` ADD CONSTRAINT `emp_code_key` UNIQUE (`code`);
+alter table `emp` add constraint `emp_code_key` unique (`code`);
 
 -- table emp: check emp_salary_ck: replace
-ALTER TABLE `emp` ADD CONSTRAINT `emp_salary_ck` CHECK ((`salary` >= 0));
+alter table `emp` add constraint `emp_salary_ck` check ((`salary` >= 0));
 
 -- table orders: primary key (id, ref): replace
-ALTER TABLE `orders` ADD PRIMARY KEY (`id`, `ref`);
+alter table `orders` add primary key (`id`, `ref`);
 
 -- table orders: add unique orders_id_uq
-ALTER TABLE `orders` ADD CONSTRAINT `orders_id_uq` UNIQUE (`id`);
+alter table `orders` add constraint `orders_id_uq` unique (`id`);
 
 -- table order_lines: foreign key order_lines_order_fk: add again after the key is replaced
-ALTER TABLE `order_lines` ADD CONSTRAINT `order_lines_order_fk` FOREIGN KEY (`order_id`) REFERENCES `orders` (`id`);
+alter table `order_lines` add constraint `order_lines_order_fk` foreign key (`order_id`) references `orders` (`id`);
 
 -- table item_tag: foreign key item_tag_tag_fk
-ALTER TABLE `item_tag` ADD CONSTRAINT `item_tag_tag_fk` FOREIGN KEY (`tag_id`) REFERENCES `tag` (`id`);
+alter table `item_tag` add constraint `item_tag_tag_fk` foreign key (`tag_id`) references `tag` (`id`);
 
 -- table audit: foreign key audit_emp_fk
-ALTER TABLE `audit` ADD CONSTRAINT `audit_emp_fk` FOREIGN KEY (`emp_id`) REFERENCES `emp` (`id`);
+alter table `audit` add constraint `audit_emp_fk` foreign key (`emp_id`) references `emp` (`id`);
 
 -- table emp: index emp_name_ix: replace
-CREATE INDEX `emp_name_ix` ON `emp` (`name`);
+create index `emp_name_ix` on `emp` (`name`);
 
 -- view v_emp: replace
-CREATE OR REPLACE VIEW `v_emp` AS select `emp`.`id` AS `id`,`emp`.`name` AS `name` from `emp`;
+create or replace view `v_emp` as select `emp`.`id` AS `id`,`emp`.`name` AS `name` from `emp`;
 
 -- table emp: drop column old_flag (only in B)
-ALTER TABLE `emp` DROP COLUMN `old_flag`;
+alter table `emp` drop column `old_flag`;
 
 -- table old_log: only in B
-DROP TABLE `old_log`;
+drop table `old_log`;

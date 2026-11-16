@@ -122,7 +122,7 @@ export interface DataGridProps {
   /** Called with the pending change set. Return `false` (or reject) to keep the changes pending. */
   onSubmit?: (changes: GridChange[]) => void | boolean | Promise<void | boolean>;
   onChangesChange?: (pendingCount: number) => void;
-  /** Table for SQL INSERT copies, e.g. `public.clients`. */
+  /** Table for SQL INSERT copies, e.g. `public.clients` (quoted or not: it is quoted again for `dialect`). */
   tableName?: string;
 
   /** Controlled sort; omit to let the grid keep it. */
@@ -150,7 +150,7 @@ export interface DataGridProps {
   onChangeExtractor?: (at: { x: number; y: number }) => void;
   /** `Export Table to Clipboard` of the cell menu; omitted = no entry. */
   onExportToClipboard?: () => void;
-  /** SQL dialect, for the expressions offered by `Set SQL Expression`. */
+  /** SQL dialect, for the expressions offered by `Set SQL Expression` and the quoting of SQL INSERT copies. */
   dialect?: "postgres" | "mysql" | "sqlite" | "oracle";
   /** Extra scroll room below the last row (the floating paging pill). */
   bottomPad?: number;
@@ -1398,9 +1398,9 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     if (T() && format === "tsv") {
       // the transposed grid copies what is on screen: one line per column of the result
       const flipped = b.cols.map((_, j) => b.rows.map((row) => row[j]));
-      return formatRows(format, b.rows.map((_, i) => ({ name: String(i + 1), typeName: "" })), flipped, { tableName: props.tableName, header: false });
+      return formatRows(format, b.rows.map((_, i) => ({ name: String(i + 1), typeName: "" })), flipped, { tableName: props.tableName, dialect: props.dialect, header: false });
     }
-    return formatRows(format, b.cols, b.rows, { tableName: props.tableName, header: format === "csv" || format === "markdown" ? true : false });
+    return formatRows(format, b.cols, b.rows, { tableName: props.tableName, dialect: props.dialect, header: format === "csv" || format === "markdown" ? true : false });
   }
   function writeClipboard(text: string, format: CopyFormat) {
     if (props.onCopy) {

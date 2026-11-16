@@ -13,11 +13,14 @@
  *   indexes of the DDL are not repeated;
  * - a constraint whose name the system made up is matched by its definition and added without a name; a change of the
  *   state only is an ENABLE / DISABLE (Oracle) or a VALIDATE (PostgreSQL), not a drop and a create;
+ * - the statements it writes have lower case keywords (like the schema editor and the DDL tab) and identifiers quoted by
+ *   `quoteIdent`; the `CREATE TABLE` text of a new table is the server's (`get_ddl`) and is kept as it comes;
  * - the statements carry no schema qualifier; the header makes B's schema the current one;
  * - what cannot be written as plain SQL here is a note: SQLite changes to columns and keys (a table rebuild), routine
  *   bodies (copy them from A), column positions (not migrated), DDL missing for a table of A.
  */
 import type { CompareCheck, CompareColumn, CompareForeignKey, CompareIndex, CompareKey, CompareRoutine, CompareSequence, CompareTable, CompareView, Driver, SchemaModel } from "../../api/types";
+import { quoteIdent } from "../table/sql";
 import {
   DEFAULT_DIFF_OPTIONS,
   type DiffOptions,
@@ -79,8 +82,8 @@ export const PHASE = {
 
 const DIALECT_NAME: Record<Driver, string> = { oracle: "Oracle", postgres: "PostgreSQL", mysql: "MySQL", sqlite: "SQLite" };
 
-/** Quotes an identifier of the dialect (names keep their case). */
-const q = (d: Driver, n: string): string => (d === "mysql" ? `\`${n.replace(/`/g, "``")}\`` : `"${n.replace(/"/g, '""')}"`);
+/** Quotes an identifier of the dialect (names keep their case): the same quoting as the table editor. */
+const q = quoteIdent;
 
 /** The kinds of constraint: the ones with a drop and a state. */
 type ConstraintKind = "primaryKey" | "unique" | "check" | "foreignKey";
@@ -105,8 +108,8 @@ function columnDefinition(d: Driver, c: CompareColumn, notNull = !c.nullable): s
   if (c.extra !== null) return null;
   let s = `${q(d, c.name)} ${c.dataType}`;
   const dflt = defaultText(d, c);
-  if (dflt !== null) s += ` DEFAULT ${dflt}`;
-  if (notNull) s += " NOT NULL";
+  if (dflt !== null) s += ` default ${dflt}`;
+  if (notNull) s += " not null";
   return s;
 }
 
@@ -114,11 +117,11 @@ function columnDefinition(d: Driver, c: CompareColumn, notNull = !c.nullable): s
 function headerOf(d: Driver, schema: string): string[] {
   switch (d) {
     case "oracle":
-      return [`ALTER SESSION SET CURRENT_SCHEMA = ${q(d, schema)};`];
+      return [`alter session set current_schema = ${q(d, schema)};`];
     case "postgres":
-      return [`SET search_path TO ${q(d, schema)};`];
+      return [`set search_path to ${q(d, schema)};`];
     case "mysql":
-      return [`USE ${q(d, schema)};`];
+      return [`use ${q(d, schema)};`];
     case "sqlite":
       return [];
   }
@@ -130,12 +133,12 @@ function addColumnSql(d: Driver, t: string, c: CompareColumn): string | null {
   const todo = !c.nullable && c.default === null && (d === "oracle" || d === "postgres");
   const def = columnDefinition(d, c, !c.nullable && !todo);
   if (!def) return null;
-  const add = d === "oracle" ? `ALTER TABLE ${q(d, t)} ADD (${def});` : `ALTER TABLE ${q(d, t)} ADD COLUMN ${def};`;
+  const add = d === "oracle" ? `alter table ${q(d, t)} add (${def});` : `alter table ${q(d, t)} add column ${def};`;
   if (!todo) return add;
   const fill =
     d === "oracle"
-      ? `ALTER TABLE ${q(d, t)} MODIFY (${q(d, c.name)} NOT NULL);`
-      : `ALTER TABLE ${q(d, t)} ALTER COLUMN ${q(d, c.name)} SET NOT NULL;`;
+      ? `alter table ${q(d, t)} modify (${q(d, c.name)} not null);`
+      : `alter table ${q(d, t)} alter column ${q(d, c.name)} set not null;`;
   return `${add}\n-- TODO: fill the column, then:\n-- ${fill}`;
 }
 
@@ -155,27 +158,27 @@ function modifyColumnSql(d: Driver, t: string, colName: string, from: CompareCol
   if (d === "oracle") {
     const parts = [
       typeChanged ? from.dataType : "",
-      defaultChanged ? `DEFAULT ${from.default ?? "NULL"}` : "",
-      nullChanged ? (from.nullable ? "NULL" : "NOT NULL") : "",
+      defaultChanged ? `default ${from.default ?? "null"}` : "",
+      nullChanged ? (from.nullable ? "null" : "not null") : "",
     ].filter(Boolean);
-    return [`ALTER TABLE ${T} MODIFY (${C} ${parts.join(" ")});`];
+    return [`alter table ${T} modify (${C} ${parts.join(" ")});`];
   }
   if (d === "mysql") {
     const def = columnDefinition(d, from);
-    return def ? [`ALTER TABLE ${T} MODIFY COLUMN ${def};`] : null;
+    return def ? [`alter table ${T} modify column ${def};`] : null;
   }
   const out: string[] = [];
-  if (typeChanged) out.push(`ALTER TABLE ${T} ALTER COLUMN ${C} TYPE ${from.dataType};`);
-  if (nullChanged) out.push(`ALTER TABLE ${T} ALTER COLUMN ${C} ${from.nullable ? "DROP" : "SET"} NOT NULL;`);
+  if (typeChanged) out.push(`alter table ${T} alter column ${C} type ${from.dataType};`);
+  if (nullChanged) out.push(`alter table ${T} alter column ${C} ${from.nullable ? "drop" : "set"} not null;`);
   if (defaultChanged) {
-    out.push(from.default === null ? `ALTER TABLE ${T} ALTER COLUMN ${C} DROP DEFAULT;` : `ALTER TABLE ${T} ALTER COLUMN ${C} SET DEFAULT ${from.default};`);
+    out.push(from.default === null ? `alter table ${T} alter column ${C} drop default;` : `alter table ${T} alter column ${C} set default ${from.default};`);
   }
   return out;
 }
 
 /** Oracle refuses to drop a column of a composite key or foreign key without its constraints (`CASCADE CONSTRAINTS`). */
 const dropColumnSql = (d: Driver, t: string, c: string, cascade: boolean): string =>
-  d === "oracle" && cascade ? `ALTER TABLE ${q(d, t)} DROP (${q(d, c)}) CASCADE CONSTRAINTS;` : `ALTER TABLE ${q(d, t)} DROP COLUMN ${q(d, c)};`;
+  d === "oracle" && cascade ? `alter table ${q(d, t)} drop (${q(d, c)}) cascade constraints;` : `alter table ${q(d, t)} drop column ${q(d, c)};`;
 
 /**
  * The state clause of a constraint that is added: Oracle `DISABLE`; PostgreSQL `NOT VALID` for a check or a foreign key
@@ -183,16 +186,16 @@ const dropColumnSql = (d: Driver, t: string, c: string, cascade: boolean): strin
  */
 function stateClause(d: Driver, kind: ConstraintKind, enabled: boolean): string {
   if (enabled) return "";
-  if (d === "oracle") return " DISABLE";
-  return d === "postgres" && (kind === "check" || kind === "foreignKey") ? " NOT VALID" : "";
+  if (d === "oracle") return " disable";
+  return d === "postgres" && (kind === "check" || kind === "foreignKey") ? " not valid" : "";
 }
 
 /** The statement that switches a constraint whose definition is the same: Oracle ENABLE / DISABLE, PostgreSQL VALIDATE. */
 function stateSql(d: Driver, t: string, kind: ConstraintKind | "index", name: string, enabled: boolean): string | null {
   if (!name) return null;
-  if (d === "oracle") return `ALTER TABLE ${q(d, t)} ${enabled ? "ENABLE" : "DISABLE"} CONSTRAINT ${q(d, name)};`;
+  if (d === "oracle") return `alter table ${q(d, t)} ${enabled ? "enable" : "disable"} constraint ${q(d, name)};`;
   if (d === "postgres" && enabled && (kind === "check" || kind === "foreignKey")) {
-    return `ALTER TABLE ${q(d, t)} VALIDATE CONSTRAINT ${q(d, name)};`;
+    return `alter table ${q(d, t)} validate constraint ${q(d, name)};`;
   }
   return null;
 }
@@ -200,108 +203,108 @@ function stateSql(d: Driver, t: string, kind: ConstraintKind | "index", name: st
 function addKeySql(d: Driver, t: string, kind: "primaryKey" | "unique", k: CompareKey): string | null {
   if (d === "sqlite") return null;
   // MySQL names every primary key PRIMARY and does not take a name for it
-  const named = k.name && !k.generatedName && !(d === "mysql" && kind === "primaryKey") ? ` CONSTRAINT ${q(d, k.name)}` : "";
+  const named = k.name && !k.generatedName && !(d === "mysql" && kind === "primaryKey") ? ` constraint ${q(d, k.name)}` : "";
   const cols = k.columns.map((c) => q(d, c)).join(", ");
-  return `ALTER TABLE ${q(d, t)} ADD${named} ${kind === "primaryKey" ? "PRIMARY KEY" : "UNIQUE"} (${cols})${stateClause(d, kind, isEnabled(k))};`;
+  return `alter table ${q(d, t)} add${named} ${kind === "primaryKey" ? "primary key" : "unique"} (${cols})${stateClause(d, kind, isEnabled(k))};`;
 }
 
 function addCheckSql(d: Driver, t: string, c: CompareCheck): string | null {
   if (d === "sqlite") return null;
-  const named = c.name && !c.generatedName ? ` CONSTRAINT ${q(d, c.name)}` : "";
-  return `ALTER TABLE ${q(d, t)} ADD${named} CHECK (${c.expression})${stateClause(d, "check", isEnabled(c))};`;
+  const named = c.name && !c.generatedName ? ` constraint ${q(d, c.name)}` : "";
+  return `alter table ${q(d, t)} add${named} check (${c.expression})${stateClause(d, "check", isEnabled(c))};`;
 }
 
 function addForeignKeySql(d: Driver, t: string, f: CompareForeignKey): string | null {
   if (d === "sqlite" || f.refColumns.length === 0) return null;
   // Oracle takes CASCADE and SET NULL only (NO ACTION is its default)
-  let onDelete = f.onDelete === "NO ACTION" ? "" : ` ON DELETE ${f.onDelete}`;
+  let onDelete = f.onDelete === "NO ACTION" ? "" : ` on delete ${f.onDelete.toLowerCase()}`;
   if (d === "oracle") {
     if (f.onDelete === "RESTRICT" || f.onDelete === "NO ACTION") onDelete = "";
     else if (f.onDelete === "SET DEFAULT") return null;
   }
-  const named = f.name && !f.generatedName ? ` CONSTRAINT ${q(d, f.name)}` : "";
+  const named = f.name && !f.generatedName ? ` constraint ${q(d, f.name)}` : "";
   const ref = `${f.refSchema ? `${q(d, f.refSchema)}.` : ""}${q(d, f.refTable)}`;
   const cols = f.columns.map((c) => q(d, c)).join(", ");
   const refCols = f.refColumns.map((c) => q(d, c)).join(", ");
-  return `ALTER TABLE ${q(d, t)} ADD${named} FOREIGN KEY (${cols}) REFERENCES ${ref} (${refCols})${onDelete}${stateClause(d, "foreignKey", isEnabled(f))};`;
+  return `alter table ${q(d, t)} add${named} foreign key (${cols}) references ${ref} (${refCols})${onDelete}${stateClause(d, "foreignKey", isEnabled(f))};`;
 }
 
 /** Drops a key, check or foreign key by its name (MySQL has its own statement per kind). */
 function dropConstraintSql(d: Driver, t: string, kind: ConstraintKind, name: string): string | null {
   if (d === "sqlite") return null;
   const T = q(d, t);
-  if (kind === "primaryKey" && d !== "postgres") return `ALTER TABLE ${T} DROP PRIMARY KEY;`;
+  if (kind === "primaryKey" && d !== "postgres") return `alter table ${T} drop primary key;`;
   if (!name) return null;
   const N = q(d, name);
   if (d === "mysql") {
     switch (kind) {
       case "unique":
-        return `ALTER TABLE ${T} DROP INDEX ${N};`;
+        return `alter table ${T} drop index ${N};`;
       case "check":
-        return `ALTER TABLE ${T} DROP CHECK ${N};`;
+        return `alter table ${T} drop check ${N};`;
       case "foreignKey":
-        return `ALTER TABLE ${T} DROP FOREIGN KEY ${N};`;
+        return `alter table ${T} drop foreign key ${N};`;
       default:
         return null;
     }
   }
-  return `ALTER TABLE ${T} DROP CONSTRAINT ${N};`;
+  return `alter table ${T} drop constraint ${N};`;
 }
 
 function createIndexSql(d: Driver, t: string, i: CompareIndex): string | null {
   if (d === "sqlite" && i.columns.includes("(expression)")) return null;
   // an index needs a name to be created (Oracle): one whose name the system made up is written by hand
   if (!i.name || i.generatedName) return null;
-  const using = d === "postgres" && i.method && i.method !== "btree" ? ` USING ${i.method}` : "";
+  const using = d === "postgres" && i.method && i.method !== "btree" ? ` using ${i.method}` : "";
   const cols = i.columns
     .map((c, n) => {
       const text = /^[A-Za-z_][A-Za-z0-9_$#]*$/.test(c) ? q(d, c) : c;
-      return i.descending?.[n] ? `${text} DESC` : text;
+      return i.descending?.[n] ? `${text} desc` : text;
     })
     .join(", ");
-  const where = i.predicate ? ` WHERE ${i.predicate}` : "";
-  const kind = i.unique ? "UNIQUE " : d === "oracle" && i.bitmap ? "BITMAP " : "";
-  return `CREATE ${kind}INDEX ${q(d, i.name)} ON ${q(d, t)}${using} (${cols})${where};`;
+  const where = i.predicate ? ` where ${i.predicate}` : "";
+  const kind = i.unique ? "unique " : d === "oracle" && i.bitmap ? "bitmap " : "";
+  return `create ${kind}index ${q(d, i.name)} on ${q(d, t)}${using} (${cols})${where};`;
 }
 
 function dropIndexSql(d: Driver, t: string, name: string): string | null {
   if (!name) return null;
-  return d === "mysql" ? `DROP INDEX ${q(d, name)} ON ${q(d, t)};` : `DROP INDEX ${q(d, name)};`;
+  return d === "mysql" ? `drop index ${q(d, name)} on ${q(d, t)};` : `drop index ${q(d, name)};`;
 }
 
 /** `CREATE OR REPLACE VIEW` (SQLite: drop, then create). A replaced materialized view is dropped first. */
 function viewSql(d: Driver, v: CompareView, replace: boolean): string[] {
   const N = q(d, v.name);
   const create = v.materialized
-    ? `CREATE MATERIALIZED VIEW ${N} AS ${v.definition};`
+    ? `create materialized view ${N} as ${v.definition};`
     : d === "sqlite"
-      ? `CREATE VIEW ${N} AS ${v.definition};`
-      : `CREATE OR REPLACE VIEW ${N} AS ${v.definition};`;
+      ? `create view ${N} as ${v.definition};`
+      : `create or replace view ${N} as ${v.definition};`;
   if (!replace || (d !== "sqlite" && !v.materialized)) return [create];
-  return [`DROP ${v.materialized ? "MATERIALIZED " : ""}VIEW ${d === "sqlite" ? "IF EXISTS " : ""}${N};`, create];
+  return [`drop ${v.materialized ? "materialized " : ""}view ${d === "sqlite" ? "if exists " : ""}${N};`, create];
 }
 
-const dropViewSql = (d: Driver, v: CompareView): string => `DROP ${v.materialized ? "MATERIALIZED " : ""}VIEW ${q(d, v.name)};`;
+const dropViewSql = (d: Driver, v: CompareView): string => `drop ${v.materialized ? "materialized " : ""}view ${q(d, v.name)};`;
 
 /** `CREATE` or `ALTER SEQUENCE` with the options the model has (Oracle and PostgreSQL only). */
-function sequenceSql(d: Driver, verb: "CREATE" | "ALTER", s: CompareSequence): string | null {
+function sequenceSql(d: Driver, verb: "create" | "alter", s: CompareSequence): string | null {
   const cache = Number(s.cacheSize) || 0;
   if (d === "oracle") {
-    const c = cache > 1 ? `CACHE ${cache}` : "NOCACHE";
-    return `${verb} SEQUENCE ${q(d, s.name)} INCREMENT BY ${s.incrementBy} MINVALUE ${s.minValue} MAXVALUE ${s.maxValue} ${s.cycle ? "CYCLE" : "NOCYCLE"} ${c};`;
+    const c = cache > 1 ? `cache ${cache}` : "nocache";
+    return `${verb} sequence ${q(d, s.name)} increment by ${s.incrementBy} minvalue ${s.minValue} maxvalue ${s.maxValue} ${s.cycle ? "cycle" : "nocycle"} ${c};`;
   }
   if (d === "postgres") {
-    return `${verb} SEQUENCE ${q(d, s.name)} INCREMENT BY ${s.incrementBy} MINVALUE ${s.minValue} MAXVALUE ${s.maxValue} ${s.cycle ? "CYCLE" : "NO CYCLE"} CACHE ${Math.max(1, cache)};`;
+    return `${verb} sequence ${q(d, s.name)} increment by ${s.incrementBy} minvalue ${s.minValue} maxvalue ${s.maxValue} ${s.cycle ? "cycle" : "no cycle"} cache ${Math.max(1, cache)};`;
   }
   return null;
 }
 
 function dropRoutineSql(d: Driver, r: CompareRoutine): string | null {
   if (r.kind === "TRIGGER") {
-    return d === "postgres" && r.signature ? `DROP TRIGGER ${q(d, r.name)} ON ${q(d, r.signature)};` : `DROP TRIGGER ${q(d, r.name)};`;
+    return d === "postgres" && r.signature ? `drop trigger ${q(d, r.name)} on ${q(d, r.signature)};` : `drop trigger ${q(d, r.name)};`;
   }
-  if (d === "postgres") return `DROP ${r.kind === "PROCEDURE" ? "PROCEDURE" : "FUNCTION"} ${q(d, r.name)}(${r.signature});`;
-  return `DROP ${r.kind} ${q(d, r.name)};`;
+  if (d === "postgres") return `drop ${r.kind === "PROCEDURE" ? "procedure" : "function"} ${q(d, r.name)}(${r.signature});`;
+  return `drop ${r.kind.toLowerCase()} ${q(d, r.name)};`;
 }
 
 /** Tables that exist only in A: their `CREATE TABLE` text is needed (the caller fetches it with `get_ddl`). */
@@ -677,7 +680,7 @@ export function planMigration(a: SchemaModel, b: SchemaModel, diffOpts: DiffOpti
     else if (p.left && p.right) tableChanges(p.left, p.right, ctx);
   }
   for (const t of dropOrder(d, onlyB)) {
-    add(PHASE.drops, `table ${t.name}: only in B`, d === "oracle" ? `DROP TABLE ${q(d, t.name)} CASCADE CONSTRAINTS;` : `DROP TABLE ${q(d, t.name)};`, true);
+    add(PHASE.drops, `table ${t.name}: only in B`, d === "oracle" ? `drop table ${q(d, t.name)} cascade constraints;` : `drop table ${q(d, t.name)};`, true);
   }
 
   // ---- views
@@ -692,13 +695,13 @@ export function planMigration(a: SchemaModel, b: SchemaModel, diffOpts: DiffOpti
   // ---- sequences
   for (const p of pairBy(a.sequences, b.sequences, (s) => key(s.name))) {
     if (p.left && !p.right) {
-      const sql = sequenceSql(d, "CREATE", p.left);
+      const sql = sequenceSql(d, "create", p.left);
       if (sql) add(PHASE.sequences, `sequence ${p.left.name}: create`, sql);
       else unsupported(`sequence ${p.left.name}`);
     } else if (!p.left && p.right) {
-      if (d === "oracle" || d === "postgres") add(PHASE.drops, `sequence ${p.right.name}: only in B`, `DROP SEQUENCE ${q(d, p.right.name)};`, true);
+      if (d === "oracle" || d === "postgres") add(PHASE.drops, `sequence ${p.right.name}: only in B`, `drop sequence ${q(d, p.right.name)};`, true);
     } else if (p.left && p.right && sequenceChanges(p.left, p.right).length > 0) {
-      const sql = sequenceSql(d, "ALTER", p.left);
+      const sql = sequenceSql(d, "alter", p.left);
       if (sql) add(PHASE.sequences, `sequence ${p.right.name}: alter`, sql);
       else unsupported(`sequence ${p.right.name}`);
     }
@@ -726,8 +729,8 @@ export function renderMigration(plan: MigrationPlan, opts: MigrationOptions, nam
     opts.includeDrops
       ? "-- Statements that drop objects are included."
       : "-- Statements that drop objects are commented out: uncomment them to apply them.",
-    "",
-    ...plan.header,
+    // one blank line between blocks, none doubled when the dialect has no header (SQLite)
+    ...(plan.header.length > 0 ? ["", ...plan.header] : []),
   ];
   const ordered = [...plan.statements].sort((x, y) => x.phase - y.phase);
   for (const s of ordered) {
