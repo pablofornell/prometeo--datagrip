@@ -3,7 +3,7 @@ import { layoutDiagram } from "./layout";
 import { buildDiagram, type DiagramInputObject, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
 import { renderDiagramSvg } from "./svg";
-import { fitView } from "./view";
+import { MAX_ZOOM, MIN_ZOOM, centerOn, fitView, minimapFrame, revealRect, visibleRect, zoomAt } from "./view";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -67,5 +67,56 @@ describe("fitView", () => {
     expect(c.bottom).toBeLessThanOrEqual(stage.height + 1e-9);
     expect(c.left).toBeCloseTo(stage.width - c.right, 6);
     expect(c.top).toBeCloseTo(stage.height - c.bottom, 6);
+  });
+});
+
+describe("zoomAt", () => {
+  it("keeps the diagram point under the cursor fixed", () => {
+    const v = { zoom: 1, tx: 30, ty: -20 };
+    const px = 400;
+    const py = 250;
+    const before = { x: (px - v.tx) / v.zoom, y: (py - v.ty) / v.zoom };
+    const z = zoomAt(v, 1.8, px, py);
+    expect(z.zoom).toBeCloseTo(1.8, 9);
+    expect((px - z.tx) / z.zoom).toBeCloseTo(before.x, 9);
+    expect((py - z.ty) / z.zoom).toBeCloseTo(before.y, 9);
+  });
+
+  it("clamps the zoom", () => {
+    expect(zoomAt({ zoom: 3.9, tx: 0, ty: 0 }, 5, 0, 0).zoom).toBe(MAX_ZOOM);
+    expect(zoomAt({ zoom: 0.11, tx: 0, ty: 0 }, 0.1, 0, 0).zoom).toBe(MIN_ZOOM);
+  });
+});
+
+describe("visibleRect / centerOn / revealRect", () => {
+  const stage = { width: 800, height: 600 };
+  it("reports the diagram rectangle in view and centres on a point", () => {
+    const v = centerOn({ zoom: 2, tx: 0, ty: 0 }, stage, 500, 300);
+    const r = visibleRect(v, stage);
+    expect(r.x + r.width / 2).toBeCloseTo(500, 9);
+    expect(r.y + r.height / 2).toBeCloseTo(300, 9);
+    expect(r.width).toBe(400);
+  });
+
+  it("pans only as much as needed to reveal a box, and not at all when it is visible", () => {
+    const v = { zoom: 1, tx: 0, ty: 0 };
+    expect(revealRect(v, stage, { x: 100, y: 100, width: 100, height: 50 })).toBe(v);
+    const moved = revealRect(v, stage, { x: 900, y: 100, width: 100, height: 50 });
+    expect(moved.tx).toBeLessThan(0);
+    expect(moved.ty).toBe(0);
+    const r = visibleRect(moved, stage);
+    expect(r.x + r.width).toBeGreaterThanOrEqual(1000);
+  });
+});
+
+describe("minimapFrame", () => {
+  it("fits the bounds into the box keeping the aspect ratio", () => {
+    const f = minimapFrame({ x: -48, y: -48, width: 2000, height: 1000 }, { width: 200, height: 140 });
+    expect(f.width).toBe(200);
+    expect(f.height).toBe(100);
+    expect(f.scale).toBeCloseTo(0.1, 9);
+  });
+  it("is empty for empty bounds", () => {
+    expect(minimapFrame({ x: 0, y: 0, width: 0, height: 0 }, { width: 200, height: 140 })).toEqual({ width: 0, height: 0, scale: 0 });
   });
 });

@@ -1,6 +1,38 @@
+/* The diagram's rainbow: 12 categorical colours for table headers and the foreign keys leaving them. They follow the
+   shared --rainbow-N tokens when the theme defines them and fall back to these values otherwise, so the diagram looks
+   right with or without them (palette.ts reads --dgd-c1..12). Vivid on a dark canvas, deeper on a light one. */
+:root {
+  --dgd-c1: var(--rainbow-1, #e05652);
+  --dgd-c2: var(--rainbow-2, #e08f52);
+  --dgd-c3: var(--rainbow-3, #e0bf52);
+  --dgd-c4: var(--rainbow-4, #a3e052);
+  --dgd-c5: var(--rainbow-5, #52e086);
+  --dgd-c6: var(--rainbow-6, #52e0c4);
+  --dgd-c7: var(--rainbow-7, #52c9e0);
+  --dgd-c8: var(--rainbow-8, #5294e0);
+  --dgd-c9: var(--rainbow-9, #5256e0);
+  --dgd-c10: var(--rainbow-10, #9452e0);
+  --dgd-c11: var(--rainbow-11, #e052e0);
+  --dgd-c12: var(--rainbow-12, #e05294);
+}
+:root[data-theme="light"] {
+  --dgd-c1: var(--rainbow-1, #bf2722);
+  --dgd-c2: var(--rainbow-2, #bf6622);
+  --dgd-c3: var(--rainbow-3, #bf9a22);
+  --dgd-c4: var(--rainbow-4, #7bbf22);
+  --dgd-c5: var(--rainbow-5, #22bf5b);
+  --dgd-c6: var(--rainbow-6, #22bf9f);
+  --dgd-c7: var(--rainbow-7, #22a5bf);
+  --dgd-c8: var(--rainbow-8, #226bbf);
+  --dgd-c9: var(--rainbow-9, #2227bf);
+  --dgd-c10: var(--rainbow-10, #6b22bf);
+  --dgd-c11: var(--rainbow-11, #bf22bf);
+  --dgd-c12: var(--rainbow-12, #bf226b);
+}
+
 /* Database diagram view (features/diagram). The shared .dgd-view / .dgd-toolbar / .dgd-body base is defined in
-   features/ddl/ddl.css; this file only adds the diagram-specific pieces (the pannable stage, overlays and the
-   toolbar's text buttons, which reuse the grid's `.dgg-i` icon sprites). */
+   features/ddl/ddl.css; this file only adds the diagram-specific pieces (the pannable stage, overlays, legend,
+   minimap and the toolbar's text buttons, which reuse the grid's `.dgg-i` icon sprites). */
 .dgd-stage {
   position: relative;
   flex: 1;
@@ -8,6 +40,13 @@
   min-height: 0;
   overflow: hidden;
   background: var(--dg-editor-bg, #191a1c);
+}
+.dgd-stage:focus-visible {
+  outline: 2px solid var(--dg-accent, #3871e1);
+  outline-offset: -2px;
+}
+.dgd-stage.panning {
+  cursor: grabbing;
 }
 .dgd-stage svg {
   display: block;
@@ -41,6 +80,9 @@
   color: var(--dg-link, #548af7);
   cursor: pointer;
 }
+.dgd-toolbar {
+  overflow: hidden;
+}
 .dgd-tbtn {
   flex: none;
   display: inline-flex;
@@ -55,6 +97,7 @@
   background: transparent;
   color: var(--dg-toolbar-fg, #d1d3d9);
   font: 12px / 16px var(--dg-font-ui, "Inter", sans-serif);
+  white-space: nowrap;
   cursor: default;
   outline: none;
 }
@@ -71,4 +114,160 @@
   width: 12px;
   height: 12px;
   background-size: 12px 12px;
+}
+/* the small rainbow bar of the Color button */
+.dgd-rainbow {
+  width: 14px;
+  height: 8px;
+  margin-right: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--dgd-c1), var(--dgd-c3), var(--dgd-c5), var(--dgd-c7), var(--dgd-c9), var(--dgd-c11));
+}
+/* screen-reader only */
+.dgd-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* the legend is a bar docked under the toolbar (it never covers the diagram), the minimap and the note float */
+.dgd-minimap,
+.dgd-note {
+  position: absolute;
+  background: color-mix(in srgb, var(--dg-island-bg, #1f2024) 92%, transparent);
+  border: 1px solid var(--dg-separator, #33353b);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px #0003;
+  font: 11.5px / 16px var(--dg-font-ui, "Inter", sans-serif);
+  color: var(--dg-text, #d1d3d9);
+}
+.dgd-legend {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px 14px;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 3px 10px;
+  border-bottom: 1px solid var(--dg-border, #26282c);
+  font: 11.5px / 16px var(--dg-font-ui, "Inter", sans-serif);
+  color: var(--dg-text, #d1d3d9);
+}
+.dgd-legend-title {
+  flex: none;
+  color: var(--dg-text-secondary, #73767c);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.dgd-legend-groups {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 2px 4px;
+  min-width: 0;
+  max-height: 52px;
+  overflow-y: auto;
+}
+.dgd-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 200px;
+  padding: 1px 7px 1px 5px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.dgd-legend-item:hover {
+  background: var(--dg-action-button-hover-bg, #ffffff17);
+}
+.dgd-legend-item.active {
+  background: var(--dg-toolbar-button-pressed-bg, #ffffff29);
+}
+.dgd-swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.dgd-legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dgd-legend-count {
+  color: var(--dg-text-secondary, #73767c);
+  font-variant-numeric: tabular-nums;
+}
+.dgd-legend-notation {
+  display: flex;
+  flex: none;
+  gap: 2px 12px;
+  margin-left: auto;
+  color: var(--dg-text-secondary, #73767c);
+}
+.dgd-legend-notation span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dgd-minimap {
+  right: 12px;
+  bottom: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+}
+.dgd-minimap-map {
+  position: absolute;
+  inset: 0;
+  line-height: 0;
+  opacity: 0.85;
+}
+.dgd-minimap-view {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid var(--dg-accent, #3871e1);
+  background: color-mix(in srgb, var(--dg-accent, #3871e1) 18%, transparent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+.dgd-note {
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  color: var(--dg-text-secondary, #73767c);
+  pointer-events: none;
+}
+.dgd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.dgd-empty svg {
+  margin-bottom: 6px;
+  opacity: 0.55;
+}
+.dgd-empty-title {
+  color: var(--dg-text, #d1d3d9);
+  font-size: 14px;
+  font-weight: 600;
+}
+.dgd-empty-hint {
+  max-width: 300px;
 }

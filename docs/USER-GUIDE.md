@@ -87,8 +87,31 @@ automatically. The history file is compacted in place without blocking the UI.
 ## Diagrams
 
 Right-click a schema or a table and choose **Diagrams > Show Diagram** (Ctrl+Alt+Shift+U). Tables are boxes
-with their columns; lines are foreign keys. Use the wheel to zoom, drag the background to pan, drag a table
-to move it, and double-click a table to open its data. The toolbar can export the diagram to SVG or PNG.
+with their columns; lines are foreign keys.
+
+- **Reading it:** referenced tables sit before (left of, or above) the tables that reference them. A line
+  leaves the referencing table at the row of its foreign key column and enters the referenced table at the
+  referenced column: a crow's foot is the "many" side, a single bar the "one" side. Lines are routed around
+  the boxes, and parallel lines run side by side. A self reference is a loop on the right of the table.
+- **Colour:** the header colour and the lines that leave a table encode meaning. **Color** picks it:
+  **Cluster** (groups of closely related tables), **Schema**, **Name Prefix** (`order_*`, `user_*` ...) or
+  **None**. The legend under the toolbar lists the groups; click one to highlight it. Header text is chosen
+  for contrast, so the colours work in both the dark and the light theme.
+- **Detail:** **All Columns**, **Keys Only** (primary / foreign keys and the columns other tables point at)
+  or **Compact** (just the names). Schemas of 60 tables or more open as keys only. A table with many
+  columns shows its keys plus the first columns and a `+N more` row. **Types** toggles the column types and
+  **Labels** draws the foreign key names on the lines.
+- **Layout:** **Left to Right** or **Top to Bottom**. Unrelated tables are packed together and no two boxes
+  ever overlap. **Re-layout** (L) drops the positions you dragged; **Fit** (0) and **Actual Size** (1) reset
+  the view.
+- **Exploring:** the wheel zooms to the cursor, dragging the background pans, and the **Map** (bottom
+  right) shows where you are and jumps when clicked. Hover a table or a line to spotlight it with its
+  neighbours: the unrelated ones fade and the foreign key columns light up. Click to keep the spotlight.
+  Drag a table to move it: its lines are re-routed live and it never lands on another table. Double-click a
+  table to open its data; right-click for more.
+- **Keyboard:** focus the diagram, then the arrow keys move between tables (Shift+arrows pan), Tab / Shift+Tab
+  walk through them, Enter opens the table, `+` / `-` zoom, Esc clears the selection.
+- **Export:** **Export** writes the diagram as SVG or PNG, in the current colours and with the current labels.
 
 ## Data source colors
 

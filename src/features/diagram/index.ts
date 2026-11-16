@@ -3,7 +3,8 @@
  * (Ctrl+Alt+Shift+U, guarded to the explorer). The diagram opens on the selected explorer node: a schema draws
  * that schema, a data source / database draws every table, and a table (or one of its children) draws its schema.
  * Several selected tables (or views) of one schema draw just those tables (`tables` in the tab data).
- * Model building, layout and SVG rendering are pure modules (model.ts / layout.ts / svg.ts) covered by vitest.
+ * Model building, layout (Sugiyama), edge routing, colour groups and SVG rendering are pure modules (model.ts /
+ * layout.ts / route.ts / groups.ts / svg.ts) covered by vitest; DiagramView.tsx is the interactive shell.
  */
 import type { NodeKind } from "../../api/types";
 import { registerActions } from "../../state/actions";
