@@ -486,7 +486,27 @@ impl ConnectionManager {
     /// its data source reconnected. dbcore does not remember session settings itself. If a statement
     /// fails, the connection is closed and its error is returned (no session is left behind).
     pub async fn open_session_with(&self, ds_id: &str, init_sql: &[String]) -> Result<SessionId> {
+        self.open_session_in(ds_id, None, init_sql).await
+    }
+
+    /// [`open_session_with`](Self::open_session_with) that first makes `schema` the session's current schema (the
+    /// statement is built here, quoted by `quote_ident`, so a caller never writes SQL with a schema name in it).
+    /// `None`, a blank name and SQLite (one schema per file) switch nothing; a name with a NUL is rejected.
+    pub async fn open_session_in(
+        &self,
+        ds_id: &str,
+        schema: Option<&str>,
+        init_sql: &[String],
+    ) -> Result<SessionId> {
         let live = self.live(ds_id)?;
+        let mut init: Vec<String> = Vec::with_capacity(init_sql.len() + 1);
+        if let Some(sc) = schema.filter(|s| !s.trim().is_empty()) {
+            if live.driver() != Driver::Sqlite {
+                init.push(session_schema_sql(live.driver(), sc)?);
+            }
+        }
+        init.extend(init_sql.iter().cloned());
+        let init_sql = &init[..];
         let Opened {
             conn,
             cancel,
@@ -673,6 +693,25 @@ mod schema_tests {
         );
         let sql = session_schema_sql(Driver::Postgres, "x\"; drop table t; --").unwrap();
         assert_eq!(sql, "SET search_path TO \"x\"\"; drop table t; --\"");
+    }
+
+    /// The only place a schema name becomes SQL (the console and the run configurations pass the bare name to
+    /// `open_session`): quotes of every kind, line breaks and non-ASCII stay inside the quoted identifier.
+    #[test]
+    fn newlines_quotes_and_unicode_stay_inside_the_identifier() {
+        let name = "a\"b`c'd\n\r\ndrop; -- \u{e9}\u{1f600}\u{202e}";
+        assert_eq!(
+            session_schema_sql(Driver::Postgres, name).unwrap(),
+            "SET search_path TO \"a\"\"b`c'd\n\r\ndrop; -- \u{e9}\u{1f600}\u{202e}\""
+        );
+        assert_eq!(
+            session_schema_sql(Driver::MySql, name).unwrap(),
+            "USE `a\"b``c'd\n\r\ndrop; -- \u{e9}\u{1f600}\u{202e}`"
+        );
+        assert_eq!(
+            session_schema_sql(Driver::Oracle, name).unwrap(),
+            "ALTER SESSION SET CURRENT_SCHEMA = \"a\"\"b`c'd\n\r\ndrop; -- \u{e9}\u{1f600}\u{202e}\""
+        );
     }
 
     #[test]

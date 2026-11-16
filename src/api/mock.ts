@@ -1634,7 +1634,7 @@ export const mockHandlers: Record<string, MockHandler> = {
     needConn(a.dsId);
     const id = uuid();
     // the init statements (`ALTER SESSION SET CURRENT_SCHEMA` / `SET search_path` / `USE`) set the schema the session starts in
-    const schema = ((a.initSql as string[] | undefined) ?? []).reduce<string | undefined>((cur, sql) => schemaSwitch(sql) ?? cur, undefined);
+    const schema = ((a.initSql as string[] | undefined) ?? []).reduce<string | undefined>((cur, sql) => schemaSwitch(sql) ?? cur, (a.schema as string | null) || undefined);
     state.sessions.set(id, { ds: a.dsId, tx: false, running: null, schema });
     return id;
   }),

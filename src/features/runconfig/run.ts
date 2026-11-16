@@ -15,7 +15,7 @@ import { dsOf } from "../console/ds";
 import { ensureConnected } from "../explorer";
 import { completedIn, formatDuration, rowsAffected, rowsRetrieved, summary } from "../output/format";
 import { ConsoleOutput } from "../output/model";
-import { type RunConfig, baseName, initSql, scriptOptionsOf, scriptResult, stopsAfterFailure } from "./model";
+import { type RunConfig, baseName, scriptOptionsOf, scriptResult, stopsAfterFailure } from "./model";
 
 const errText = (e: unknown): string => String((e as Error)?.message ?? e).replace(/^Error:\s*/, "");
 
@@ -154,7 +154,7 @@ export function startRun(cfg: RunConfig): RunSession {
         let sid: string;
         try {
           await ensureConnected(ds.id);
-          sid = await openSession(ds.id, initSql(ds.driver, target.schema));
+          sid = await openSession(ds.id, [], target.schema);
         } catch (e) {
           out.log("error", errText(e));
           failed++;

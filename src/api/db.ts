@@ -82,9 +82,11 @@ export const connectedDataSources = (): Promise<string[]> => invoke("connected_d
  * `initSql`: statements run, in order, on the new connection before it is returned. The backend does not
  * remember session settings, so a reopened console (or one on a reconnected data source) re-applies its
  * `SET search_path` / `USE db` / isolation level this way. A failing statement rejects and no session is left.
+ * `schema`: the schema the session starts in. The backend writes (and quotes) that statement itself, before `initSql`:
+ * a schema name never goes through SQL text built here.
  */
-export const openSession = (dsId: string, initSql: string[] = []): Promise<string> =>
-  invoke("open_session", { dsId, initSql });
+export const openSession = (dsId: string, initSql: string[] = [], schema?: string | null): Promise<string> =>
+  invoke("open_session", { dsId, initSql, schema: schema || null });
 
 export const closeSession = (sessionId: string): Promise<void> => invoke("close_session", { sessionId });
 

@@ -5,6 +5,11 @@ import type { MenuItem } from "../ui/Menu";
 // the menu structure is pure data: keep the explorer / import feature modules (and their DOM needs) out of it
 vi.mock("../../features/explorer/core", () => ({ selectedNode: () => undefined }));
 vi.mock("../../features/import/target", () => ({ importTargetOf: () => null }));
+// `../ui` is a barrel of every widget (dialogs, grid, editor ...): importing it is what made the first import slow.
+// menus.ts only needs `notify` from it.
+vi.mock("../ui", () => ({ notify: () => {} }));
+vi.mock("../../api/tauri", () => ({ openLogFolder: async () => {} }));
+vi.mock("../../api/db", () => ({ getUiState: async () => null, setUiState: async () => {} })); // the layout's persistence
 
 let MAIN_MENU: typeof import("./menus").MAIN_MENU;
 let GEAR_MENU: typeof import("./menus").GEAR_MENU;
@@ -14,8 +19,9 @@ beforeAll(async () => {
   (globalThis as Record<string, unknown>).document = doc;
   (globalThis as Record<string, unknown>).window = { addEventListener: () => {}, removeEventListener: () => {}, localStorage: undefined, document: doc };
   ({ MAIN_MENU, GEAR_MENU } = await import("./menus"));
-  // the first import transforms the whole module graph: under a loaded machine it can pass the 10 s default of a hook
-}, 60_000);
+  // the module graph is kept small by the mocks above (it used to pull the whole UI); the larger limit is only a margin
+  // for a loaded CI machine: a real failure of the import still rejects the hook at once
+}, 30_000);
 
 /** Letters (lower-cased) that share a mnemonic among the items of one menu level. */
 function clashes(items: MenuItem[], where: string): string[] {

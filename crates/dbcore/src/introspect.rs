@@ -68,12 +68,13 @@ fn choices_of(nodes: &[TreeNode], is_default: impl Fn(&TreeNode) -> bool) -> Vec
 
 /// Oracle: every user (`ALL_USERS`) with whether it owns an object the account can see; `current` first, then by
 /// name. A user without objects is a valid target of `ALTER SESSION SET CURRENT_SCHEMA` too.
-fn ora_schema_choices_sql(current: &str) -> String {
+fn ora_schema_choices_sql(current: &str, maintained: bool) -> String {
     format!(
-        "select u.username, u.oracle_maintained, case when o.owner is null then 'N' else 'Y' end \
+        "select u.username, case when {sys} then 'Y' else 'N' end, \
+                case when exists (select 1 from all_objects o where o.owner = u.username and rownum = 1) then 'Y' else 'N' end \
          from all_users u \
-         left join (select distinct owner from all_objects) o on o.owner = u.username \
          order by case when u.username = {cur} then 0 else 1 end, lower(u.username), u.username",
+        sys = ora_is_system_user(maintained, "u", "u.username"),
         cur = ORA_LIT(current)
     )
 }
@@ -221,9 +222,10 @@ impl ConnectionManager {
         match live.driver() {
             Driver::Oracle => {
                 let cur = ora_current_schema(&live.pool).await?;
+                let maintained = ora_has_maintained_flag(&live.pool).await;
                 let rows = live
                     .pool
-                    .query_strings(&ora_schema_choices_sql(&cur))
+                    .query_strings(&ora_schema_choices_sql(&cur, maintained))
                     .await?;
                 Ok(rows
                     .iter()
@@ -1284,6 +1286,94 @@ pub(crate) async fn ora_current_schema(pool: &Pool) -> Result<String> {
         .unwrap_or_default())
 }
 
+/// Accounts Oracle ships (and the components it installs) up to 12.1, where `ALL_USERS.ORACLE_MAINTAINED` does not
+/// exist yet (12.2+ only). Used to tell system schemas apart on 10g / 11g / 12.1 servers.
+const ORA_SYSTEM_USERS: &[&str] = &[
+    "ANONYMOUS",
+    "APPQOSSYS",
+    "AUDSYS",
+    "CTXSYS",
+    "DBSFWUSER",
+    "DBSNMP",
+    "DIP",
+    "DMSYS",
+    "DVF",
+    "DVSYS",
+    "EXFSYS",
+    "GGSYS",
+    "GSMADMIN_INTERNAL",
+    "GSMCATUSER",
+    "GSMUSER",
+    "LBACSYS",
+    "MDDATA",
+    "MDSYS",
+    "MGMT_VIEW",
+    "OJVMSYS",
+    "OLAPSYS",
+    "ORACLE_OCM",
+    "ORDDATA",
+    "ORDPLUGINS",
+    "ORDSYS",
+    "OUTLN",
+    "OWBSYS",
+    "OWBSYS_AUDIT",
+    "PUBLIC",
+    "REMOTE_SCHEDULER_AGENT",
+    "SI_INFORMTN_SCHEMA",
+    "SPATIAL_CSW_ADMIN_USR",
+    "SPATIAL_WFS_ADMIN_USR",
+    "SYS",
+    "SYS$UMF",
+    "SYSBACKUP",
+    "SYSDG",
+    "SYSKM",
+    "SYSMAN",
+    "SYSRAC",
+    "SYSTEM",
+    "TSMSYS",
+    "WK_TEST",
+    "WKPROXY",
+    "WKSYS",
+    "WMSYS",
+    "XDB",
+    "XS$NULL",
+];
+
+/// Whether `ALL_USERS` has the `ORACLE_MAINTAINED` column (12.2+). Asked of the dictionary instead of tried and
+/// retried on ORA-00904; if even that fails the name list is used, which works on every version.
+pub(crate) async fn ora_has_maintained_flag(pool: &Pool) -> bool {
+    pool.query_strings(
+        "select count(*) from all_tab_columns \
+         where owner = 'SYS' and table_name = 'ALL_USERS' and column_name = 'ORACLE_MAINTAINED'",
+    )
+    .await
+    .ok()
+    .and_then(|rows| rows.first().map(|r| n(r, 0) > 0))
+    .unwrap_or(false)
+}
+
+/// SQL boolean: the user `col` is one of Oracle's own (SYS, SYSTEM, ...). `maintained` = the server has
+/// `ORACLE_MAINTAINED` ([`ora_has_maintained_flag`]); `alias` is the `ALL_USERS` alias to read it from. Older servers
+/// get the known-name list plus the `APEX_` / `FLOWS_` families, whose names carry the release.
+pub(crate) fn ora_is_system_user(maintained: bool, alias: &str, col: &str) -> String {
+    if maintained {
+        return format!("{alias}.oracle_maintained = 'Y'");
+    }
+    let names: Vec<String> = ORA_SYSTEM_USERS.iter().map(|u| format!("'{u}'")).collect();
+    format!(
+        "({col} in ({}) or {col} like 'APEX\\_%' escape '\\' or {col} like 'FLOWS\\_%' escape '\\')",
+        names.join(", ")
+    )
+}
+
+/// SQL: `col` is the owner of user (non Oracle-maintained) objects.
+pub(crate) fn ora_user_owners(maintained: bool, col: &str) -> String {
+    format!(
+        "{col} in (select u.username from all_users u where not {})",
+        ora_is_system_user(maintained, "u", "u.username")
+    )
+}
+
 /// Tables that are not the storage of a materialized view or a nested / overflow / dropped one.
 pub(crate) fn ora_table_filter(alias: &str) -> String {
     format!(
@@ -1358,16 +1448,21 @@ async fn ora_children(
     match path.len() {
         0 => {
             let cur = ora_current_schema(pool).await?;
+            let maintained = ora_has_maintained_flag(pool).await;
             let sys = if opts.show_system {
-                ""
+                String::new()
             } else {
-                " and u.oracle_maintained = 'N'"
+                format!(
+                    " and not {}",
+                    ora_is_system_user(maintained, "u", "u.username")
+                )
             };
             let rows = pool
                 .query_strings(&format!(
-                    "select u.username, u.oracle_maintained from all_users u \
+                    "select u.username, case when {issys} then 'Y' else 'N' end from all_users u \
                      where (u.username = {cur} or exists (select 1 from all_objects o where o.owner = u.username)){sys} \
                      order by case when u.username = {cur} then 0 else 1 end, lower(u.username), u.username",
+                    issys = ora_is_system_user(maintained, "u", "u.username"),
                     cur = ORA_LIT(&cur)
                 ))
                 .await?;
@@ -2634,8 +2729,7 @@ async fn snapshot(live: &Live, schema: Option<&str>) -> Result<Vec<SnapshotObjec
         Driver::Oracle => {
             let filter = match schema {
                 Some(sc) => format!("o.owner = {}", quote_literal(Driver::Oracle, sc)),
-                None => "o.owner in (select username from all_users where oracle_maintained = 'N')"
-                    .into(),
+                None => ora_user_owners(ora_has_maintained_flag(pool).await, "o.owner"),
             };
             let rows = pool
                 .query_strings(&format!(
@@ -2825,8 +2919,7 @@ async fn snapshot_foreign_keys(
         Driver::Oracle => {
             let filter = match schema {
                 Some(sc) => format!("a.owner = {}", quote_literal(Driver::Oracle, sc)),
-                None => "a.owner in (select username from all_users where oracle_maintained = 'N')"
-                    .into(),
+                None => ora_user_owners(ora_has_maintained_flag(pool).await, "a.owner"),
             };
             let rows = pool
                 .query_strings(&format!(
@@ -2889,11 +2982,42 @@ mod schema_choice_tests {
 
     #[test]
     fn oracle_listing_reads_all_users_and_quotes_the_current_one() {
-        let sql = ora_schema_choices_sql("O'NEIL");
+        let sql = ora_schema_choices_sql("O'NEIL", true);
         assert!(sql.contains("from all_users u"));
-        assert!(sql.contains("left join (select distinct owner from all_objects)"));
+        // one probe per user that stops at the first object, not a `select distinct owner` over all of ALL_OBJECTS
+        assert!(
+            sql.contains(
+                "exists (select 1 from all_objects o where o.owner = u.username and rownum = 1)"
+            ),
+            "{sql}"
+        );
+        assert!(!sql.contains("distinct") && !sql.contains("join"), "{sql}");
         // the current user is a literal, not spliced in raw
         assert!(sql.contains("u.username = 'O''NEIL'"), "{sql}");
+    }
+
+    #[test]
+    fn oracle_system_users_use_the_flag_on_12_2_and_a_name_list_before() {
+        // 12.2+: the authoritative column
+        let sql = ora_schema_choices_sql("HR", true);
+        assert!(sql.contains("u.oracle_maintained = 'Y'"), "{sql}");
+        assert_eq!(
+            ora_user_owners(true, "o.owner"),
+            "o.owner in (select u.username from all_users u where not u.oracle_maintained = 'Y')"
+        );
+        // 10g / 11g / 12.1: the column does not exist (ORA-00904), so it must not appear at all
+        for sql in [
+            ora_schema_choices_sql("HR", false),
+            ora_user_owners(false, "o.owner"),
+            ora_is_system_user(false, "u", "u.username"),
+        ] {
+            assert!(!sql.contains("oracle_maintained"), "{sql}");
+            assert!(sql.contains("'SYS'") && sql.contains("'SYSTEM'"), "{sql}");
+            assert!(sql.contains("'XDB'") && sql.contains("'CTXSYS'"), "{sql}");
+            assert!(sql.contains("like 'APEX\\_%' escape '\\'"), "{sql}");
+        }
+        let owners = ora_user_owners(false, "a.owner");
+        assert!(owners.starts_with("a.owner in (select u.username from all_users u where not ("));
     }
 
     #[test]

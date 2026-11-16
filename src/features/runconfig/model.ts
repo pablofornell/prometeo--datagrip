@@ -73,14 +73,6 @@ export function targetParts(ds: { name: string; database?: string }, t: RunTarge
   return { name: ds.name, schema: t.schema ? (ds.database && t.schema !== ds.database ? `${ds.database}.${t.schema}` : t.schema) : "" };
 }
 
-/** Statements run on the new session before the script (the schema of the target). */
-export function initSql(driver: Driver, schema: string | undefined): string[] {
-  if (!schema || driver === "sqlite") return [];
-  const q = (s: string, c: string) => c + s.replaceAll(c, c + c) + c;
-  if (driver === "oracle") return [`ALTER SESSION SET CURRENT_SCHEMA = ${q(schema, '"')}`];
-  return [driver === "postgres" ? `SET search_path TO ${q(schema, '"')}` : `USE ${q(schema, "`")}`];
-}
-
 /** Last path component (Windows paths use `\`). */
 export const baseName = (p: string): string => p.slice(Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\")) + 1);
 

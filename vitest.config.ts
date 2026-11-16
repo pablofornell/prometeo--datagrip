@@ -1,4 +1,4 @@
-import { defineConfig, mergeConfig } from "vitest/config";
+import { configDefaults, defineConfig, mergeConfig } from "vitest/config";
 import viteConfig from "./vite.config";
 
 // vite-plugin-solid makes jsdom the default test environment, and jsdom is not installed
@@ -7,6 +7,8 @@ export default mergeConfig(
   viteConfig,
   defineConfig({
     test: {
+      // Agent worktrees live under .claude/worktrees and carry full copies of the test files: keep them out.
+      exclude: [...configDefaults.exclude, ".claude/**"],
       environment: "node", // the colour scheme code and the token tests read CSS files with ?raw
       css: { include: [/\.css\?raw/] },
       // Vitest 4 also fakes process.hrtime by default. Its own hook timing then runs on the fake clock, so any test

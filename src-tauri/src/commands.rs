@@ -160,14 +160,17 @@ pub async fn connected_data_sources(state: State<'_, AppState>) -> Res<Vec<Strin
 /// `init_sql` (optional): statements run, in order, on the new connection before the session is returned, to
 /// re-apply per-session settings (`SET search_path`, `USE db`, isolation level) of a reopened console.
 /// The backend does not remember them. A failing statement fails the call and no session is left behind.
+/// `schema` (optional): the schema the session starts in; the backend builds (and quotes) that statement, it
+/// runs before `init_sql`.
 #[tauri::command]
 pub async fn open_session(
     state: State<'_, AppState>,
     ds_id: String,
     init_sql: Option<Vec<String>>,
+    schema: Option<String>,
 ) -> Res<String> {
     state
-        .open_session_with(&ds_id, &init_sql.unwrap_or_default())
+        .open_session_in(&ds_id, schema.as_deref(), &init_sql.unwrap_or_default())
         .await
 }
 

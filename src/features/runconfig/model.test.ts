@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseName, initSql, newConfig, sanitize, scriptOptionsOf, scriptResult, stopsAfterFailure, uniqueName, validate } from "./model";
+import { baseName, newConfig, sanitize, scriptOptionsOf, scriptResult, stopsAfterFailure, uniqueName, validate } from "./model";
 
 describe("run configuration model", () => {
   const known = new Set(["a", "b"]);
@@ -15,13 +15,6 @@ describe("run configuration model", () => {
     expect(uniqueName("scratch.sql", [])).toBe("scratch.sql");
     expect(uniqueName("scratch.sql", ["scratch.sql"])).toBe("scratch.sql (1)");
     expect(uniqueName("scratch.sql", ["scratch.sql", "scratch.sql (1)"])).toBe("scratch.sql (2)");
-  });
-  it("builds the schema statement of a target", () => {
-    expect(initSql("postgres", "public")).toEqual(['SET search_path TO "public"']);
-    expect(initSql("postgres", 'we"ird')).toEqual(['SET search_path TO "we""ird"']);
-    expect(initSql("mysql", "demo")).toEqual(["USE `demo`"]);
-    expect(initSql("sqlite", "main")).toEqual([]);
-    expect(initSql("postgres", undefined)).toEqual([]);
   });
   it("sanitizes stored configurations", () => {
     expect(sanitize(null)).toEqual([]);

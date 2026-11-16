@@ -236,16 +236,16 @@ export class ConsoleSession implements OutputHost {
    * What a (re)opened session needs to look like the console: the schema the user chose and a non-default isolation
    * level. The backend keeps no session settings, so they are re-applied as `initSql`.
    */
-  private initSql(withSchema = true): string[] {
-    if (this.driver === "sqlite") return [];
+  private initSql(withSchema = true): { sql: string[]; schema: string | null } {
+    if (this.driver === "sqlite") return { sql: [], schema: null };
     const sql: string[] = [];
     const want = withSchema ? savedSchema(this.ds.id, this.consoleName) : null;
-    // the user's own `SET search_path` is replayed as written (`"$user", public`); a schema picked in the switcher is one name
+    // the user's own `SET search_path` is replayed as written (`"$user", public`); a schema picked in the switcher is one
+    // name, which the backend turns into SQL (`schema` of `openSession`): no identifier is quoted here
     const path = withSchema && this.driver === "postgres" ? savedSearchPath(this.ds.id, this.consoleName) : null;
     if (path) sql.push(`SET search_path TO ${path}`);
-    else if (want) sql.push(this.useSchemaSql(want));
     if (this.isolation() !== "default") sql.push(this.isolationSql(this.isolation()));
-    return sql;
+    return { sql, schema: path ? null : want };
   }
 
   private isolationSql(i: Isolation): string {
@@ -263,7 +263,8 @@ export class ConsoleSession implements OutputHost {
       await ensureConnected(this.ds.id);
       let sid: string;
       try {
-        sid = await openSession(this.ds.id, this.initSql());
+        const init = this.initSql();
+        sid = await openSession(this.ds.id, init.sql, init.schema);
       } catch (e) {
         if (isSessionLost(e) || !(savedSchema(this.ds.id, this.consoleName) || savedSearchPath(this.ds.id, this.consoleName))) throw e;
         // the saved schema is gone (dropped / renamed): forget it, open with the session default
@@ -271,7 +272,8 @@ export class ConsoleSession implements OutputHost {
         saveSchema(this.ds.id, this.consoleName, null);
         if (tried && storedCurrentSchema(this.ds.id) === tried) storeCurrentSchema(this.ds.id, null);
         saveSearchPath(this.ds.id, this.consoleName, null);
-        sid = await openSession(this.ds.id, this.initSql(false));
+        const init = this.initSql(false);
+        sid = await openSession(this.ds.id, init.sql, init.schema);
       }
       if (this.disposed) {
         void closeSession(sid).catch(() => {});
@@ -352,12 +354,6 @@ export class ConsoleSession implements OutputHost {
       /* the label stays "<schema>" */
     }
     return null;
-  }
-
-  private useSchemaSql(name: string): string {
-    if (this.driver === "oracle") return `ALTER SESSION SET CURRENT_SCHEMA = "${name.replace(/"/g, '""')}"`;
-    const q = this.driver === "postgres" ? `"${name.replace(/"/g, '""')}"` : `\`${name.replace(/`/g, "``")}\``;
-    return this.driver === "postgres" ? `SET search_path TO ${q}` : `USE ${q}`;
   }
 
   /** Re-detect after the user ran `SET search_path` / `USE` themselves; the new schema is the console's from now on. */
