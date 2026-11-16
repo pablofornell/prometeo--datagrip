@@ -599,10 +599,99 @@ impl ConnectionManager {
         Ok(self.session(id)?.tx_status())
     }
 
+    /// Make `schema` the session's current schema: Oracle `ALTER SESSION SET CURRENT_SCHEMA`, PostgreSQL
+    /// `SET search_path`, MySQL `USE`. The name is quoted with `quote_ident`, so any user / schema name the server
+    /// lists (case, spaces, quotes) is safe. SQLite has a single schema per file: `Unsupported`. An open paging
+    /// result of the session is released first; `Busy` while a statement runs.
+    pub async fn set_session_schema(&self, id: &SessionId, schema: &str) -> Result<()> {
+        let sess = self.session(id)?;
+        let sql = session_schema_sql(sess.live.driver(), schema)?;
+        let mut guard = self.lock_session_conn(&sess).await?;
+        let res = match guard.as_mut() {
+            Some(conn) => crate::tx::run_tracked(&sess, conn, &sql).await,
+            None => return Err(DbError::NoSession(id.0.clone())),
+        };
+        // a dead connection kills the session (see `Session::fail`)
+        res.map_err(|e| sess.fail(&mut guard, e))
+    }
+
     /// Transaction status plus whether the connection is lost (and whether a transaction died with it).
     /// `tx_status` / `in_transaction` equal [`session_tx_status`](Self::session_tx_status) /
     /// [`session_in_transaction`](Self::session_in_transaction).
     pub fn session_state(&self, id: &SessionId) -> Result<SessionState> {
         Ok(self.session(id)?.state())
+    }
+}
+
+/// The statement of [`ConnectionManager::set_session_schema`]; rejects a name that cannot be an identifier.
+fn session_schema_sql(d: Driver, schema: &str) -> Result<String> {
+    if d == Driver::Sqlite {
+        return Err(DbError::Unsupported(
+            "SQLite has a single schema per file: there is nothing to switch".into(),
+        ));
+    }
+    if schema.trim().is_empty() || schema.contains('\0') {
+        return Err(DbError::InvalidArgument(
+            "The schema name is empty or contains a NUL character".into(),
+        ));
+    }
+    crate::script::schema_sql(d, Some(schema))
+        .ok_or_else(|| DbError::InvalidArgument("No schema to switch to".into()))
+}
+
+#[cfg(test)]
+mod schema_tests {
+    use super::*;
+
+    #[test]
+    fn switch_sql_is_quoted_per_driver() {
+        assert_eq!(
+            session_schema_sql(Driver::Oracle, "HR").unwrap(),
+            "ALTER SESSION SET CURRENT_SCHEMA = HR"
+        );
+        // an Oracle user created with quotes keeps its case: it must be quoted back
+        assert_eq!(
+            session_schema_sql(Driver::Oracle, "App User").unwrap(),
+            "ALTER SESSION SET CURRENT_SCHEMA = \"App User\""
+        );
+        assert_eq!(
+            session_schema_sql(Driver::Postgres, "my\"s").unwrap(),
+            "SET search_path TO \"my\"\"s\""
+        );
+        assert_eq!(
+            session_schema_sql(Driver::MySql, "a`b").unwrap(),
+            "USE `a``b`"
+        );
+    }
+
+    #[test]
+    fn injection_stays_inside_the_identifier() {
+        let sql = session_schema_sql(Driver::Oracle, "X\"; DROP USER SYSTEM; --").unwrap();
+        assert_eq!(
+            sql,
+            "ALTER SESSION SET CURRENT_SCHEMA = \"X\"\"; DROP USER SYSTEM; --\""
+        );
+        let sql = session_schema_sql(Driver::Postgres, "x\"; drop table t; --").unwrap();
+        assert_eq!(sql, "SET search_path TO \"x\"\"; drop table t; --\"");
+    }
+
+    #[test]
+    fn rejects_what_is_no_identifier() {
+        assert!(matches!(
+            session_schema_sql(Driver::Oracle, "  "),
+            Err(DbError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            session_schema_sql(Driver::Postgres, ""),
+            Err(DbError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            session_schema_sql(Driver::MySql, "a\0b"),
+            Err(DbError::InvalidArgument(_))
+        ));
+        assert!(matches!(
+            session_schema_sql(Driver::Sqlite, "main"),
+            Err(DbError::Unsupported(_))
+        ));
     }
 }

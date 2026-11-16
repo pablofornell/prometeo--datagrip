@@ -28,6 +28,7 @@ import type {
   ObjectRef,
   ResultSet,
   RowChange,
+  SchemaChoice,
   SchemaModel,
   ValueFile,
   SessionState,
@@ -111,6 +112,18 @@ export const sessionState = (sessionId: string): Promise<SessionState> =>
 /** Lazy children of a tree path (see crates/dbcore/src/introspect.rs for the path layout). */
 export const introspect = (dsId: string, path: string[], showSystem = false): Promise<TreeNode[]> =>
   invoke("introspect", { dsId, path, showSystem });
+
+/**
+ * Everything the User/Schema selector offers: Oracle lists ALL users (`ALL_USERS`) and says which own objects,
+ * PostgreSQL the schemas of the connected database, MySQL the databases. System ones included (`system`).
+ */
+export const listSchemas = (dsId: string): Promise<SchemaChoice[]> => invoke("list_schemas", { dsId });
+
+/**
+ * Makes `schema` the session's current schema (Oracle `ALTER SESSION SET CURRENT_SCHEMA`, PostgreSQL `SET search_path`,
+ * MySQL `USE`). The backend quotes the identifier; rejects while the session runs a statement.
+ */
+export const setSessionSchema = (sessionId: string, schema: string): Promise<void> => invoke("set_session_schema", { sessionId, schema });
 
 /** `unqualified`: names of the object's own schema without the schema (the DDL view); scripts keep them qualified. */
 export const getDdl = (dsId: string, object: ObjectRef, unqualified = false): Promise<string> => invoke("get_ddl", { dsId, object, unqualified });

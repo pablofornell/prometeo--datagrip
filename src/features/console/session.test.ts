@@ -10,6 +10,8 @@ const be = {
   opened: [] as { sid: string; initSql: string[] }[],
   ran: [] as string[],
   txCalls: [] as string[],
+  /** The names `setSessionSchema` was asked for (the backend quotes them). */
+  switched: [] as string[],
   /** What `current_schema()` / `database()` answer. */
   schema: "public",
 };
@@ -85,6 +87,12 @@ vi.mock("../../api/db", () => ({
     return { executionId: "x", done: p, cancel: async () => {}, close: async () => {}, fetchMore: async () => ({ rows: [], hasMore: false }) };
   }),
   introspect: vi.fn(async () => []),
+  setSessionSchema: vi.fn(async (sid: string, schema: string) => {
+    if (!be.sessions.has(sid)) throw gone(sid);
+    if (schema === "nope") throw new Error('schema "nope" does not exist');
+    be.schema = schema;
+    be.switched.push(schema);
+  }),
   explainPlan: vi.fn(async (sid: string, sql: string, analyze: boolean) => {
     if (!be.sessions.has(sid)) throw gone(sid);
     if (/nope/.test(sql)) throw new Error("relation \"nope\" does not exist");
@@ -129,7 +137,7 @@ const lines = (s: ConsoleSession) => s.out.lines.map((l) => l.text);
 beforeEach(() => {
   be.sessions.clear();
   be.tx.clear();
-  be.opened.length = be.ran.length = 0;
+  be.opened.length = be.ran.length = be.switched.length = 0;
   be.next = 1;
   be.schema = "public";
   notify.mockClear();
@@ -320,6 +328,33 @@ describe("schema switcher", () => {
     expect(nodes.filter(isNamespace).map((x: { name: string }) => x.name)).toEqual(["public", "shop"]);
     expect(isNamespace(n("database", "postgres"))).toBe(true);
     expect(isNamespace(n("folder", "Server Objects", { group: true }))).toBe(false);
+  });
+
+  it("switches through the backend with the bare name (the backend quotes it), then shows and remembers it", async () => {
+    const s = mk();
+    expect(await s.switchSchema('App "Users"')).toBe(true);
+    expect(be.switched).toEqual(['App "Users"']);
+    // no SQL was built here: nothing but the session's own reads ran
+    expect(be.ran.some((q) => /search_path/i.test(q))).toBe(false);
+    expect(s.schema()).toBe('App "Users"');
+    expect(savedSchema("d1", "console")).toBe('App "Users"');
+    expect(s.label()).toBe('shop.App "Users"');
+  });
+  it("a failed switch keeps the schema, says why and resolves false", async () => {
+    const s = mk();
+    await s.switchSchema("shop");
+    notify.mockClear();
+    expect(await s.switchSchema("nope")).toBe(false);
+    expect(s.schema()).toBe("shop");
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ kind: "error", title: "Cannot switch the schema", body: 'schema "nope" does not exist' }));
+  });
+  it("refuses while a statement runs, and for SQLite", async () => {
+    const s = mk();
+    (s.out as unknown as { running: () => boolean }).running = () => true;
+    expect(await s.switchSchema("shop")).toBe(false);
+    expect(be.switched).toEqual([]);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: "Cannot switch the schema" }));
+    expect(await new ConsoleSession("t2", { id: "d2", name: "l", driver: "sqlite", database: "", readOnly: false } as never, "console", () => "c").switchSchema("main")).toBe(false);
   });
 });
 

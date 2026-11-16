@@ -143,6 +143,20 @@ export interface SnapshotForeignKey {
   refColumns: string[];
 }
 
+/** One entry of the User/Schema selector (`list_schemas`, crates/dbcore/src/introspect.rs). */
+export interface SchemaChoice {
+  /** What the session is switched to: the Oracle user, the PostgreSQL schema, the MySQL database. */
+  name: string;
+  /** Introspection path of the node (what the schema filter stores): PG `[db, schema]`, otherwise `[name]`. */
+  path: string[];
+  /** Maintained by the server itself (SYS, pg_catalog, mysql, SQLite temp). */
+  system: boolean;
+  /** The one the connection starts in. */
+  default: boolean;
+  /** Oracle: the user owns objects the account can see; null where the server was not asked. */
+  hasObjects: boolean | null;
+}
+
 export interface SnapshotObject {
   schema: string;
   name: string;
