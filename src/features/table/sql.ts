@@ -3,7 +3,7 @@
  * ORDER BY <-> header sort, column-filter conditions, the pending-changes SQL preview and the mapping of
  * grid changes to dbcore `RowChange`s (with the hidden row locators of tables without a primary key).
  */
-import { ORACLE_RESERVED } from "../../components/editor/keywords";
+import { isKeyword } from "../schema-editor/keywords";
 import type { Cell as ApiCell, ColumnMeta, Driver, ObjectRef, RowChange } from "../../api/types";
 // direct module paths: the grid barrel pulls in the Solid components (not loadable in the node test environment)
 import { classifyType, isBinaryCell, isDefaultCell, isExprCell } from "../../components/grid/format";
@@ -12,9 +12,12 @@ import type { Cell, GridChange, SortSpec } from "../../components/grid/types";
 const SIMPLE_IDENT = /^[a-z_][a-z0-9_$]*$/;
 const ORACLE_IDENT = /^[A-Z][A-Z0-9_$#]*$/;
 
-/** Written without quotes: lower case (upper case, and not a reserved word, in Oracle, which folds unquoted names up). */
+/**
+ * Written without quotes: lower case and not a keyword of the dialect (`order`, `user`, `group` need quotes); upper
+ * case, and not a reserved word, in Oracle, which folds unquoted names up.
+ */
 const isSimple = (driver: Driver, name: string): boolean =>
-  driver === "oracle" ? ORACLE_IDENT.test(name) && !ORACLE_RESERVED.has(name.toLowerCase()) : SIMPLE_IDENT.test(name);
+  (driver === "oracle" ? ORACLE_IDENT.test(name) : SIMPLE_IDENT.test(name)) && !isKeyword(driver, name);
 
 export function quoteIdent(driver: Driver, name: string): string {
   return driver === "mysql" ? "`" + name.replace(/`/g, "``") + "`" : '"' + name.replace(/"/g, '""') + '"';
@@ -116,11 +119,14 @@ function splitTop(s: string): string[] {
 
 /**
  * `'...'` string literal. MySQL reads `\` inside it as an escape (`'C:\temp'` is a TAB), so it is doubled there;
- * PostgreSQL (standard_conforming_strings) and SQLite take it literally.
+ * PostgreSQL writes a string with a backslash as `E'...'` (the same text dbcore's `quote_literal` makes, right whatever
+ * `standard_conforming_strings` is); SQLite and Oracle take it literally.
  */
 export function quoteString(driver: Driver | undefined, v: string): string {
-  const s = driver === "mysql" ? v.replace(/\\/g, "\\\\") : v;
-  return "'" + s.replace(/'/g, "''") + "'";
+  const q = v.replace(/'/g, "''");
+  if (driver === "mysql") return "'" + q.replace(/\\/g, "\\\\") + "'";
+  if (driver === "postgres" && v.includes("\\")) return "E'" + q.replace(/\\/g, "\\\\") + "'";
+  return "'" + q + "'";
 }
 
 /** SQL literal of a cell (preview and filter conditions). */
@@ -130,10 +136,14 @@ export function literal(v: Cell, typeName: string, driver?: Driver): string {
   if (isExprCell(v)) return v.$expr;
   const kind = classifyType(typeName);
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : "null";
-  if (typeof v === "boolean") return v ? "true" : "false";
+  // Oracle (before 23ai) has no boolean: dbcore binds 1 / 0 there
+  if (typeof v === "boolean") return driver === "oracle" ? (v ? "1" : "0") : v ? "true" : "false";
   if (typeof v === "string") {
     if (kind === "number" && /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/.test(v.trim())) return v.trim();
-    if (kind === "bool" && /^(true|false)$/i.test(v.trim())) return v.trim().toLowerCase();
+    if (kind === "bool" && /^(true|false)$/i.test(v.trim())) {
+      const on = v.trim().toLowerCase() === "true";
+      return driver === "oracle" ? (on ? "1" : "0") : on ? "true" : "false";
+    }
     if (driver === "oracle") {
       // a quoted string meets DATE / TIMESTAMP columns through NLS_*_FORMAT: ANSI literals do not
       const t = v.trim();
@@ -142,7 +152,13 @@ export function literal(v: Cell, typeName: string, driver?: Driver): string {
     }
     return quoteString(driver, v);
   }
-  if (isBinaryCell(v)) return driver === "oracle" ? `hextoraw('${v.$bin}')` : "'\\x" + v.$bin + "'";
+  if (isBinaryCell(v)) {
+    // the hex text comes from the server, but it is only ever pasted when it is hex
+    const hex = /^[0-9a-fA-F]*$/.test(v.$bin) ? v.$bin : "";
+    if (driver === "oracle") return `hextoraw('${hex}')`;
+    if (driver === "mysql" || driver === "sqlite") return `X'${hex}'`;
+    return `'\\x${hex}'`;
+  }
   return quoteString(driver, JSON.stringify(v));
 }
 
@@ -221,18 +237,34 @@ export function changeStatements(driver: Driver, ref: ObjectRef, columns: Column
   const table = qualifiedName(driver, ref);
   const id = (s: string) => (isSimple(driver, s) ? s : quoteIdent(driver, s));
   const typeOf = (name: string) => columns.find((c) => c.name === name)?.typeName ?? "";
+  // a NULL key value is `is null` (`= null` never matches); an empty string is NULL in Oracle
+  const isNull = (v: Cell) => v === null || v === undefined || (driver === "oracle" && v === "");
   const where = (key: Record<string, Cell>) =>
     Object.entries(key)
-      .map(([k, v]) => (v === null || v === undefined ? `${id(k)} is null` : `${id(k)} = ${literal(v, typeOf(k), driver)}`))
+      .sort(([a], [b]) => columns.findIndex((m) => m.name === a) - columns.findIndex((m) => m.name === b))
+      .map(([k, v]) => (isNull(v) ? `${id(k)} is null` : `${id(k)} = ${literal(v, typeOf(k), driver)}`))
       .join(" AND ");
   const out: string[] = [];
   for (const c of [...changes].sort((a, b) => ORDER[a.kind] - ORDER[b.kind])) {
-    const entries = Object.entries(c.values);
+    // the columns in the order of the table, as dbcore writes them (not in the order they were edited)
+    const pos = (name: string) => {
+      const i = columns.findIndex((m) => m.name === name);
+      return i < 0 ? columns.length : i;
+    };
+    let entries = Object.entries(c.values).sort(([a], [b]) => pos(a) - pos(b));
     if (c.kind === "delete") out.push(`DELETE\nFROM ${table}\nWHERE ${where(c.key)};`);
     else if (c.kind === "update")
       out.push(`UPDATE ${table}\nSET ${entries.map(([k, v]) => `${id(k)} = ${literal(v, typeOf(k), driver)}`).join(",\n    ")}\nWHERE ${where(c.key)};`);
-    else if (entries.length === 0) out.push(`INSERT INTO ${table}\nDEFAULT VALUES;`);
-    else out.push(`INSERT INTO ${table} (${entries.map(([k]) => id(k)).join(", ")})\nVALUES (${entries.map(([k, v]) => literal(v, typeOf(k), driver)).join(", ")});`);
+    else {
+      // SQLite has no DEFAULT keyword in VALUES: dbcore leaves such a column out
+      if (driver === "sqlite") entries = entries.filter(([, v]) => !isDefaultCell(v));
+      if (entries.length === 0) {
+        // no `default values` clause in MySQL (`() VALUES ()`) and Oracle (name one column and give it its default)
+        if (driver === "mysql") out.push(`INSERT INTO ${table} ()\nVALUES ();`);
+        else if (driver === "oracle" && columns.length) out.push(`INSERT INTO ${table} (${id(columns[0].name)})\nVALUES (DEFAULT);`);
+        else out.push(`INSERT INTO ${table}\nDEFAULT VALUES;`);
+      } else out.push(`INSERT INTO ${table} (${entries.map(([k]) => id(k)).join(", ")})\nVALUES (${entries.map(([k, v]) => literal(v, typeOf(k), driver)).join(", ")});`);
+    }
   }
   return out;
 }

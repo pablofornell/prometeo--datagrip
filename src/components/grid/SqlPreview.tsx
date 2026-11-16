@@ -8,7 +8,7 @@ import { Portal } from "solid-js/web";
 import "./grid.css";
 
 export interface PendingSqlPreviewProps {
-  /** Statements separated by newlines (each ends with `;`). */
+  /** Statements separated by a blank line (each ends with `;`). */
   sql: string;
   submitLabel?: string;
   cancelLabel?: string;

@@ -33,7 +33,8 @@ export interface Plan {
 }
 
 export const planStatements = (p: Plan): string[] => [...p.pre, ...p.statements, ...p.post];
-export const planText = (p: Plan): string => planStatements(p).join("\n");
+/** The statements as DataGrip's preview shows them: one paragraph each. */
+export const planText = (p: Plan): string => planStatements(p).join("\n\n");
 export const planIsEmpty = (p: Plan): boolean => p.statements.length === 0;
 
 // ---------------------------------------------------------------- quoting
@@ -51,16 +52,46 @@ export function qualified(d: Driver, schema: string, name: string): string {
   return `${ident(d, schema)}.${ident(d, name)}`;
 }
 
+/**
+ * `'...'` string literal. MySQL reads `\` in it as an escape, so it is doubled there; PostgreSQL writes a string with a
+ * backslash as `E'...'` (right whatever `standard_conforming_strings` is); SQLite and Oracle take it literally.
+ */
 export function literal(d: Driver, s: string): string {
-  const v = d === "mysql" ? s.replace(/\\/g, "\\\\") : s;
-  return "'" + v.replace(/'/g, "''") + "'";
+  const q = s.replace(/'/g, "''");
+  if (d === "mysql") return "'" + q.replace(/\\/g, "\\\\") + "'";
+  if (d === "postgres" && s.includes("\\")) return "E'" + q.replace(/\\/g, "\\\\") + "'";
+  return "'" + q + "'";
 }
 
-/** A column / index entry: a plain name is quoted, an expression stays as it is. */
-function entry(d: Driver, s: string): string {
-  return (d === "oracle" ? /^[A-Za-z_][A-Za-z0-9_$#]*$/ : /^[A-Za-z_][A-Za-z0-9_$]*$/).test(s) ? ident(d, s) : s;
+/** Column names of a key or foreign key: every entry is a name, so every entry goes through `ident`. */
+const cols = (d: Driver, list: string[]): string => list.map((c) => ident(d, c)).join(", ");
+
+const PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
+const ORACLE_PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_$#]*$/;
+
+/**
+ * One entry of an index: a column of the table (whatever characters its name has) or a plain name is quoted as an
+ * identifier, `name desc` / MySQL `name(10)` keep their suffix, anything else is an expression. Expressions are
+ * written the way the dialect wants them (PostgreSQL: a function call as it is, any other expression in parentheses;
+ * MySQL: always in parentheses; SQLite and Oracle: as typed).
+ */
+function indexEntry(d: Driver, raw: string, known: Set<string>): string {
+  const s = raw.trim();
+  const plain = d === "oracle" ? ORACLE_PLAIN_NAME : PLAIN_NAME;
+  const isName = (n: string) => known.has(n) || plain.test(n);
+  if (isName(s)) return ident(d, s);
+  const dir = /^(.+?)\s+(asc|desc)$/i.exec(s);
+  if (dir && isName(dir[1].trim())) return `${ident(d, dir[1].trim())} ${dir[2].toLowerCase()}`;
+  const prefix = /^([A-Za-z_][A-Za-z0-9_$]*)\((\d+)\)$/.exec(s);
+  if (d === "mysql" && prefix) return `${ident(d, prefix[1])}(${prefix[2]})`;
+  if (d === "mysql") return wrapped(s) ? s : `(${s})`;
+  if (d === "postgres") {
+    const open = s.indexOf("(");
+    const call = open > 0 && /^[A-Za-z_][A-Za-z0-9_$.]*$/.test(s.slice(0, open).trim()) && wrapped(s.slice(open));
+    return call || wrapped(s) ? s : `(${s})`;
+  }
+  return s;
 }
-const cols = (d: Driver, list: string[]): string => list.map((c) => entry(d, c)).join(", ");
 
 const norm = (s: string): string => s.trim().replace(/\s+/g, " ").toLowerCase();
 const same = (a: string[], b: string[]): boolean => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -168,7 +199,8 @@ function indexStmt(d: Driver, t: TableDef, i: IndexDef): string {
   if (i.locked && i.definition) return i.definition.trim().replace(/;?$/, ";");
   const using = d === "postgres" && i.method && i.method !== "btree" ? ` using ${i.method}` : "";
   const name = d === "oracle" ? qualified(d, t.schema, i.name) : ident(d, i.name);
-  return `create ${i.unique ? "unique " : ""}index ${name} on ${qualified(d, t.schema, t.name)}${using} (${cols(d, i.columns)});`;
+  const known = new Set(t.columns.map((c) => c.name));
+  return `create ${i.unique ? "unique " : ""}index ${name} on ${qualified(d, t.schema, t.name)}${using} (${i.columns.map((c) => indexEntry(d, c, known)).join(", ")});`;
 }
 
 // ---------------------------------------------------------------- validation
@@ -363,7 +395,8 @@ function pgAlter(orig: TableDef, cur: TableDef, df: Diff): Plan {
   for (const { o, c } of df.keptCols) if (o.name !== c.name) out.push(`alter table ${T} rename column ${ident(d, o.name)} to ${ident(d, c.name)};`);
   for (const { o, c } of df.keptCols) {
     const C = `alter table ${T} alter column ${ident(d, c.name)}`;
-    if (norm(o.type) !== norm(c.type)) out.push(`${C} type ${c.type.trim()};`);
+    // `using` is what lets a change between unrelated types (text -> integer) run, as DataGrip writes it
+    if (norm(o.type) !== norm(c.type)) out.push(`${C} type ${c.type.trim()} using ${ident(d, c.name)}::${c.type.trim()};`);
     if (!c.generated && norm(o.default) !== norm(c.default)) out.push(c.default.trim() ? `${C} set default ${c.default.trim()};` : `${C} drop default;`);
     if (o.notNull !== c.notNull) out.push(`${C} ${c.notNull ? "set" : "drop"} not null;`);
     if (o.identity !== c.identity) {

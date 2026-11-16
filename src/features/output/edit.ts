@@ -7,6 +7,30 @@ import type { GridChange } from "../../components/grid/types";
 import { rowsAffected } from "./format";
 
 /**
+ * `sql` on one line: the line breaks (and the indentation around them) between tokens become one space. A line
+ * break inside a string literal or a quoted name is part of the value and stays, so the logged text is still what ran.
+ */
+export function oneLine(sql: string): string {
+  let out = "";
+  let quote = "";
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i];
+    if (quote) {
+      if (ch === quote) quote = "";
+      out += ch;
+    } else if (ch === "'" || ch === '"' || ch === "`") {
+      quote = ch;
+      out += ch;
+    } else if (ch === "\n" || ch === "\r") {
+      out = out.replace(/[ \t]+$/, "");
+      while (i + 1 < sql.length && /\s/.test(sql[i + 1])) i++;
+      out += " ";
+    } else out += ch;
+  }
+  return out;
+}
+
+/**
  * The Output lines of a grid Submit, like the ones of a console statement: each UPDATE / INSERT / DELETE on one
  * line, then `N rows affected in T ms` (or the failure). `statements` come from `changeStatements`.
  */
@@ -16,7 +40,7 @@ export function logSubmitted(
   statements: string[],
   outcome: { rowsAffected: number; ms: number } | { error: string },
 ): void {
-  for (const s of statements) log("sql", s.replace(/\s*\n\s*/g, " "), prompt);
+  for (const s of statements) log("sql", oneLine(s), prompt);
   if ("error" in outcome) log("error", outcome.error);
   else log("text", rowsAffected(outcome.rowsAffected, outcome.ms));
 }

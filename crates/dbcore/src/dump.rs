@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::conn::{Live, Pool};
-use crate::ddl::unqualify_schema;
+use crate::ddl::{pg_identity_options, unqualify_schema, PG_IDENTITY_SPEC_SQL};
 use crate::error::{DbError, Result};
 use crate::exec::query_pool;
 use crate::export::sql_literal_typed;
@@ -425,9 +425,21 @@ fn wanted(subset: &Option<Vec<String>>, name: &str) -> bool {
     subset.as_ref().is_none_or(|t| t.iter().any(|x| x == name))
 }
 
+/// Which columns of a table's rows the `insert` statements write.
+#[derive(Default)]
+struct RowShape {
+    /// Generated columns: the server refuses a value for them, so they are left out.
+    skip: Vec<String>,
+    /// PostgreSQL: the table has `generated always` identity columns, which take a value only with
+    /// `overriding system value`.
+    system_value: bool,
+}
+
 struct RowsState {
+    /// The columns written (the generated ones are left out), their types, and where they are in a row.
     names: Vec<String>,
     types: Vec<String>,
+    keep: Vec<usize>,
     batch: Vec<String>,
     rows: u64,
     /// Rows written since the last `commit`.
@@ -442,12 +454,22 @@ fn flush_rows<W: Write>(
     cols: &[String],
     st: &mut RowsState,
     commit_every: Option<usize>,
+    system_value: bool,
 ) -> Result<()> {
     if st.batch.is_empty() {
         return Ok(());
     }
     let cols_q: Vec<String> = cols.iter().map(|c| quote_ident(driver, c)).collect();
-    writeln!(w, "insert into {dst} ({}) values", cols_q.join(", "))?;
+    let overriding = if system_value {
+        " overriding system value"
+    } else {
+        ""
+    };
+    writeln!(
+        w,
+        "insert into {dst} ({}){overriding} values",
+        cols_q.join(", ")
+    )?;
     writeln!(
         w,
         "    {};",
@@ -483,10 +505,12 @@ async fn dump_rows<W: Write>(
     table: &str,
     tables_done: usize,
     tables_total: usize,
+    shape: &RowShape,
 ) -> Result<u64> {
     let mut st = RowsState {
         names: Vec::new(),
         types: Vec::new(),
+        keep: Vec::new(),
         batch: Vec::new(),
         rows: 0,
         since_commit: 0,
@@ -497,20 +521,30 @@ async fn dump_rows<W: Write>(
             return Err(DbError::Cancelled);
         }
         if st.names.is_empty() {
-            st.names = cols.iter().map(|c| c.name.clone()).collect();
-            st.types = cols.iter().map(|c| c.type_name.clone()).collect();
+            st.keep = (0..cols.len())
+                .filter(|&i| !shape.skip.contains(&cols[i].name))
+                .collect();
+            st.names = st.keep.iter().map(|&i| cols[i].name.clone()).collect();
+            st.types = st.keep.iter().map(|&i| cols[i].type_name.clone()).collect();
         }
-        let vals: Vec<String> = row
+        let vals: Vec<String> = st
+            .keep
             .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                sql_literal_typed(driver, c, st.types.get(i).map(String::as_str).unwrap_or(""))
-            })
+            .zip(&st.types)
+            .map(|(&i, ty)| sql_literal_typed(driver, row.get(i).unwrap_or(&Value::Null), ty))
             .collect();
         st.batch.push(format!("({})", vals.join(", ")));
         if st.batch.len() >= batch_size {
             let names = st.names.clone();
-            flush_rows(w, driver, dst, &names, &mut st, commit_every)?;
+            flush_rows(
+                w,
+                driver,
+                dst,
+                &names,
+                &mut st,
+                commit_every,
+                shape.system_value,
+            )?;
             report_table(
                 progress,
                 "data",
@@ -524,7 +558,15 @@ async fn dump_rows<W: Write>(
     })
     .await?;
     let names = st.names.clone();
-    flush_rows(w, driver, dst, &names, &mut st, commit_every)?;
+    flush_rows(
+        w,
+        driver,
+        dst,
+        &names,
+        &mut st,
+        commit_every,
+        shape.system_value,
+    )?;
     if commit_every.is_some() && st.since_commit > 0 {
         writeln!(w, "commit;")?;
     }
@@ -777,6 +819,7 @@ async fn dump_pg<W: Write>(
         if opts.data {
             let src = pg_qname(schema, name);
             let dst = pg_qname(target, name);
+            let shape = pg_row_shape(pool, schema, name).await?;
             let rows = dump_rows(
                 live,
                 d,
@@ -790,10 +833,14 @@ async fn dump_pg<W: Write>(
                 name,
                 i + 1,
                 order.len(),
+                &shape,
             )
             .await?;
             res.rows += rows;
-            writeln!(w)?;
+            // a table without rows has nothing to separate
+            if rows > 0 {
+                writeln!(w)?;
+            }
         }
         res.tables += 1;
         report(progress, "tables", i + 1, order.len(), res.rows);
@@ -827,6 +874,7 @@ async fn dump_pg<W: Write>(
 
     // ---- indexes
     report(progress, "indexes", order.len(), order.len(), res.rows);
+    let mut any_index = false;
     for name in tables.iter().filter(|_| opts.include_ddl) {
         if cancel.is_cancelled() {
             return Err(DbError::Cancelled);
@@ -846,11 +894,16 @@ async fn dump_pg<W: Write>(
                 "{};",
                 maybe_rename(&pg_index_on_all(&lower_keywords(&s(r, 0))), schema, target)
             )?;
+            any_index = true;
         }
+    }
+    if any_index {
+        writeln!(w)?;
     }
 
     // ---- foreign keys
     report(progress, "foreign keys", order.len(), order.len(), res.rows);
+    let mut any_fk = false;
     for name in tables.iter().filter(|_| opts.include_ddl) {
         if cancel.is_cancelled() {
             return Err(DbError::Cancelled);
@@ -859,8 +912,12 @@ async fn dump_pg<W: Write>(
         for (referenced, stmt) in &defs[name].fk_stmts {
             if referenced.is_empty() || wanted(&opts.tables, referenced) {
                 writeln!(w, "{stmt}")?;
+                any_fk = true;
             }
         }
+    }
+    if any_fk {
+        writeln!(w)?;
     }
 
     // ---- views
@@ -927,6 +984,28 @@ async fn dump_pg<W: Write>(
     Ok(())
 }
 
+/// The generated columns of a table (no value can be inserted) and whether it has `generated always` identity
+/// columns (their values need `overriding system value`).
+async fn pg_row_shape(pool: &Pool, schema: &str, table: &str) -> Result<RowShape> {
+    let rows = pool
+        .query_strings(&format!(
+            "select a.attname, a.attgenerated::text, a.attidentity::text from pg_attribute a \
+             where a.attrelid = {} and a.attnum > 0 and not a.attisdropped \
+               and (a.attgenerated <> '' or a.attidentity = 'a')",
+            pg_rel_expr(schema, table)
+        ))
+        .await?;
+    let mut shape = RowShape::default();
+    for r in &rows {
+        if s(r, 1).is_empty() {
+            shape.system_value = true;
+        } else {
+            shape.skip.push(s(r, 0));
+        }
+    }
+    Ok(shape)
+}
+
 /// `create table` (no FK), the deferred `alter table .. add constraint` FK statements, the `setval`
 /// statements of serial / identity columns, and the FK edges `(referenced, referencing)`.
 async fn pg_table_parts(
@@ -955,7 +1034,8 @@ async fn pg_table_parts(
             "select a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull::text, \
                     coalesce(pg_get_expr(d.adbin, d.adrelid), ''), a.attidentity::text, a.attgenerated::text, \
                     case when a.attcollation <> t.typcollation then (select quote_ident(collname) from pg_collation where oid = a.attcollation) else '' end, \
-                    coalesce(pg_get_serial_sequence(a.attrelid::regclass::text, a.attname), '') \
+                    coalesce(pg_get_serial_sequence(a.attrelid::regclass::text, a.attname), ''), \
+                    {PG_IDENTITY_SPEC_SQL} \
              from pg_attribute a join pg_type t on t.oid = a.atttypid \
              left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum \
              where a.attrelid = {rel} and a.attnum > 0 and not a.attisdropped order by a.attnum"
@@ -1034,6 +1114,30 @@ async fn pg_table_parts(
             create_sql.push_str(&stmt);
         }
     }
+    // comments of the table and its columns, as pg_dump writes them
+    let table_comment = first_cell(pool, &format!("select obj_description({rel}, 'pg_class')"))
+        .await?
+        .unwrap_or_default();
+    if !table_comment.is_empty() {
+        create_sql.push_str(&format!(
+            "\ncomment on table {qname} is {};",
+            pl(d, &table_comment)
+        ));
+    }
+    let column_comments = pool
+        .query_strings(&format!(
+            "select a.attname, col_description(a.attrelid, a.attnum) from pg_attribute a \
+             where a.attrelid = {rel} and a.attnum > 0 and not a.attisdropped \
+               and col_description(a.attrelid, a.attnum) is not null order by a.attnum"
+        ))
+        .await?;
+    for r in &column_comments {
+        create_sql.push_str(&format!(
+            "\ncomment on column {qname}.{} is {};",
+            quote_ident(d, &s(r, 0)),
+            pl(d, &s(r, 1))
+        ));
+    }
     Ok((
         PgTable {
             create_sql,
@@ -1095,9 +1199,14 @@ fn pg_col_line(r: &Row, schema: &str, target: &str) -> String {
     if !s(r, 6).is_empty() {
         l.push_str(&format!(" collate {}", s(r, 6)));
     }
+    // the identity's own options (START WITH, INCREMENT BY, ...) travel with the column: the data restore only
+    // moves the current value
+    let identity_options = pg_identity_options(&s(r, 8));
     match s(r, 4).as_str() {
-        "a" => l.push_str(" generated always as identity"),
-        "d" => l.push_str(" generated by default as identity"),
+        "a" => l.push_str(&format!(" generated always as identity{identity_options}")),
+        "d" => l.push_str(&format!(
+            " generated by default as identity{identity_options}"
+        )),
         _ => {}
     }
     if s(r, 5) == "s" {
@@ -1126,7 +1235,8 @@ fn pg_setval(schema: &str, table: &str, col: &str) -> String {
     let colq = quote_ident(d, col);
     format!(
         "select setval(pg_get_serial_sequence({}, {}), coalesce((select max({colq}) from {qname}), 1), (select count(*) > 0 from {qname}));",
-        pl(d, &format!("{schema}.{table}")),
+        // the table name is parsed as an identifier: quoted, so `Order Items` / `Orders` keep their spelling
+        pl(d, &qname),
         pl(d, col)
     )
 }
@@ -1151,7 +1261,7 @@ async fn dump_my<W: Write>(
     writeln!(w, "-- {}", live.server_version)?;
     writeln!(w, "--")?;
     writeln!(w)?;
-    writeln!(w, "SET NAMES utf8;")?;
+    writeln!(w, "SET NAMES utf8mb4;")?;
     writeln!(w, "SET FOREIGN_KEY_CHECKS = 0;")?;
     writeln!(w)?;
     writeln!(w, "USE {};", quote_ident(d, target))?;
@@ -1204,6 +1314,22 @@ async fn dump_my<W: Write>(
         if opts.data {
             let src = qualified(d, Some(schema), name);
             let dst = qualified(d, Some(target), name);
+            // a generated column takes no value in an insert
+            let shape = RowShape {
+                skip: pool
+                    .query_strings(&format!(
+                        "select column_name from information_schema.columns \
+                         where table_schema = {} and table_name = {} \
+                           and generation_expression is not null and generation_expression <> ''",
+                        pl(d, schema),
+                        pl(d, name)
+                    ))
+                    .await?
+                    .iter()
+                    .map(|r| s(r, 0))
+                    .collect(),
+                system_value: false,
+            };
             let rows = dump_rows(
                 live,
                 d,
@@ -1217,10 +1343,13 @@ async fn dump_my<W: Write>(
                 name,
                 i + 1,
                 order.len(),
+                &shape,
             )
             .await?;
             res.rows += rows;
-            writeln!(w)?;
+            if rows > 0 {
+                writeln!(w)?;
+            }
         }
         res.tables += 1;
         report(progress, "tables", i + 1, order.len(), res.rows);
@@ -1329,7 +1458,7 @@ async fn dump_lite<W: Write>(
 
     let tables: Vec<Row> = pool
         .query_strings(&format!(
-            "select name from {}.sqlite_master where type = 'table' and name not like 'sqlite_%' order by name",
+            "select name from {}.sqlite_master where type = 'table' and name not like 'sqlite\\_%' escape '\\' order by name",
             quote_ident(d, sc)
         ))
         .await?
@@ -1367,6 +1496,21 @@ async fn dump_lite<W: Write>(
         }
         if opts.data {
             let qname = quote_ident(d, name);
+            // table_xinfo `hidden`: 2 / 3 are the virtual / stored generated columns, which take no value
+            let shape = RowShape {
+                skip: pool
+                    .query_strings(&format!(
+                        "pragma {}.table_xinfo({})",
+                        quote_ident(d, sc),
+                        pl(d, name)
+                    ))
+                    .await?
+                    .iter()
+                    .filter(|r| matches!(s(r, 6).as_str(), "2" | "3"))
+                    .map(|r| s(r, 1))
+                    .collect(),
+                system_value: false,
+            };
             let rows = dump_rows(
                 live,
                 d,
@@ -1380,10 +1524,13 @@ async fn dump_lite<W: Write>(
                 name,
                 i + 1,
                 total,
+                &shape,
             )
             .await?;
             res.rows += rows;
-            writeln!(w)?;
+            if rows > 0 {
+                writeln!(w)?;
+            }
         }
         res.tables += 1;
         report(progress, "tables", i + 1, total, res.rows);
@@ -1397,6 +1544,7 @@ async fn dump_lite<W: Write>(
             quote_ident(d, sc)
         ))
         .await?;
+    let mut any_index = false;
     for r in indexes
         .iter()
         .filter(|r| opts.include_ddl && wanted(&opts.tables, &s(r, 2)))
@@ -1410,6 +1558,10 @@ async fn dump_lite<W: Write>(
             writeln!(w, "drop index if exists {};", quote_ident(d, name))?;
         }
         writeln!(w, "{}", end_stmt(create.clone()))?;
+        any_index = true;
+    }
+    if any_index {
+        writeln!(w)?;
     }
 
     // ---- views
