@@ -21,6 +21,27 @@ macro_rules! setup {
     }};
 }
 
+/// `mysql://user:password@host:port/database` -> (host, port, user, password, database).
+fn parse_mysql_url(url: &str) -> (String, u16, String, String, String) {
+    let rest = url
+        .strip_prefix("mysql://")
+        .expect("PROMETEO_MYSQL_URL is mysql://...");
+    let (cred, target) = rest
+        .rsplit_once('@')
+        .expect("user:password@host in the URL");
+    let (user, password) = cred.split_once(':').unwrap_or((cred, ""));
+    let (hostport, database) = target.split_once('/').unwrap_or((target, ""));
+    let database = database.split('?').next().unwrap_or("");
+    let (host, port) = hostport.split_once(':').unwrap_or((hostport, "3306"));
+    (
+        host.to_string(),
+        port.parse().expect("a numeric port in the URL"),
+        user.to_string(),
+        password.to_string(),
+        database.to_string(),
+    )
+}
+
 #[tokio::test]
 async fn test_connection_ok_and_failures() {
     let Some(cfg) = mysql_cfg() else { return };
@@ -33,14 +54,17 @@ async fn test_connection_ok_and_failures() {
     );
     println!("test_connection: {} in {} ms", r.message, r.elapsed_ms);
 
+    // host / port / user / password / database come from PROMETEO_MYSQL_URL: the test follows the server it runs on
+    let (host, port, user, password, database) =
+        parse_mysql_url(cfg.url_override.as_deref().unwrap());
     let c2 = DataSourceConfig {
         id: "my2".into(),
         driver: Driver::MySql,
-        host: "127.0.0.1".into(),
-        port: 33069,
-        user: "root".into(),
-        password: Some("nope".into()),
-        database: "demo".into(),
+        host,
+        port,
+        user,
+        password: Some("nope-not-the-password".into()),
+        database,
         ..Default::default()
     };
     let r = mgr.test_connection(&c2).await;
@@ -49,14 +73,14 @@ async fn test_connection_ok_and_failures() {
     println!("bad password message: {}", r.message);
     let r = mgr
         .test_connection(&DataSourceConfig {
-            password: Some("prometeo".into()),
+            password: Some(password.clone()),
             ..c2.clone()
         })
         .await;
     assert!(r.ok, "{r:?}");
     let r = mgr
         .test_connection(&DataSourceConfig {
-            password: Some("prometeo".into()),
+            password: Some(password),
             database: "no_such_db".into(),
             ..c2
         })
