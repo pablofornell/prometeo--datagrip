@@ -8,6 +8,7 @@ import { createRenderEffect, createRoot } from "solid-js";
 import { createStore } from "solid-js/store";
 import { isTauri } from "../api/tauri";
 import { setKeymapOverrides } from "./actions";
+import { UI_SCALE_DEFAULT, effectiveZoom, sanitizeUiScale } from "./appearance";
 import { EMPTY_OVERRIDES, type SchemeId, type SchemeOverrides, sanitizeOverrides, schemeRules, schemeVars } from "./colorScheme";
 import { loadLocal, saveUiState } from "./persist";
 import { theme } from "./theme";
@@ -46,6 +47,8 @@ export interface Settings {
   uiFontFamily: "inter" | "system";
   /** UI font size in px (13 = 100 %): scales the whole window. */
   uiFontSize: number;
+  /** UI scale in percent (80..200, step 10, default 100): zooms the whole window. Ctrl+= / Ctrl+- / Ctrl+0 change it. */
+  uiScale: number;
   /** Appearance > Compact mode: 22 px tree rows and 24 px menu rows. */
   compactMode: boolean;
   /** Appearance > Color by data source: tint tree rows, editor tabs and consoles (and the toolbar) with the data source color. */
@@ -79,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   uiCustomFont: false,
   uiFontFamily: "inter",
   uiFontSize: 13,
+  uiScale: UI_SCALE_DEFAULT,
   compactMode: false,
   dataSourceColors: false,
   dataSourceColorIntensity: 100,
@@ -93,6 +97,7 @@ const stored = loadLocal<Partial<Settings>>(KEY, {});
 const [settings, setSettings] = createStore<Settings>({
   ...DEFAULT_SETTINGS,
   ...stored,
+  uiScale: sanitizeUiScale(stored.uiScale),
   colorOverrides: sanitizeOverrides(stored.colorOverrides),
   keymapOverrides: sanitizeKeymap(stored.keymapOverrides),
 });
@@ -157,7 +162,7 @@ function applyAppearance(): void {
 
   // UI font: the family is a token, the size scales the window (the chrome metrics are fixed px)
   el.style.setProperty("--dg-font-ui", settings.uiCustomFont && settings.uiFontFamily === "system" ? 'system-ui, -apple-system, "Segoe UI", sans-serif' : '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif');
-  setZoom(settings.uiCustomFont ? uiZoom(settings.uiFontSize) : 1);
+  setZoom(effectiveZoom(settings.uiScale, settings.uiCustomFont ? settings.uiFontSize : undefined));
 
   // editor color scheme: tokens on <html>, the remaining properties as a stylesheet
   const sc = effectiveScheme();
@@ -175,13 +180,26 @@ function applyAppearance(): void {
 }
 
 let appliedZoom = 1;
+/**
+ * Zooms the window: the webview zoom in the desktop app (true page zoom, CSS px and scroll maths stay consistent), the CSS
+ * `zoom` of <html> in a browser. `index.html` sets that CSS zoom before first paint in both; in the desktop app it is
+ * removed again once the webview zoom is in place (and stays as the fallback when the webview refuses).
+ */
 function setZoom(z: number): void {
   if (z === appliedZoom) return;
   appliedZoom = z;
+  const root = document.documentElement.style as unknown as Record<string, string>;
   if (isTauri()) {
-    void import("@tauri-apps/api/webview").then((m) => m.getCurrentWebview().setZoom(z)).catch(() => {});
+    void import("@tauri-apps/api/webview")
+      .then((m) => m.getCurrentWebview().setZoom(z))
+      .then(() => {
+        if (appliedZoom === z) root.zoom = "";
+      })
+      .catch(() => {
+        root.zoom = z === 1 ? "" : String(z);
+      });
   } else {
-    (document.documentElement.style as unknown as Record<string, string>).zoom = z === 1 ? "" : String(z);
+    root.zoom = z === 1 ? "" : String(z);
   }
 }
 

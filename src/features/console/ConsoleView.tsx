@@ -6,9 +6,8 @@ import { showToolWindow } from "../../state/layout";
 import { type Crumb, setEditorPath, setStatus } from "../../state/status";
 import { type EditorTab, updateTab } from "../../state/tabs";
 import { connectedDataSourceIds, explorerDataSources, openDdlRef, refreshNode, revealObject, schemaSnapshotFor, showQuickDocRef, synonymsFor } from "../explorer";
-import { Icon, notify } from "../../components/ui";
+import { CopyButton, Icon, notify } from "../../components/ui";
 import { dsIconUrl } from "../output/dsicon";
-import { copyText } from "../output/export";
 import { markConsoleActive } from "../output/model";
 import { txLabel } from "../table/session";
 import { ConsoleToolbar } from "./ConsoleToolbar";
@@ -234,16 +233,14 @@ export function ConsoleInner(props: { tab: EditorTab; active: boolean; dsId: str
   );
 }
 
-/** The error of the last run: red banner docked at the bottom of the editor (first line, `Copy`, close). */
+/** The error of the last run: red banner docked at the bottom of the editor (first line, copy button, close). */
 function ExecErrorBanner(props: { session: ConsoleSession }): JSX.Element {
   return (
     <Show when={props.session.execError()}>
       {(m) => (
         <div class="dgc-banner" role="alert">
           <span class="dgc-banner-text">{m().split("\n")[0]}</span>
-          <a class="dgc-banner-link" onClick={() => void copyText(m())}>
-            Copy
-          </a>
+          <CopyButton class="dgc-banner-copy" tooltip="Copy error" text={m} />
           <button type="button" class="dgc-banner-close" tabindex={-1} aria-label="Close" onClick={() => props.session.setExecError(null)}>
             <Icon name="close" size={16} />
           </button>

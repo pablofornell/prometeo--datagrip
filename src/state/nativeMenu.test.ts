@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { allowsNativeMenu, installNativeMenuGuard } from "./nativeMenu";
+import { allowsNativeMenu, installNativeMenuGuard, isOnSelectedText } from "./nativeMenu";
 
 describe("native context menu guard", () => {
   it("keeps the native menu in text fields only", () => {
@@ -28,5 +28,24 @@ describe("native context menu guard", () => {
     installNativeMenuGuard(true, fake);
     expect(fire({ tagName: "DIV" })).toBe(true);
     expect(fire({ tagName: "INPUT", type: "text" })).toBe(false);
+  });
+
+  it("keeps the native menu (Copy) on selected text", () => {
+    const handlers: ((e: Event) => void)[] = [];
+    const fake = { addEventListener: (_: string, h: (e: Event) => void) => handlers.push(h) } as never;
+    const selected = { tagName: "DIV", id: "selected" };
+    installNativeMenuGuard(true, fake, (t) => (t as unknown) === selected);
+    const fire = (target: object) => {
+      let prevented = false;
+      handlers.forEach((h) => h({ target, preventDefault: () => (prevented = true) } as unknown as Event));
+      return prevented;
+    };
+    expect(fire(selected)).toBe(false);
+    expect(fire({ tagName: "DIV" })).toBe(true);
+  });
+
+  it("finds no selection outside a browser", () => {
+    expect(isOnSelectedText({} as EventTarget)).toBe(false);
+    expect(isOnSelectedText(null)).toBe(false);
   });
 });

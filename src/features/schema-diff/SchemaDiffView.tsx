@@ -5,7 +5,7 @@
  */
 import { For, Show, createEffect, createMemo, createSignal, on, onMount, type JSX, untrack } from "solid-js";
 import { type SchemaModel, createConsole, getDdl, schemaModel, writeConsole } from "../../api/db";
-import { ActionButton, Checkbox, ComboBox, Icon, type ComboOption, notify, tip } from "../../components/ui";
+import { ActionButton, Checkbox, ComboBox, CopyButton, Icon, type ComboOption, notify, tip } from "../../components/ui";
 import type { EditorTab } from "../../state/tabs";
 import { ensureConnected, explorerDataSources, openConsoleTab } from "../explorer";
 import { errText } from "../table/ds";
@@ -190,8 +190,11 @@ function Compare(props: { left: SchemaRef; right: SchemaRef }): JSX.Element {
         </button>
       </div>
       <Show when={error()}>
-        <div class="sd-overlay sd-error" role="alert">
-          {error()}
+        <div class="sd-overlay" role="alert">
+          <div class="dg-errnote">
+            <div class="sd-error">{error()}</div>
+            <CopyButton tooltip="Copy error" text={() => error() ?? ""} />
+          </div>
         </div>
       </Show>
       <Show when={loading() && !error()}>

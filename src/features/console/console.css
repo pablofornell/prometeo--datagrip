@@ -74,10 +74,8 @@
   white-space: nowrap;
   user-select: text;
 }
-.dgc-banner-link {
-  flex: none;
-  color: var(--dg-link, #548af7);
-  cursor: pointer;
+.dgc-banner-copy {
+  color: var(--dg-icon);
 }
 .dgc-banner-close {
   display: inline-flex;

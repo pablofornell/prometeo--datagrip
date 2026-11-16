@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { appInfo } from "../../api/db";
-import { Dialog, Icon, Tabs, TextField, notify, openMenu, tip } from "../../components/ui";
+import { CopyButton, Dialog, Icon, Tabs, TextField, notify, openMenu, tip } from "../../components/ui";
 import type { MenuItem } from "../../components/ui";
 import { AdvancedTab } from "./AdvancedTab";
 import { DriversPage } from "./DriversPage";
@@ -208,7 +208,12 @@ export function DataSourceDialog(props: DialogProps) {
       onClose={close}
       footerLeft={
         <Show when={s.error()} fallback={<Show when={storageWarning()}>{(w) => <span class="ds-footer-warning" title={w()}>{w()}</span>}</Show>}>
-          <span class="ds-footer-error">{s.error()}</span>
+          <span class="dg-errnote">
+            <span class="ds-footer-error" title={s.error() ?? undefined}>
+              {s.error()}
+            </span>
+            <CopyButton tooltip="Copy error" text={() => s.error() ?? ""} />
+          </span>
         </Show>
       }
       buttons={[

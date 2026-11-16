@@ -6,7 +6,7 @@
 import { For, Show, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { findUsages, type Usage } from "../../api/db";
-import { Icon } from "../../components/ui";
+import { CopyButton, Icon } from "../../components/ui";
 import { ensureConnected } from "../explorer";
 import { NodeIcon } from "../explorer/NodeIcon";
 import { type ExplorerKind, iconOf } from "../explorer/model";
@@ -138,7 +138,12 @@ function FindPopup(props: { req: UsageRequest; onClose: () => void }): JSX.Eleme
         </div>
         <div class="dgn-list dgu-list" ref={list} tabindex={-1}>
           <Show when={found.error}>
-            <div class="dgn-empty dgu-error">{String((found.error as Error)?.message ?? found.error)}</div>
+            <div class="dgn-empty">
+              <div class="dg-errnote">
+                <div class="dgu-error">{String((found.error as Error)?.message ?? found.error)}</div>
+                <CopyButton tooltip="Copy error" text={() => String((found.error as Error)?.message ?? found.error)} />
+              </div>
+            </div>
           </Show>
           <Show when={!found.loading && !found.error && rows().length === 0}>
             <div class="dgn-empty">No usages found</div>

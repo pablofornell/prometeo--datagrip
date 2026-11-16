@@ -106,6 +106,10 @@ export const MAIN_MENU: MenuBarEntry[] = [
       a("view.fontIncrease", "I"),
       a("view.fontDecrease", "D"),
       a("view.fontReset", "R"),
+      sep,
+      opt("view.zoomIn", "Z"),
+      opt("view.zoomOut", "O"),
+      opt("view.zoomReset", "S"),
     ],
   },
   {
@@ -211,4 +215,6 @@ export const GEAR_MENU: MenuItem[] = [
   a("app.keymapPopup"),
   sep,
   a("window.resetLayout"),
+  sep,
+  a("help.about"),
 ];

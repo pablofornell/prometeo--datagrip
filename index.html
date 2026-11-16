@@ -16,6 +16,22 @@
         } catch (e) {}
       })();
     </script>
+    <!--
+      Same for the UI scale: the CSS zoom of <html> from the stored settings, so the first paint is already at the right size.
+      In a browser it stays; in the desktop app src/state/settings.ts removes it once the webview zoom is in place.
+      Keep in step with effectiveZoom() in src/state/appearance.ts (src/state/prepaint.test.ts runs both and compares).
+    -->
+    <script>
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem("prometeo.ui.settings") || "null") || {};
+          var scale = typeof s.uiScale === "number" && isFinite(s.uiScale) ? Math.min(200, Math.max(80, Math.round(s.uiScale / 10) * 10)) : 100;
+          var font = s.uiCustomFont === true && typeof s.uiFontSize === "number" && isFinite(s.uiFontSize) ? Math.round((s.uiFontSize / 13) * 100) / 100 : 1;
+          var zoom = Math.round((scale / 100) * font * 10000) / 10000;
+          if (zoom !== 1) document.documentElement.style.zoom = String(zoom);
+        } catch (e) {}
+      })();
+    </script>
     <style>
       html[data-theme="dark"] { background: #26282c; }
       html[data-theme="light"] { background: #e9eaee; }

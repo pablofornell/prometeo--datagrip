@@ -5,6 +5,7 @@
  *            actions: [{ label: "configure", run: () => ... }] })
  */
 import { For, Show, createSignal, type JSX } from "solid-js";
+import { CopyButton } from "./CopyButton";
 import { Icon } from "./Icon";
 
 export interface NotificationAction {
@@ -83,48 +84,61 @@ const liveItems = () => {
 
 const KIND_ICON = { info: "info", warning: "warning", error: "error", success: "success" } as const;
 
+/** Title and body of a notification as plain text (the body may be markup: it is read from the element on screen). */
+export function notificationText(title: string | undefined, body: HTMLElement | undefined): string {
+  return [title, body?.textContent?.trim()].filter(Boolean).join("\n");
+}
+
 export function NotificationHost(): JSX.Element {
   return (
     <div class="dg-notifications">
       <For each={liveItems()}>
-        {(n) => (
-          <div class={"dg-notification dg-notification-" + (n.kind ?? "info")} role="alert">
-            <Icon name={KIND_ICON[n.kind ?? "info"]} class="dg-notification-icon" />
-            <div class="dg-notification-content">
-              <Show when={n.title}>
-                <div class="dg-notification-title">{n.title}</div>
-              </Show>
-              <div class="dg-notification-body">{n.body}</div>
-              <Show when={n.actions?.length}>
-                <div class="dg-notification-actions">
-                  <For each={n.actions}>
-                    {(a) => (
-                      <a
-                        class="dg-link"
-                        href="#"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          dismissNotification(n.id);
-                          a.run();
-                        }}
-                      >
-                        {a.label}
-                      </a>
-                    )}
-                  </For>
+        {(n) => {
+          let body: HTMLDivElement | undefined;
+          return (
+            <div class={"dg-notification dg-notification-" + (n.kind ?? "info")} role="alert">
+              <Icon name={KIND_ICON[n.kind ?? "info"]} class="dg-notification-icon" />
+              <div class="dg-notification-content">
+                <Show when={n.title}>
+                  <div class="dg-notification-title">{n.title}</div>
+                </Show>
+                <div class="dg-notification-body" ref={body}>
+                  {n.body}
                 </div>
+                <Show when={n.actions?.length}>
+                  <div class="dg-notification-actions">
+                    <For each={n.actions}>
+                      {(a) => (
+                        <a
+                          class="dg-link"
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            dismissNotification(n.id);
+                            a.run();
+                          }}
+                        >
+                          {a.label}
+                        </a>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </div>
+              <Show when={n.kind === "error"}>
+                <CopyButton class="dg-notification-copy" tooltip="Copy error" text={() => notificationText(n.title, body)} />
               </Show>
+              <span class="dg-notification-close">
+                <span class="dg-notification-hide" title="Hide (keep in the Notifications tool window)" onClick={() => hideNotification(n.id)}>
+                  <Icon name="chevron-down" />
+                </span>
+                <span class="dg-notification-dismiss" title="Close" onClick={() => dismissNotification(n.id)}>
+                  <Icon name="close-small" />
+                </span>
+              </span>
             </div>
-            <span class="dg-notification-close">
-              <span class="dg-notification-hide" title="Hide (keep in the Notifications tool window)" onClick={() => hideNotification(n.id)}>
-                <Icon name="chevron-down" />
-              </span>
-              <span class="dg-notification-dismiss" title="Close" onClick={() => dismissNotification(n.id)}>
-                <Icon name="close-small" />
-              </span>
-            </span>
-          </div>
-        )}
+          );
+        }}
       </For>
     </div>
   );

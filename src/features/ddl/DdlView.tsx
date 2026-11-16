@@ -6,7 +6,7 @@
 import { Show, createEffect, createSignal, on, onMount, type JSX } from "solid-js";
 import { createConsole, getDdl, writeConsole } from "../../api/db";
 import { SqlEditor, type SqlEditorHandle } from "../../components/editor";
-import { ActionButton, notify } from "../../components/ui";
+import { ActionButton, CopyButton, notify } from "../../components/ui";
 import { setStatus } from "../../state/status";
 import type { EditorTab } from "../../state/tabs";
 import { ensureConnected, openConsoleTab } from "../explorer";
@@ -156,7 +156,12 @@ function Ddl(props: { tab: EditorTab; active: boolean; dsId: string; objectRef: 
           <div class="dgd-message">Loading DDL...</div>
         </Show>
         <Show when={error() && !loaded() && !loading()}>
-          <div class="dgd-message dgd-error">{error()}</div>
+          <div class="dgd-message">
+            <div class="dg-errnote">
+              <div class="dgd-error">{error()}</div>
+              <CopyButton tooltip="Copy error" text={() => error() ?? ""} />
+            </div>
+          </div>
         </Show>
       </div>
     </div>

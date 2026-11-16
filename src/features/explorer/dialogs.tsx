@@ -1,5 +1,5 @@
 import { Match, Show, Switch, createSignal, type JSX } from "solid-js";
-import { Dialog, TextField } from "../../components/ui";
+import { CopyButton, Dialog, TextField } from "../../components/ui";
 import { confirmDrop, confirmRemoveDs, confirmRename, dialog, setDialog } from "./commands";
 
 /** One-field dialog (New Folder, Rename Folder). */
@@ -26,7 +26,10 @@ function Prompt(props: { state: Extract<NonNullable<ReturnType<typeof dialog>>, 
         <TextField value={value()} onInput={(v) => (setValue(v), setError(null))} error={!!error()} frameClass="dg-explorer-prompt-field" data-autofocus />
       </div>
       <Show when={error()}>
-        <div class="dg-explorer-prompt-error">{error()}</div>
+        <div class="dg-errnote dg-explorer-prompt-error">
+          <div>{error()}</div>
+          <CopyButton tooltip="Copy error" text={() => error() ?? ""} />
+        </div>
       </Show>
     </Dialog>
   );

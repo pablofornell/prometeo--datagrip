@@ -2,6 +2,7 @@
 import { For, Show, createSignal } from "solid-js";
 import { Checkbox, ComboBox, Icon, TextField } from "../../components/ui";
 import { SqlEditor } from "../../components/editor";
+import { UI_SCALE_VALUES } from "../../state/appearance";
 import { DEFAULT_SETTINGS } from "../../state/settings";
 import { SCHEME_LABEL, type SchemeId } from "../../state/colorScheme";
 import type { ThemePref } from "../../state/theme";
@@ -67,6 +68,18 @@ export function AppearancePage(props: { draft: Draft; open: (id: string) => void
         <NumberField narrow disabled={!d().values.uiCustomFont} value={d().values.uiFontSize} min={9} max={24} step={1} onChange={(n) => d().set("uiFontSize", n)} />
       </Row>
       <Hint>The size scales the whole window (13 is 100 %).</Hint>
+      <Row field class="st-row-gap">
+        <span class="st-label">
+          <L q={q()}>UI scale:</L>
+        </span>
+        <ComboBox<number>
+          width={80}
+          value={d().values.uiScale}
+          onChange={(n) => d().set("uiScale", n)}
+          options={UI_SCALE_VALUES.map((v) => ({ value: v, label: `${v}%` }))}
+        />
+      </Row>
+      <Hint>Zooms the whole window. Ctrl+= / Ctrl+- / Ctrl+0 change it from anywhere.</Hint>
       <Section title="UI Options" q={q()}>
         <Row>{check("compactMode", "Compact mode")}</Row>
         <Hint>UI elements take up less screen space</Hint>
