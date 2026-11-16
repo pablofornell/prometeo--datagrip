@@ -1,33 +1,34 @@
 /* The diagram's rainbow: 12 categorical colours for table headers and the foreign keys leaving them. They follow the
    shared --rainbow-N tokens when the theme defines them and fall back to these values otherwise, so the diagram looks
-   right with or without them (palette.ts reads --dgd-c1..12). Vivid on a dark canvas, deeper on a light one. */
+   right with or without them (palette.ts reads --dgd-c1..12). The fallbacks are the token values, in the token order
+   (groups.ts hands the slots out for that order). Vivid on a dark canvas, deeper on a light one. */
 :root {
-  --dgd-c1: var(--rainbow-1, #e05652);
-  --dgd-c2: var(--rainbow-2, #e08f52);
-  --dgd-c3: var(--rainbow-3, #e0bf52);
-  --dgd-c4: var(--rainbow-4, #a3e052);
-  --dgd-c5: var(--rainbow-5, #52e086);
-  --dgd-c6: var(--rainbow-6, #52e0c4);
-  --dgd-c7: var(--rainbow-7, #52c9e0);
-  --dgd-c8: var(--rainbow-8, #5294e0);
-  --dgd-c9: var(--rainbow-9, #5256e0);
-  --dgd-c10: var(--rainbow-10, #9452e0);
-  --dgd-c11: var(--rainbow-11, #e052e0);
-  --dgd-c12: var(--rainbow-12, #e05294);
+  --dgd-c1: var(--rainbow-1, #4a86ff);
+  --dgd-c2: var(--rainbow-2, #ff9f3d);
+  --dgd-c3: var(--rainbow-3, #2ed98a);
+  --dgd-c4: var(--rainbow-4, #e36bff);
+  --dgd-c5: var(--rainbow-5, #ffd23f);
+  --dgd-c6: var(--rainbow-6, #22d3ee);
+  --dgd-c7: var(--rainbow-7, #ff5c6c);
+  --dgd-c8: var(--rainbow-8, #a3e635);
+  --dgd-c9: var(--rainbow-9, #b57bff);
+  --dgd-c10: var(--rainbow-10, #ff7ab8);
+  --dgd-c11: var(--rainbow-11, #2dd4bf);
+  --dgd-c12: var(--rainbow-12, #c8a27a);
 }
 :root[data-theme="light"] {
-  --dgd-c1: var(--rainbow-1, #bf2722);
-  --dgd-c2: var(--rainbow-2, #bf6622);
-  --dgd-c3: var(--rainbow-3, #bf9a22);
-  --dgd-c4: var(--rainbow-4, #7bbf22);
-  --dgd-c5: var(--rainbow-5, #22bf5b);
-  --dgd-c6: var(--rainbow-6, #22bf9f);
-  --dgd-c7: var(--rainbow-7, #22a5bf);
-  --dgd-c8: var(--rainbow-8, #226bbf);
-  --dgd-c9: var(--rainbow-9, #2227bf);
-  --dgd-c10: var(--rainbow-10, #6b22bf);
-  --dgd-c11: var(--rainbow-11, #bf22bf);
-  --dgd-c12: var(--rainbow-12, #bf226b);
+  --dgd-c1: var(--rainbow-1, #2563f5);
+  --dgd-c2: var(--rainbow-2, #c85a00);
+  --dgd-c3: var(--rainbow-3, #07844a);
+  --dgd-c4: var(--rainbow-4, #b72fd6);
+  --dgd-c5: var(--rainbow-5, #9a7100);
+  --dgd-c6: var(--rainbow-6, #06819d);
+  --dgd-c7: var(--rainbow-7, #dc2f45);
+  --dgd-c8: var(--rainbow-8, #5e8400);
+  --dgd-c9: var(--rainbow-9, #8b45f2);
+  --dgd-c10: var(--rainbow-10, #d6277f);
+  --dgd-c11: var(--rainbow-11, #0c8f7e);
+  --dgd-c12: var(--rainbow-12, #8a6a3f);
 }
 
 /* Database diagram view (features/diagram). The shared .dgd-view / .dgd-toolbar / .dgd-body base is defined in
@@ -63,6 +64,49 @@
   color: var(--dg-text-secondary, #73767c);
   font: 13px / 18px var(--dg-font-ui, "Inter", sans-serif);
   pointer-events: none;
+}
+/* Thin indeterminate bar along the top of the stage while a new layout is being computed: it overlays the diagram that
+   stays on screen (nothing moves) and only shows after a short delay, so quick updates do not flash it. */
+.dgd-busy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  animation: dgd-busy-in 0.15s ease 0.25s forwards;
+}
+.dgd-busy::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--dg-accent, #3871e1);
+  animation: dgd-busy-run 1.1s ease-in-out infinite;
+}
+@keyframes dgd-busy-in {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes dgd-busy-run {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dgd-busy::before {
+    left: 0;
+    width: 100%;
+    opacity: 0.6;
+    animation: none;
+  }
 }
 .dgd-overlay.error {
   flex-direction: column;

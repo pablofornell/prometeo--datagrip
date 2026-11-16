@@ -305,6 +305,21 @@ const styleSheet = (p: DiagramPalette): string =>
   `.dg-edges-hl .dg-line,.dg-edges-hl .dg-mark{stroke-width:2.6;stroke-opacity:1}.dg-edges-hl .dg-hit{display:none}` +
   `.dg-far .dg-rows{display:none}`;
 
+/** Gives a rendered diagram new bounds without rendering it again (a dropped table moved the edge of the diagram). */
+export function applyBounds(svg: Element, bounds: Bounds): void {
+  const W = num(bounds.width);
+  const H = num(bounds.height);
+  svg.setAttribute("width", W);
+  svg.setAttribute("height", H);
+  svg.setAttribute("viewBox", `${num(bounds.x)} ${num(bounds.y)} ${W} ${H}`);
+  const bg = svg.querySelector(":scope > rect");
+  if (!bg) return;
+  bg.setAttribute("x", num(bounds.x));
+  bg.setAttribute("y", num(bounds.y));
+  bg.setAttribute("width", W);
+  bg.setAttribute("height", H);
+}
+
 export function renderDiagramSvg(
   model: DiagramModel,
   layout: LayoutResult,

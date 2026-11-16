@@ -14,10 +14,14 @@ export const COLOR_MODES: readonly ColorMode[] = ["cluster", "schema", "prefix",
 export const RAINBOW_SLOTS = 12;
 
 /**
- * Order in which slots are handed out: neighbours in the rainbow look alike, so the first (largest) groups take
- * slots that are far apart in hue.
+ * Order in which slots are handed out, for the order of the shared `--rainbow-1..12` tokens (blue, orange, green,
+ * magenta, yellow, cyan, red, lime, violet, pink, teal, sand; the same in both themes and in the fallbacks of
+ * palette.ts). The tokens alternate warm and cold, but plain order still puts orange next to yellow (groups 2 and 5),
+ * so the slots go out farthest-hue-first instead: blue, yellow, pink, green, violet, lime, cyan, magenta, red, orange,
+ * teal, sand. The first four groups are at least 65 degrees of hue apart, the first six at least 30, in both themes
+ * (`groups.test.ts` checks it against tokens-extra.css). The muted sand goes last.
  */
-const SLOT_ORDER = [0, 7, 3, 9, 5, 11, 1, 8, 4, 10, 6, 2] as const;
+const SLOT_ORDER = [0, 4, 9, 2, 8, 7, 5, 3, 6, 1, 10, 11] as const;
 
 export interface ColorGroup {
   id: number;
