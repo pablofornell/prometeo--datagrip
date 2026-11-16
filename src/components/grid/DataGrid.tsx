@@ -28,6 +28,7 @@ import { COPY_FORMAT_LABELS, formatRows, type CopyColumn } from "./copy";
 import { DateEditor } from "./DateEditor";
 import { DEFAULT_FIND_OPTIONS, compileQuery, findNextMatch, type FindOptions } from "./find";
 import { FindBar } from "./FindBar";
+import { fkTooltip, isLinkModifier, isMacPlatform, resolveFkLink } from "./fkLink";
 import { LocalFilterPopup } from "./LocalFilterPopup";
 import { NULL_KEY, countMatches, countValues, type ValueCount } from "./localFilter";
 import { ManageColumns } from "./ManageColumns";
@@ -713,6 +714,12 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     if (!a || a.r >= total()) return null;
     return { k: "cur", ...rectOf(a.r, a.r, 0, Math.max(0, nCols() - 1)) };
   });
+  /** Underline of the foreign key cell hovered with the link modifier held. */
+  const linkRect = createMemo<Rect | null>(() => {
+    const h = fkHover();
+    if (!h || h.r >= total() || h.c >= nCols()) return null;
+    return { k: "fklink", ...rectOf(h.r, h.r, h.c, h.c) };
+  });
   const changeRects = createMemo<Rect[]>(() => {
     pending.version();
     const out: Rect[] = [];
@@ -826,7 +833,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       inHeader: e.clientY - rect.top < HEADER_H,
     };
   }
-  const isScrollbar = (e: MouseEvent) =>
+  const isScrollbar = (e: { clientX: number; clientY: number }) =>
     e.clientX > scroller.getBoundingClientRect().left + scroller.clientWidth ||
     e.clientY > scroller.getBoundingClientRect().top + scroller.clientHeight;
 
@@ -927,6 +934,8 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       if (!inSel(r, c)) selectCell(r, c);
       return;
     }
+    // Ctrl+Click on a foreign key cell goes to the referenced row (the plain multi-select applies to every other cell)
+    if (isLinkModifier(e, mac) && !e.shiftKey && !e.altKey && followFkLink(e)) return;
     if (e.shiftKey) extendTo(r, c);
     else if (mod) addCell(r, c);
     else selectCell(r, c);
@@ -1597,6 +1606,82 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     t.open(rec);
     return true;
   }
+  // ---- Ctrl+Click (Cmd+Click on mac) on a foreign key cell: go to the referenced row ----
+  const mac = isMacPlatform();
+  /** The link modifier (Ctrl / Cmd) is held. */
+  let linkMod = false;
+  type FkHover = { r: number; c: number; tip: string };
+  const [fkHover, setFkHover] = createSignal<FkHover | null>(null, {
+    equals: (a, b) => a === b || (!!a && !!b && a.r === b.r && a.c === b.c && a.tip === b.tip),
+  });
+  const [fkHint, setFkHint] = createSignal<{ x: number; y: number; text: string } | null>(null);
+  type Pointer = { clientX: number; clientY: number; target: EventTarget | null };
+  let lastMouse: Pointer | null = null;
+  let hintTimer = 0;
+  onCleanup(() => clearTimeout(hintTimer));
+
+  /** The foreign key cell under the pointer (null over the header, gutter, editors, scrollbars or a plain cell). */
+  function fkCellAt(e: Pointer) {
+    if (!props.navigation || total() === 0 || nCols() === 0) return null;
+    if ((e.target as Element | null)?.closest?.(".dgg-header, .dgg-ew, .dgg-bool") || isScrollbar(e)) return null;
+    const p = toData(e);
+    if (p.inHeader || p.inGutter || p.y < 0 || p.y >= bodyH()) return null;
+    const cell = cellAtPoint(p);
+    if (!cell || cell.r >= total() || cell.c >= nCols()) return null;
+    const link = resolveFkLink(props.navigation, props.columns[vis()[cell.c]].name, recordOf(cell.r));
+    return link.kind === "none" ? null : { ...cell, link };
+  }
+  function updateFkHover() {
+    const hit = lastMouse && linkMod && !edit() && !boolPick() ? fkCellAt(lastMouse) : null;
+    setFkHover(hit && hit.link.kind === "go" ? { r: hit.r, c: hit.c, tip: fkTooltip(hit.link.target, mac) } : null);
+  }
+  /** Ctrl+Click on the cell: navigates, or explains with a short-lived hint why there is nowhere to go. False: not a foreign key cell. */
+  function followFkLink(e: MouseEvent): boolean {
+    const hit = fkCellAt(e);
+    if (!hit) return false;
+    e.preventDefault();
+    if (hit.link.kind === "go") {
+      setFkHover(null);
+      hit.link.target.open(recordOf(hit.r));
+    } else {
+      setFkHint({ x: e.clientX + 12, y: e.clientY + 14, text: hit.link.reason });
+      clearTimeout(hintTimer);
+      hintTimer = window.setTimeout(() => setFkHint(null), 2200);
+    }
+    return true;
+  }
+  {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Control" && e.key !== "Meta") return;
+      linkMod = isLinkModifier(e, mac);
+      updateFkHover();
+    };
+    const onBlur = () => {
+      lastMouse = null;
+      linkMod = false;
+      setFkHover(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKey, true);
+    window.addEventListener("blur", onBlur);
+    onCleanup(() => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKey, true);
+      window.removeEventListener("blur", onBlur);
+    });
+  }
+  function onBodyMouseMove(e: MouseEvent) {
+    lastMouse = { clientX: e.clientX, clientY: e.clientY, target: e.target };
+    const held = isLinkModifier(e, mac);
+    if (!held && !linkMod) return;
+    linkMod = held;
+    updateFkHover();
+  }
+  function onBodyMouseLeave() {
+    lastMouse = null;
+    setFkHover(null);
+  }
+
   /** `Go To` submenu of the active cell, null when the host gives no navigation. */
   function goToItem(): MenuItem | null {
     const nav = props.navigation;
@@ -2158,6 +2243,9 @@ export function DataGrid(props: DataGridProps): JSX.Element {
         <For each={changeRects()}>
           {(q) => <div class={"dgg-u " + q.k} style={{ left: q.x + dx() + "px", top: q.y + "px", width: q.w + "px", height: q.h + "px" }} />}
         </For>
+        <Show when={linkRect()}>
+          {(q) => <div class="dgg-u fklink" style={{ left: q().x + dx() + "px", top: q().y + "px", width: q().w + "px", height: q().h + "px" }} />}
+        </Show>
         <For each={selRects()}>
           {(q) => <div class="dgg-u sel" style={{ left: q.x + dx() + "px", top: q.y + "px", width: q.w + "px", height: q.h + "px" }} />}
         </For>
@@ -2210,7 +2298,11 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     <div
       ref={scroller}
       class="dgg-scroller"
-      onScroll={onScrollSync}
+      classList={{ "fk-link": !!fkHover() }}
+      title={fkHover()?.tip}
+      onScroll={() => (onScrollSync(), setFkHover(null))}
+      onMouseMove={onBodyMouseMove}
+      onMouseLeave={onBodyMouseLeave}
       onMouseDown={onBodyMouseDown}
       onDblClick={onBodyDblClick}
     >
@@ -2316,6 +2408,15 @@ export function DataGrid(props: DataGridProps): JSX.Element {
         if (t) e.clipboardData?.setData("text/plain", t);
       }}
     >
+      <Show when={fkHint()}>
+        {(h) => (
+          <Portal>
+            <div class="dgg-fkhint" style={{ left: h().x + "px", top: h().y + "px" }}>
+              {h().text}
+            </div>
+          </Portal>
+        )}
+      </Show>
       <div class="dgg-split" classList={{ bottom: sideDock() === "bottom" }}>
         <div class="dgg-main">
           <Show when={findOpen()}>

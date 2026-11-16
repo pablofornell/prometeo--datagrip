@@ -304,6 +304,27 @@
 .dgg-u.mod { background: var(--g-mod); }
 .dgg-u.tint { background: rgba(255, 255, 255, 0.075); }
 :root[data-theme="light"] .dgg-u.tint { background: rgba(0, 0, 0, 0.05); }
+/* foreign key cell hovered with Ctrl / Cmd held: link underline under the text line */
+.dgg-u.fklink {
+  background:
+    linear-gradient(var(--dg-link, #71a1fe), var(--dg-link, #71a1fe)) no-repeat 6px calc(100% - 6px) / calc(100% - 12px) 1px,
+    rgba(113, 161, 254, 0.1);
+}
+.dgg-scroller.fk-link, .dgg-scroller.fk-link .dgg-row { cursor: pointer; }
+/* short-lived hint of a Ctrl+Click that leads nowhere (NULL key) */
+.dgg-fkhint {
+  position: fixed;
+  z-index: 10000;
+  max-width: 340px;
+  padding: 3px 8px;
+  background: var(--dg-popup-bg, #26282c);
+  border: 1px solid var(--dg-popup-border, #33353b);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  font: 12px / 18px var(--dg-font-ui, "Inter", sans-serif);
+  color: var(--dg-text, #d1d3d9);
+  pointer-events: none;
+}
 .dgg-u.sel { background: var(--g-sel-inactive); }
 .dgg:focus-within .dgg-u.sel, .dgg.pop .dgg-u.sel { background: var(--g-sel); }
 

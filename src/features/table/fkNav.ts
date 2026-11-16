@@ -73,6 +73,24 @@ export function whereOf(driver: Driver, pairs: [string, unknown][]): string {
   return pairs.map(([c, v]) => `${quoteIdent(driver, c)} = ${literal(v as never, "", driver)}`).join(" and ");
 }
 
+const qualified = (schema: string | null | undefined, name: string) => (schema ? `${schema}.${name}` : name);
+
+/**
+ * Outgoing keys of `column` as navigation targets: a composite key lists all its columns, opens the referenced table
+ * (of the referenced schema, else the one of `t`) filtered on every referenced column, and needs every value set.
+ */
+export function referencedTargets(fks: FkDef[], column: string, driver: Driver, t: ObjectRef, open: (target: ObjectRef, where: string) => void): GridNavTarget[] {
+  return fks
+    .filter((f) => f.columns.includes(column))
+    .map<GridNavTarget>((f) => ({
+      label: `${f.refTable} (${f.refColumns.join(", ")})`,
+      qualified: qualified(f.refSchema ?? t.schema, f.refTable),
+      columns: f.columns,
+      enabled: (rec) => f.columns.every((c) => rec[c] !== null && rec[c] !== undefined),
+      open: (rec) => open({ schema: f.refSchema ?? t.schema, name: f.refTable, kind: "table" }, whereOf(driver, f.refColumns.map((rc, i) => [rc, rec[f.columns[i]]]))),
+    }));
+}
+
 const cache = new Map<string, { at: number; value: Promise<IncomingFk[]> }>();
 const TTL = 60_000;
 
@@ -125,13 +143,7 @@ export function createFkNavigation(dsIdOf: () => string, table: () => ObjectRef 
       const t = table();
       const driver = ds()?.driver;
       if (!t || !driver) return [];
-      return outgoing()
-        .filter((f) => f.columns.includes(column))
-        .map<GridNavTarget>((f) => ({
-          label: `${f.refTable} (${f.refColumns.join(", ")})`,
-          enabled: (rec) => f.columns.every((c) => rec[c] !== null && rec[c] !== undefined),
-          open: (rec) => open({ schema: f.refSchema ?? t.schema, name: f.refTable, kind: "table" }, whereOf(driver, f.refColumns.map((rc, i) => [rc, rec[f.columns[i]]]))),
-        }));
+      return referencedTargets(outgoing(), column, driver, t, open);
     },
     related(column) {
       const t = table();
@@ -141,6 +153,8 @@ export function createFkNavigation(dsIdOf: () => string, table: () => ObjectRef 
         .filter((f) => f.refColumns.includes(column))
         .map<GridNavTarget>((f) => ({
           label: `${f.table} (${f.columns.join(", ")})`,
+          qualified: qualified(t.schema, f.table),
+          columns: f.refColumns,
           enabled: (rec) => f.refColumns.every((c) => rec[c] !== null && rec[c] !== undefined),
           open: (rec) => open({ schema: t.schema, name: f.table, kind: "table" }, whereOf(driver, f.columns.map((c, i) => [c, rec[f.refColumns[i]]]))),
         }));
