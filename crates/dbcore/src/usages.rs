@@ -360,10 +360,6 @@ fn declares(line: &str, name: &str) -> bool {
             .is_some_and(|n| same(n, name))
 }
 
-/// Oracle's own owners (SYS, SYSTEM, ...): their text is never searched.
-const ORA_USER_OWNERS: &str =
-    "owner in (select username from all_users where oracle_maintained = 'N')";
-
 async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
     let sc = match &o.schema {
         Some(s) => s.clone(),
@@ -516,6 +512,10 @@ async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
 
     // text hits per unit: the PL/SQL lines that mention the name, a view whose text mentions the column. Only the
     // units found above are read (no unit, no scan), in their own owners' text: Oracle's own packages never are
+    let user_owners = crate::introspect::ora_user_owners(
+        crate::introspect::ora_has_maintained_flag(pool).await,
+        "owner",
+    );
     let mut hits: BTreeMap<(String, String, UsageKind), Vec<Usage>> = BTreeMap::new();
     let like = format!("%{}%", word.to_uppercase());
     let pairs: Vec<(String, String)> = units
@@ -529,7 +529,7 @@ async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
             .query_strings(&format!(
                 "select owner, name, type, line, text from all_source \
                  where upper(text) like {} and type in ('FUNCTION', 'PROCEDURE', 'PACKAGE', 'PACKAGE BODY', 'TRIGGER') \
-                   and {filter} and {ORA_USER_OWNERS}",
+                   and {filter} and {user_owners}",
                 ol(&like)
             ))
             .await?
@@ -571,7 +571,7 @@ async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
                      end; \
                      select owner, view_name, \
                             case when text_vc is null or length(text_vc) >= 4000 then prometeo_view_text(owner, view_name) else to_clob(text_vc) end \
-                     from all_views where {filter} and {ORA_USER_OWNERS}"
+                     from all_views where {filter} and {user_owners}"
                 ))
                 .await?
             {
