@@ -32,7 +32,7 @@ function literals(css: string): string[] {
 
 describe("hard-coded colours", () => {
   it("the sheets cleaned for SHELL-24 and the new ones have no hex literals", () => {
-    const cleaned = ["../components/editor/editor.css", "../features/explorer/explorer.css", "../features/output/output.css", "../features/settings/settings.css", "./appearance.css"];
+    const cleaned = ["../components/editor/editor.css", "../features/explorer/explorer.css", "../features/output/output.css", "../features/settings/settings.css", "./appearance.css", "../styles/ui.css", "../styles/shell.css", "../styles/app.css"];
     for (const f of cleaned) {
       expect(sheets[f], f).toBeDefined();
       expect(literals(sheets[f]), f).toEqual([]);

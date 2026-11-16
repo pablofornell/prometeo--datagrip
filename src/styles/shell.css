@@ -22,12 +22,10 @@
   flex: none;
   height: var(--dg-toolbar-height);
   padding-left: 5px;
-  background: linear-gradient(
-    90deg,
-    var(--dg-toolbar-bg) 0,
-    var(--dg-toolbar-tint) var(--dg-toolbar-tint-start),
-    var(--dg-toolbar-bg) var(--dg-toolbar-tint-end)
-  );
+  /* accent glow at the left, a violet hint in the middle, calm bar at the right; a 1px accent edge under it */
+  background:
+    linear-gradient(90deg, var(--dg-accent-border), var(--dg-special-border) 38%, transparent 75%) bottom / 100% 1px no-repeat,
+    linear-gradient(90deg, var(--dg-toolbar-tint) 0, var(--dg-toolbar-tint-2) 38%, var(--dg-toolbar-bg) 72%);
   color: var(--dg-toolbar-fg);
 }
 .dg-toolbar-left {
@@ -82,6 +80,7 @@
 }
 .dg-toolwindow-button.dg-selected {
   background: var(--dg-toolwindow-button-selected-bg);
+  box-shadow: inset 0 0 0 1px var(--dg-accent-border);
 }
 
 /* inline menu bar (hamburger expanded) */
@@ -126,7 +125,7 @@
   filter: brightness(0.45);
 }
 .dg-window-close:hover {
-  background: #e81123;
+  background: var(--dg-window-close-hover-bg);
 }
 .dg-window-close:hover .dg-icon,
 :root[data-theme="light"] .dg-window-close:hover .dg-icon {
@@ -196,7 +195,14 @@
   height: var(--dg-toolwindow-header-height);
   padding: 0 4px 0 12px;
   border-bottom: 1px solid var(--dg-toolwindow-header-border);
+  background: linear-gradient(90deg, var(--dg-accent-wash-soft), transparent 70%);
   color: var(--dg-toolwindow-header-fg);
+}
+/* the tool window that has the focus: its header glow gets the violet end and an accent hairline */
+.dg-island:focus-within > .dg-tw-header,
+.dg-toolwindow:focus-within > .dg-tw-header {
+  background: linear-gradient(90deg, var(--dg-accent-wash), var(--dg-special-wash-soft) 55%, transparent 90%);
+  border-bottom-color: var(--dg-accent-border);
 }
 .dg-toolwindow-output .dg-tw-header {
   padding-right: 10px;
@@ -360,6 +366,7 @@
 }
 .dg-empty-btn:hover {
   background: var(--dg-layer-2-bg);
+  box-shadow: inset 0 0 0 1px var(--dg-accent-border);
 }
 
 /* ---------------------------------------------------------------- Status bar */
@@ -369,7 +376,10 @@
   flex: none;
   height: var(--dg-statusbar-height);
   padding: 0 6px 4px 15px;
-  background: var(--dg-statusbar-bg);
+  /* accent glow at the left, violet at the right; a 1px accent edge on top */
+  background:
+    linear-gradient(90deg, var(--dg-special-border), var(--dg-accent-border) 62%, transparent) top / 100% 1px no-repeat,
+    linear-gradient(90deg, var(--dg-statusbar-tint) 0, var(--dg-statusbar-bg) 45%, var(--dg-statusbar-tint-2) 100%);
   color: var(--dg-statusbar-fg);
   white-space: nowrap;
 }
@@ -417,7 +427,8 @@
 .dg-progress-bar {
   display: block;
   height: 100%;
-  background: var(--dg-progress-fg);
+  background: linear-gradient(90deg, var(--dg-progress-fg), var(--dg-progress-fg-end));
+  border-radius: 2px;
 }
 .dg-progress-bar.dg-indeterminate {
   animation: dg-indeterminate 1.2s ease-in-out infinite alternate;
@@ -450,4 +461,14 @@
 }
 .dg-status-more:hover {
   color: var(--dg-statusbar-hover-fg);
+}
+
+/* ---------------------------------------------------------------- Reduced motion */
+/* The busy spinners keep turning (they carry information); the indeterminate bar stops and shows a fixed segment. */
+@media (prefers-reduced-motion: reduce) {
+  .dg-progress-bar.dg-indeterminate {
+    width: 40%;
+    margin-left: 30%;
+    animation: none;
+  }
 }

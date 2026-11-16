@@ -33,31 +33,224 @@
 }
 
 :root[data-theme="dark"] {
-  --dg-toolbar-tint: #404B2E;                    /* project colour tint fading out from the left */
-  --dg-toolwindow-button-selected-bg: #393A3E;   /* visible tool window button */
   --dg-toolbar-group-sep: #323438;               /* hairline between toolbar groups */
-  --dg-button-primary-hover-bg: #4A80EE;
-  --dg-button-primary-pressed-bg: #3366CC;
   --dg-window-btn-hover-bg: #FFFFFF1A;
   --dg-menu-shadow: 0 6px 20px #00000066;
   --dg-dialog-overlay: #00000052;
   --dg-tab-close-hover-bg: #FFFFFF1F;
-  --dg-tab-modified-dot: #9AA7BD;                /* unsaved-changes dot in the tab close slot (guess, see datagrip-map) */
   --dg-tree-badge-border: #43454A;
   --dg-spinner-track: #FFFFFF26;
 }
 
 :root[data-theme="light"] {
-  --dg-toolbar-tint: #E3F1D1;
-  --dg-toolwindow-button-selected-bg: #D9D9DD;
   --dg-toolbar-group-sep: #EBECF0;
-  --dg-button-primary-hover-bg: #4A80EE;
-  --dg-button-primary-pressed-bg: #3366CC;
   --dg-window-btn-hover-bg: #0000001A;
   --dg-menu-shadow: 0 6px 20px #00000033;
   --dg-dialog-overlay: #00000033;
   --dg-tab-close-hover-bg: #0000001A;
-  --dg-tab-modified-dot: #6C707E;
   --dg-tree-badge-border: #D1D3D9;
   --dg-spinner-track: #00000026;
+}
+
+/* =====================================================================================
+ * Colour system v2 (docs/ux/theme-tokens.md section 10).
+ * The hue families (`--dg-<fam>`, `-fill`, `-fg`) and the wash strengths are in dark.css / light.css. Everything
+ * below derives from them with the same formulas in both themes, so a state has the same colour in every view.
+ * Feature CSS uses these tokens and never writes a hex value. `:root[data-theme]` has the same specificity as the
+ * theme blocks and loads after them, so it replaces the older neutral values (selection, banners, links...).
+ * src/theme/colors.test.ts resolves this file and checks the WCAG contrast of every pair in both themes.
+ * ===================================================================================== */
+:root[data-theme="dark"],
+:root[data-theme="light"] {
+  /* ---- washes and borders: `<fam>-wash-soft` hover, `-wash` badges/banners, `-wash-strong` active, `-border` edge ---- */
+  --dg-accent-wash-soft: color-mix(in srgb, var(--dg-accent) var(--dg-wash-soft-a), transparent);
+  --dg-accent-wash: color-mix(in srgb, var(--dg-accent) var(--dg-wash-a), transparent);
+  --dg-accent-wash-strong: color-mix(in srgb, var(--dg-accent) var(--dg-wash-strong-a), transparent);
+  --dg-accent-border: color-mix(in srgb, var(--dg-accent) var(--dg-wash-border-a), transparent);
+  --dg-success-wash-soft: color-mix(in srgb, var(--dg-success) var(--dg-wash-soft-a), transparent);
+  --dg-success-wash: color-mix(in srgb, var(--dg-success) var(--dg-wash-a), transparent);
+  --dg-success-wash-strong: color-mix(in srgb, var(--dg-success) var(--dg-wash-strong-a), transparent);
+  --dg-success-border: color-mix(in srgb, var(--dg-success) var(--dg-wash-border-a), transparent);
+  --dg-warning-wash-soft: color-mix(in srgb, var(--dg-warning) var(--dg-wash-soft-a), transparent);
+  --dg-warning-wash: color-mix(in srgb, var(--dg-warning) var(--dg-wash-a), transparent);
+  --dg-warning-wash-strong: color-mix(in srgb, var(--dg-warning) var(--dg-wash-strong-a), transparent);
+  --dg-warning-border: color-mix(in srgb, var(--dg-warning) var(--dg-wash-border-a), transparent);
+  --dg-danger-wash-soft: color-mix(in srgb, var(--dg-danger) var(--dg-wash-soft-a), transparent);
+  --dg-danger-wash: color-mix(in srgb, var(--dg-danger) var(--dg-wash-a), transparent);
+  --dg-danger-wash-strong: color-mix(in srgb, var(--dg-danger) var(--dg-wash-strong-a), transparent);
+  --dg-danger-border: color-mix(in srgb, var(--dg-danger) var(--dg-wash-border-a), transparent);
+  --dg-info-wash-soft: color-mix(in srgb, var(--dg-info) var(--dg-wash-soft-a), transparent);
+  --dg-info-wash: color-mix(in srgb, var(--dg-info) var(--dg-wash-a), transparent);
+  --dg-info-wash-strong: color-mix(in srgb, var(--dg-info) var(--dg-wash-strong-a), transparent);
+  --dg-info-border: color-mix(in srgb, var(--dg-info) var(--dg-wash-border-a), transparent);
+  --dg-special-wash-soft: color-mix(in srgb, var(--dg-special) var(--dg-wash-soft-a), transparent);
+  --dg-special-wash: color-mix(in srgb, var(--dg-special) var(--dg-wash-a), transparent);
+  --dg-special-wash-strong: color-mix(in srgb, var(--dg-special) var(--dg-wash-strong-a), transparent);
+  --dg-special-border: color-mix(in srgb, var(--dg-special) var(--dg-wash-border-a), transparent);
+  --dg-neutral-wash-soft: color-mix(in srgb, var(--dg-neutral) var(--dg-wash-soft-a), transparent);
+  --dg-neutral-wash: color-mix(in srgb, var(--dg-neutral) var(--dg-wash-a), transparent);
+  --dg-neutral-wash-strong: color-mix(in srgb, var(--dg-neutral) var(--dg-wash-strong-a), transparent);
+  --dg-neutral-border: color-mix(in srgb, var(--dg-neutral) var(--dg-wash-border-a), transparent);
+
+  /* ---- text and links ---- */
+  --dg-text-error: var(--dg-danger-fg);
+  --dg-text-warning: var(--dg-warning-fg);
+  --dg-text-success: var(--dg-success-fg);
+  --dg-text-link: var(--dg-accent-fg);
+  --dg-link: var(--dg-accent-fg);
+  --dg-link-hover: var(--dg-accent-fg);
+  --dg-link-visited: var(--dg-accent-fg);
+  --dg-notification-link: var(--dg-accent-fg);
+  --dg-error: var(--dg-danger-fg);                    /* old name; used for text, so the text-safe value */
+  --dg-completion-match-fg: var(--dg-accent-fg);
+  --dg-tree-error-fg: var(--dg-danger-fg);
+
+  /* ---- focus, hover, selection, active ---- */
+  --dg-focus-ring: var(--dg-accent);
+  --dg-row-hover-bg: var(--dg-accent-wash-soft);      /* tree / list / table row hover */
+  --dg-selection-bg: var(--dg-accent-wash-strong);    /* selected row, the list has the focus */
+  --dg-selection-inactive-bg: var(--dg-accent-wash);  /* selected row, the list has no focus */
+  --dg-selection-muted-bg: var(--dg-accent-wash);
+  --dg-selection-edge: var(--dg-accent);              /* 2 px bar at the left of a focused selected row, underline of an active tab */
+  --dg-tree-hover-bg: var(--dg-accent-wash-soft);
+  --dg-tree-selection-bg: var(--dg-accent-wash-strong);
+  --dg-tree-selection-inactive-bg: var(--dg-accent-wash);
+  --dg-list-hover-bg: var(--dg-accent-wash-soft);
+  --dg-list-selection-bg: var(--dg-accent-wash-strong);
+  --dg-list-selection-inactive-bg: var(--dg-accent-wash);
+  --dg-completion-selection-bg: var(--dg-accent-wash-strong);
+  --dg-toolbar-selected-bg: var(--dg-accent-wash-strong);   /* toggled icon button */
+  --dg-toolbar-selected-fg: var(--dg-accent-fg);
+  --dg-action-button-selected-bg: var(--dg-accent-wash-strong);
+  --dg-toolwindow-button-selected-bg: var(--dg-accent-wash-strong);
+  --dg-stripe-button-selected-bg: var(--dg-accent-wash-strong);
+  --dg-stripe-button-selected-fg: var(--dg-accent-fg);
+  --dg-tab-selected-bg: var(--dg-accent-wash);              /* selected tab pill: wash + accent border + underline */
+  --dg-tab-selected-border: var(--dg-accent-border);
+  --dg-tab-underline: var(--dg-accent);
+  --dg-tab-active-fg: var(--dg-accent-fg);
+  --dg-tab-modified-dot: var(--dg-warning);
+  --dg-dialog-glow: var(--dg-accent-wash-soft);             /* top of dialogs, popups and Search Everywhere */
+  --dg-dialog-glow-2: var(--dg-special-wash-soft);
+
+  /* ---- title bar and status bar: accent glow at the left, violet hint further along ---- */
+  --dg-toolbar-tint: color-mix(in srgb, var(--dg-accent) var(--dg-toolbar-tint-a), var(--dg-toolbar-bg));
+  --dg-toolbar-tint-2: color-mix(in srgb, var(--dg-special) var(--dg-toolbar-tint-2-a), var(--dg-toolbar-bg));
+  --dg-statusbar-tint: color-mix(in srgb, var(--dg-accent) var(--dg-statusbar-tint-a), var(--dg-statusbar-bg));
+  --dg-statusbar-tint-2: color-mix(in srgb, var(--dg-special) var(--dg-statusbar-tint-2-a), var(--dg-statusbar-bg));
+  --dg-toolbar-run-bg: var(--dg-success-fill);
+  --dg-toolbar-run-hover-bg: color-mix(in srgb, var(--dg-success-fill) 82%, #000000);
+  --dg-toolbar-stop-bg: var(--dg-danger-fill);
+  --dg-toolbar-stop-hover-bg: var(--dg-button-danger-hover-bg);
+
+  /* ---- controls ---- */
+  --dg-button-primary-bg: var(--dg-accent-fill);
+  --dg-button-primary-border: var(--dg-accent-fill);
+  --dg-button-primary-hover-bg: var(--dg-accent-hover);
+  --dg-button-primary-pressed-bg: var(--dg-accent-pressed);
+  --dg-accent-grad-from: var(--dg-accent-fill);             /* primary gradient (white text on both ends, >= 4.5:1) */
+  --dg-accent-grad-to: color-mix(in srgb, var(--dg-accent-fill) 50%, var(--dg-special-fill));
+  --dg-accent-grad-hover-from: var(--dg-accent-hover);
+  --dg-accent-grad-hover-to: color-mix(in srgb, var(--dg-accent-hover) 50%, var(--dg-special-fill));
+  --dg-accent-grad-pressed-from: var(--dg-accent-pressed);
+  --dg-accent-grad-pressed-to: color-mix(in srgb, var(--dg-accent-pressed) 50%, var(--dg-special-fill));
+  --dg-input-focus-border: var(--dg-accent);
+  --dg-input-error-border: var(--dg-danger);
+  --dg-input-warning-border: var(--dg-warning);
+  --dg-checkbox-selected-bg: var(--dg-accent-fill);
+  --dg-checkbox-selected-border: var(--dg-accent-fill);
+  --dg-checkbox-focus: var(--dg-accent);
+  --dg-toggle-on-bg: var(--dg-accent-fill);
+  --dg-progress-fg: var(--dg-accent);
+  --dg-progress-fg-end: var(--dg-info);                     /* progress bars run from electric blue to cyan */
+  --dg-services-connected-dot: var(--dg-success);
+
+  /* ---- banners (inside an island) and notifications (floating, so opaque) ---- */
+  --dg-banner-info-bg: var(--dg-info-wash);
+  --dg-banner-info-border: var(--dg-info-border);
+  --dg-banner-error-bg: var(--dg-danger-wash);
+  --dg-banner-error-border: var(--dg-danger-border);
+  --dg-banner-warning-bg: var(--dg-warning-wash);
+  --dg-banner-warning-border: var(--dg-warning-border);
+  --dg-banner-success-bg: var(--dg-success-wash);
+  --dg-banner-success-border: var(--dg-success-border);
+  --dg-notification-info-bg: color-mix(in srgb, var(--dg-info) var(--dg-wash-a), var(--dg-notification-bg));
+  --dg-notification-success-bg: color-mix(in srgb, var(--dg-success) var(--dg-wash-a), var(--dg-notification-bg));
+  --dg-notification-warning-bg: color-mix(in srgb, var(--dg-warning) var(--dg-wash-a), var(--dg-notification-bg));
+  --dg-notification-error-bg: color-mix(in srgb, var(--dg-danger) var(--dg-wash-a), var(--dg-notification-bg));
+  --dg-notification-info-border: var(--dg-info-border);
+  --dg-notification-success-border: var(--dg-success-border);
+  --dg-notification-warning-border: var(--dg-warning-border);
+  --dg-notification-error-border: var(--dg-danger-border);
+
+  /* ---- data grid: header with a faint accent, selection and pending changes as opaque mixes ---- */
+  --dg-grid-header-bg: color-mix(in srgb, var(--dg-accent) var(--dg-grid-tint-a), var(--dg-grid-bg));
+  --dg-grid-selection-bg: color-mix(in srgb, var(--dg-accent) var(--dg-grid-select-a), var(--dg-grid-bg));
+  --dg-grid-modified-bg: color-mix(in srgb, var(--dg-accent) var(--dg-grid-change-a), var(--dg-grid-bg));
+  --dg-grid-inserted-bg: color-mix(in srgb, var(--dg-success) var(--dg-grid-change-a), var(--dg-grid-bg));
+  --dg-grid-deleted-bg: color-mix(in srgb, var(--dg-danger) var(--dg-grid-change-a), var(--dg-grid-bg));
+
+  --dg-window-close-hover-bg: #E81123;                /* the Windows close button red, in both themes */
+}
+
+/* Object-type icons of the explorer tree. The icons are static SVG images, so the hue of the family each kind
+   belongs to comes from a filter chain: sepia gives the grey icon a hue, hue-rotate moves it to the family colour,
+   saturate makes it vivid. Applied by the .dg-ico-* classes of styles/ui.css; NodeIcon.tsx picks the class from the icon name.
+   table, column = cyan (info) | view, materialized view = violet (special) | schema, database, folder = blue (accent)
+   index = green (success) | function, procedure = magenta | sequence, trigger, package, check = amber (warning).
+   The key icons keep their own gold / blue, the brand icons of the data sources are not touched. */
+:root[data-theme="dark"] {
+  --dg-ico-filter-table: sepia(1) saturate(3.6) hue-rotate(148deg) brightness(1.05);
+  --dg-ico-filter-column: sepia(1) saturate(3.2) hue-rotate(148deg) brightness(1.05);
+  --dg-ico-filter-view: sepia(1) saturate(3.6) hue-rotate(215deg) brightness(1.1);
+  --dg-ico-filter-schema: sepia(1) saturate(3.6) hue-rotate(175deg) brightness(1.1);
+  --dg-ico-filter-index: sepia(1) saturate(3.6) hue-rotate(80deg) brightness(1.05);
+  --dg-ico-filter-routine: sepia(1) saturate(3.6) hue-rotate(235deg) brightness(1.1);
+  --dg-ico-filter-misc: sepia(1) saturate(3.6) hue-rotate(-8deg) brightness(1.05);
+}
+
+:root[data-theme="light"] {
+  --dg-ico-filter-table: sepia(1) saturate(5) hue-rotate(148deg) brightness(0.9);
+  --dg-ico-filter-column: sepia(1) saturate(4.5) hue-rotate(148deg) brightness(0.9);
+  --dg-ico-filter-view: sepia(1) saturate(5) hue-rotate(215deg) brightness(0.9);
+  --dg-ico-filter-schema: sepia(1) saturate(5) hue-rotate(175deg) brightness(0.9);
+  --dg-ico-filter-index: sepia(1) saturate(5) hue-rotate(80deg) brightness(0.9);
+  --dg-ico-filter-routine: sepia(1) saturate(5) hue-rotate(235deg) brightness(0.9);
+  --dg-ico-filter-misc: sepia(1) saturate(5) hue-rotate(-8deg) brightness(0.9);
+}
+
+/* =====================================================================================
+ * Rainbow: 12 categorical colours for anything that needs "one colour per item" (diagram schemas, chart series,
+ * tags). Dark values are >= 3:1 on the dark island, light values >= 3:1 on white, so they work as lines, dots and
+ * fills. They alternate warm and cold, so neighbours differ. Tint them with
+ * `color-mix(in srgb, var(--rainbow-N) 18%, transparent)`; text on them uses --dg-text, never the solid.
+ * ===================================================================================== */
+:root[data-theme="dark"] {
+  --rainbow-1: #4A86FF;   /* blue */
+  --rainbow-2: #FF9F3D;   /* orange */
+  --rainbow-3: #2ED98A;   /* green */
+  --rainbow-4: #E36BFF;   /* magenta */
+  --rainbow-5: #FFD23F;   /* yellow */
+  --rainbow-6: #22D3EE;   /* cyan */
+  --rainbow-7: #FF5C6C;   /* red */
+  --rainbow-8: #A3E635;   /* lime */
+  --rainbow-9: #B57BFF;   /* violet */
+  --rainbow-10: #FF7AB8;  /* pink */
+  --rainbow-11: #2DD4BF;  /* teal */
+  --rainbow-12: #C8A27A;  /* sand */
+}
+
+:root[data-theme="light"] {
+  --rainbow-1: #2563F5;
+  --rainbow-2: #C85A00;
+  --rainbow-3: #07844A;
+  --rainbow-4: #B72FD6;
+  --rainbow-5: #9A7100;
+  --rainbow-6: #06819D;
+  --rainbow-7: #DC2F45;
+  --rainbow-8: #5E8400;
+  --rainbow-9: #8B45F2;
+  --rainbow-10: #D6277F;
+  --rainbow-11: #0C8F7E;
+  --rainbow-12: #8A6A3F;
 }

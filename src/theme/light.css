@@ -10,6 +10,45 @@
 :root[data-theme="light"] {
   color-scheme: light;
 
+  /* ---- Colour families (same names as dark.css; see there and docs/ux/theme-tokens.md section 10) ---- */
+  --dg-accent: #2563F5;
+  --dg-accent-fill: #2563F5;
+  --dg-accent-fg: #1442B8;
+  --dg-accent-hover: #1E56DE;
+  --dg-accent-pressed: #1848C0;
+  --dg-success: #07844A;
+  --dg-success-fill: #0B7D46;
+  --dg-success-fg: #055C34;
+  --dg-warning: #AD6600;
+  --dg-warning-fill: #A85F00;
+  --dg-warning-fg: #724300;
+  --dg-danger: #DC2F45;
+  --dg-danger-fill: #D02A40;
+  --dg-danger-fg: #961628;
+  --dg-info: #06819D;
+  --dg-info-fill: #087C96;
+  --dg-info-fg: #055769;
+  --dg-special: #8B45F2;
+  --dg-special-fill: #7A35E0;
+  --dg-special-fg: #5C20B8;
+  --dg-neutral: #6E7382;
+  --dg-neutral-fill: #5B6070;
+  --dg-neutral-fg: #474C59;
+
+  --dg-wash-soft-a: 6%;
+  --dg-wash-a: 11%;
+  --dg-wash-strong-a: 18%;
+  --dg-wash-border-a: 40%;
+  --dg-toolbar-tint-a: 17%;
+  --dg-toolbar-tint-2-a: 10%;
+  --dg-statusbar-tint-a: 11%;
+  --dg-statusbar-tint-2-a: 9%;
+  --dg-grid-tint-a: 6%;
+  --dg-grid-select-a: 20%;
+  --dg-grid-change-a: 18%;
+  --dg-text-muted-on-wash: #43464D;
+  --dg-button-danger-hover-bg: #B82236;
+
   /* ---- Core surfaces ---- */
   --dg-window-bg: #E9EAEE;
   --dg-island-bg: #FFFFFF;
@@ -23,23 +62,14 @@
 
   /* ---- Text ---- */
   --dg-text: #000000;
-  --dg-text-secondary: #73767C;
+  --dg-text-secondary: #5F6269;
   --dg-text-muted: #5F6269;
   --dg-text-disabled: #9FA2A8;
   --dg-text-over-accent: #FFFFFF;
-  --dg-text-error: #C54E58;
-  --dg-text-warning: #A56906;
-  --dg-text-success: #338555;
 
   /* ---- Accent / state ---- */
-  --dg-accent: #3871E1;
-  --dg-focus-ring: #3871E1;
   --dg-hover-bg: #00000012;
   --dg-pressed-bg: #00000020;
-  --dg-row-hover-bg: #00000008;
-  --dg-selection-bg: #D0DFFE;
-  --dg-selection-inactive-bg: #E9EAEE;
-  --dg-selection-muted-bg: #E3EBFE;
   --dg-selection-fg: #000000;
 
   /* ---- Main toolbar ---- */
@@ -49,19 +79,12 @@
   --dg-toolbar-separator: #00000020;
   --dg-toolbar-button-hover-bg: #00000012;
   --dg-toolbar-button-pressed-bg: #00000020;
-  --dg-toolbar-selected-bg: #D0DFFE;
-  --dg-toolbar-run-bg: #4E9D6C;
-  --dg-toolbar-run-hover-bg: #338555;
-  --dg-toolbar-stop-bg: #E4656E;
-  --dg-toolbar-stop-hover-bg: #C54E58;
 
   /* ---- Tool window stripe ---- */
   --dg-stripe-bg: #E9EAEE;
   --dg-stripe-separator: #00000020;
   --dg-stripe-button-fg: #5F6269;
   --dg-stripe-button-hover-bg: #00000012;
-  --dg-stripe-button-selected-bg: #3871E1;
-  --dg-stripe-button-selected-fg: #FFFFFF;
 
   /* ---- Tool window ---- */
   --dg-toolwindow-bg: #FFFFFF;
@@ -76,48 +99,36 @@
   --dg-tab-fg: #000000;
   --dg-tab-inactive-fg: #000000BF;      /* EditorTabs.unselectedAlpha 0.75 */
   --dg-tab-hover-bg: #00000012;
-  --dg-tab-selected-bg: #E3EBFE;
-  --dg-tab-selected-border: #A7C5FF;
   --dg-tab-selected-inactive-bg: #E9EAEE;
   --dg-tab-selected-inactive-border: #D1D3D9;
-  --dg-tab-underline: #3871E1;
   --dg-tab-inactive-underline: #DDDFE4;
 
   /* ---- Tree ---- */
   --dg-tree-bg: #FFFFFF;                /* inside tool windows (Tree.background #F7F8F9 elsewhere) */
   --dg-tree-fg: #000000;
-  --dg-tree-hover-bg: #00000008;
-  --dg-tree-selection-bg: #D0DFFE;
   --dg-tree-selection-fg: #000000;
-  --dg-tree-selection-inactive-bg: #E9EAEE;
   --dg-tree-selection-inactive-fg: #000000;
   --dg-tree-indent-guide: #E9EAEE;
-  --dg-tree-secondary-fg: #73767C;
-  --dg-tree-error-fg: #C54E58;
+  --dg-tree-secondary-fg: #5F6269;
 
   /* ---- List / popup / menu ---- */
   --dg-list-bg: #FFFFFF;
-  --dg-list-hover-bg: #00000008;
-  --dg-list-selection-bg: #D0DFFE;
-  --dg-list-selection-inactive-bg: #E9EAEE;
   --dg-list-selection-fg: #000000;
   --dg-popup-bg: #FFFFFF;
   --dg-popup-border: #D1D3D9;
   --dg-popup-inactive-border: #ABABAB;
   --dg-popup-header-bg: #FFFFFF;
-  --dg-popup-header-inactive-fg: #73767C;
+  --dg-popup-header-inactive-fg: #5F6269;
   --dg-popup-separator: #E9EAEE;
-  --dg-popup-separator-fg: #73767C;
+  --dg-popup-separator-fg: #5F6269;
   --dg-popup-advertiser-bg: #F7F8F9;
-  --dg-popup-advertiser-fg: #73767C;
+  --dg-popup-advertiser-fg: #5F6269;
   --dg-popup-shadow: 0 0 16px 0 #00000010;
   --dg-menu-bg: #FFFFFF;
   --dg-menu-border: #E9EAEE;
-  --dg-menu-accelerator-fg: #73767C;
+  --dg-menu-accelerator-fg: #5F6269;
   --dg-completion-bg: #FFFFFF;          /* LOOKUP_COLOR */
   --dg-completion-fg: #080808;
-  --dg-completion-match-fg: #2F5EB9;
-  --dg-completion-selection-bg: #D0DFFE;
   --dg-completion-selection-inactive-bg: #E9EAEE;
   --dg-speedsearch-bg: #FFFFFF;
   --dg-speedsearch-border: #D1D3D9;
@@ -129,27 +140,21 @@
   --dg-button-fg: #000000;
   --dg-button-border: #D1D3D9;
   --dg-button-focus-inner: #F7F8F9;
-  --dg-button-primary-bg: #3871E1;
   --dg-button-primary-fg: #FFFFFF;
-  --dg-button-primary-border: #3871E1;
   --dg-button-primary-focus-inner: #F7F8F9;
   --dg-button-disabled-fg: #9FA2A8;
   --dg-button-disabled-border: #DDDFE4;
   --dg-action-button-hover-bg: #00000012;
   --dg-action-button-pressed-bg: #00000020;
-  --dg-action-button-selected-bg: #D0DFFE;
 
   /* ---- Text fields / combo ---- */
   --dg-input-bg: #FFFFFF;
   --dg-input-fg: #000000;
   --dg-input-border: #D1D3D9;
-  --dg-input-focus-border: #3871E1;
   --dg-input-disabled-bg: #F7F8F9;
   --dg-input-disabled-border: #DDDFE4;
-  --dg-input-placeholder: #73767C;
-  --dg-input-error-border: #E4656E;
+  --dg-input-placeholder: #5F6269;
   --dg-input-error-inactive-border: #FFC4C5;
-  --dg-input-warning-border: #C28013;
   --dg-input-warning-inactive-border: #F4CD9A;
   --dg-combo-bg: #FFFFFF;
   --dg-combo-editable-bg: #FFFFFF;
@@ -159,14 +164,10 @@
   /* ---- Checkbox / radio (Islands Light icons.ColorPalette) ---- */
   --dg-checkbox-bg: #FFFFFF;
   --dg-checkbox-border: #A8ADBD;
-  --dg-checkbox-selected-bg: #3574F0;
-  --dg-checkbox-selected-border: #3574F0;
   --dg-checkbox-check: #FFFFFF;
-  --dg-checkbox-focus: #3574F0;
   --dg-checkbox-disabled-bg: #F7F8FA;
   --dg-checkbox-disabled-border: #DFE1E5;
   --dg-checkbox-disabled-check: #C9CCD6;
-  --dg-toggle-on-bg: #3871E1;
   --dg-toggle-off-bg: #00000030;
 
   /* ---- Scrollbars ---- */
@@ -182,7 +183,7 @@
   --dg-tooltip-fg: #000000;
   --dg-tooltip-border: #D1D3D9;
   --dg-tooltip-info-fg: #5F6269;
-  --dg-tooltip-shortcut-fg: #73767C;
+  --dg-tooltip-shortcut-fg: #5F6269;
   --dg-help-tooltip-bg: #FFFFFF;
   --dg-editor-tooltip-bg: #FFFFFF;
   --dg-editor-tooltip-border: #D1D3D9;
@@ -195,22 +196,8 @@
   --dg-notification-bg: #FFFFFF;
   --dg-notification-border: #D1D3D9;
   --dg-notification-fg: #000000;
-  --dg-notification-link: #2F5EB9;
   --dg-notification-button-bg: #FFFFFF;
   --dg-notification-button-border: #00000030;
-  --dg-notification-error-bg: #FFF6F5;
-  --dg-notification-error-border: #FFC4C5;
-  --dg-notification-warning-bg: #FFF6E9;
-  --dg-notification-warning-border: #F4CD9A;
-  --dg-notification-info-bg: #FFFFFF;
-  --dg-banner-info-bg: #F7F8FF;
-  --dg-banner-info-border: #BDD3FF;
-  --dg-banner-error-bg: #FFF6F5;
-  --dg-banner-error-border: #FFC4C5;
-  --dg-banner-warning-bg: #FFF6E9;
-  --dg-banner-warning-border: #F4CD9A;
-  --dg-banner-success-bg: #F5FAF3;
-  --dg-banner-success-border: #BBDBC2;
   --dg-validation-error-bg: #FFF6F5;
   --dg-validation-error-border: #FFC4C5;
   --dg-validation-error-fg: #000000;
@@ -221,21 +208,14 @@
   /* ---- Status bar ---- */
   --dg-statusbar-bg: #E9EAEE;
   --dg-statusbar-border: transparent;
-  --dg-statusbar-fg: #5F6269;
+  --dg-statusbar-fg: #50545C;
   --dg-statusbar-hover-fg: #000000;
   --dg-statusbar-hover-bg: #00000012;
-  --dg-statusbar-breadcrumb-fg: #5F6269;
+  --dg-statusbar-breadcrumb-fg: #50545C;
 
   /* ---- Links / semantic ---- */
-  --dg-link: #2F5EB9;
-  --dg-link-hover: #2F5EB9;
-  --dg-link-visited: #2F5EB9;
-  --dg-error: #E4656E;
-  --dg-warning: #C28013;
-  --dg-success: #4E9D6C;
   --dg-counter-bg: #8B8E94;
   --dg-counter-fg: #FFFFFF;
-  --dg-progress-fg: #3871E1;
   --dg-progress-track: #DDDFE4;
   --dg-ds-tint-mix: 25%;                   /* data source color tint (tree rows, tabs, console) */
 
@@ -253,18 +233,13 @@
   --dg-grid-bg: #FFFFFF;
   --dg-grid-fg: #080808;
   --dg-grid-line: #EBECF0;              /* INDENT_GUIDE */
-  --dg-grid-header-bg: #FFFFFF;
   --dg-grid-header-fg: #000000;
   --dg-grid-row-number-fg: #AEB3C2;
   --dg-grid-row-number-current-fg: #767A8A;
   --dg-grid-current-row-bg: #F5F8FE;    /* CARET_ROW_COLOR */
   --dg-grid-stripe-bg: #F5F8FE;
   --dg-grid-hover-bg: #00000008;
-  --dg-grid-selection-bg: #A6D2FF;      /* SELECTION_BACKGROUND */
   --dg-grid-null-fg: #8C8C8C;           /* DEFAULT_LINE_COMMENT, italic */
-  --dg-grid-modified-bg: #C2D8F2;       /* DIFF_MODIFIED */
-  --dg-grid-inserted-bg: #BEE6BE;       /* DIFF_INSERTED */
-  --dg-grid-deleted-bg: #D6D6D6;        /* DIFF_DELETED */
   --dg-grid-pinned-line: #C9CCD6;          /* pinned columns: right border of the frozen block */
   --dg-grid-error-underline: #FF0000;
 
@@ -360,7 +335,6 @@
   --dg-icon-disabled: #C3C5CB;
 
   /* tool windows */
-  --dg-services-connected-dot: #1FB61F;      /* green "connected" dot on data source / session icons (Services) */
 
   /* hard-coded colours moved out of component CSS (SHELL-24) */
   --dg-icon-success: #369650;                /* gutter / inspection widget check mark (expUI Green4 light) */

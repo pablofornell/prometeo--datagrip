@@ -631,3 +631,74 @@ Every value below is the effective value after the parent chain and wildcard rul
 - `SqlColors` fallback pairs were inferred from the class constant pool order; `SQL_SCHEMA` and `SQL_DATABASE_OBJECT` have no obvious fallback and are treated as identifier colour.
 - There is no dedicated "View" icon in DataGrip `DatabaseIcons`; `AllIcons.Nodes.DataTables` (`data-tables.svg`) is the closest platform icon. No transaction-mode icon exists (DataGrip shows a "Tx: Auto/Manual" text combo).
 - Compact mode (`*.compact` keys) and the `alt.*` (alternative main-window colour) variants are not tokenised.
+
+## 10. Colour system v2 (richer UI, semantic colour)
+
+Sections 2 and 8 document the JetBrains values. The app now layers a colour system on top (modelled on the sibling
+Prometeo deepgit prototype): the surfaces and metrics stay the Islands ones, but every state that carries meaning
+(selection, hover, focus, active tab, success / warning / error, object types) takes its colour from one of seven hue
+families. Where a section 2 / 8 token is listed below, the new definition replaces the JetBrains value.
+
+**Where it lives**
+
+| file | content |
+|---|---|
+| `src/theme/dark.css`, `src/theme/light.css` | the family solids (`--dg-<fam>`, `-fill`, `-fg`), the wash strengths (`--dg-wash-*-a`, `--dg-toolbar-tint-a`, ...), `--dg-text-muted-on-wash` |
+| `src/styles/tokens-extra.css` | everything derived, with the same formulas in both themes: washes, borders, selection, banners, notifications, grid, gradients, icon filters; plus `--rainbow-1..12` |
+| `src/styles/ui.css`, `src/styles/shell.css` | the rules that use them (buttons, tabs, popups, dialogs, toasts, tree, title / status bar) |
+| `src/theme/colors.test.ts` | resolves the real files (`var()`, `color-mix`) and checks the contrast of every pair in both themes |
+
+`:root[data-theme]` in `tokens-extra.css` has the same specificity as the theme blocks and loads after them, so it replaces
+the older neutral values. Feature CSS uses tokens only, never a hex value (`src/theme/tokens.test.ts` checks `ui.css`, `shell.css`, `app.css`).
+
+**Families** (dark / light solid; `-fill` carries white text at 4.5:1, `-fg` is the text colour on a surface or on a wash of the family)
+
+| family | dark | light | meaning |
+|---|---|---|---|
+| `accent` | `#4A86FF` | `#2563F5` | selection, focus, primary action, links, active tab |
+| `success` | `#2ED98A` | `#07844A` | success, connected, Run, indexes |
+| `warning` | `#FFB224` | `#AD6600` | warnings, search matches, keys |
+| `danger` | `#FF5C6C` | `#DC2F45` | errors, Stop, deleted |
+| `info` | `#22D3EE` | `#06819D` | information, tables, progress end |
+| `special` | `#B57BFF` | `#8B45F2` | second tint of the glow, views |
+| `neutral` | `#8E939E` | `#6E7382` | counters, quiet badges |
+
+Derived per family: `--dg-<fam>-wash-soft` (hover), `-wash` (badges, banners, unfocused selection), `-wash-strong` (focused
+selection, active states), `-border`. They are `color-mix(in srgb, <solid> N%, transparent)`, so they sit on any surface.
+
+**Where the colour is used**
+
+- Title bar: accent glow at the left, violet hint in the middle (`--dg-toolbar-tint`, `--dg-toolbar-tint-2`) and a 1px accent -> violet edge. Status bar: accent glow at the left, violet at the right (`--dg-statusbar-tint`, `-tint-2`) and a 1px edge on top.
+- Tool window headers: accent wash fading out; stronger with the violet end while the window has the focus.
+- Tabs: selected pill is an accent wash with an accent border; in the focused pane a 2px accent -> violet underline (`::after`, no layout shift).
+- Selection / hover: `--dg-selection-bg` (accent wash strong), `--dg-selection-inactive-bg`, `--dg-row-hover-bg`; the focused selected tree row also gets a 2px `--dg-selection-edge` bar.
+- Buttons: primary is a 135deg gradient `--dg-accent-grad-from` -> `--dg-accent-grad-to` (hover / pressed variants), white text >= 4.5:1 on both ends. Text fields and combos get a 3px accent wash glow on focus.
+- Dialogs and popups (Search Everywhere, Recent Files, menus): accent glow at the top (`--dg-dialog-glow`), violet towards the right (`--dg-dialog-glow-2`), 2px accent -> violet edge on dialogs.
+- Notifications: per severity (info cyan, success green, warning amber, error red) a wash of the family over the notification surface, a 4px edge, a tinted title. The Notifications tool window rows use the same colours.
+- Progress bars: accent -> info gradient. Banners: `--dg-banner-*-bg` are family washes.
+- Data grid: header has a faint accent (`--dg-grid-tint-a`), selection is accent mixed into the grid background (`--dg-grid-select-a`), pending update / insert / delete are accent / success / danger mixes (`--dg-grid-change-a`).
+- Explorer tree icons (`NodeIcon.tsx` picks a `.dg-ico-*` class from the icon name; the filter chains `--dg-ico-filter-*` are tuned per theme): tables and plain columns cyan, views and materialized views violet, databases / schemas / folders blue, indexes green, functions and procedures magenta, sequences / triggers / packages / checks amber. Key icons keep their gold / blue; data source brand icons are untouched.
+
+**Text on a wash.** `--dg-text-secondary`, `--dg-text-muted`, `--dg-tree-secondary-fg` and `--dg-menu-accelerator-fg` are
+too weak on a coloured wash. Inside a selected tree row, an active menu row, a toast, a notification row and a selected tab they take
+`--dg-text-muted-on-wash` (end of `ui.css`). The secondary text colour itself was raised (dark `#9498A0`, light `#5F6269`) so it reads at 4.5:1 on the surfaces.
+
+**Rainbow.** `--rainbow-1` .. `--rainbow-12` in `tokens-extra.css` (dark and light values) is a categorical palette for anything that
+needs one colour per item: diagram schemas, chart series, tags. Dark values are >= 3:1 on the dark island, light values >= 3:1 on white;
+neighbours alternate warm and cold. Use them as lines, dots and fills (`color-mix(in srgb, var(--rainbow-N) 18%, transparent)` for a tint);
+text on a tint uses `--dg-text`.
+
+| # | dark | light | | # | dark | light |
+|---|---|---|---|---|---|---|
+| 1 | `#4A86FF` blue | `#2563F5` | | 7 | `#FF5C6C` red | `#DC2F45` |
+| 2 | `#FF9F3D` orange | `#C85A00` | | 8 | `#A3E635` lime | `#5E8400` |
+| 3 | `#2ED98A` green | `#07844A` | | 9 | `#B57BFF` violet | `#8B45F2` |
+| 4 | `#E36BFF` magenta | `#B72FD6` | | 10 | `#FF7AB8` pink | `#D6277F` |
+| 5 | `#FFD23F` yellow | `#9A7100` | | 11 | `#2DD4BF` teal | `#0C8F7E` |
+| 6 | `#22D3EE` cyan | `#06819D` | | 12 | `#C8A27A` sand | `#8A6A3F` |
+
+**Motion.** Only background / border / shadow transitions of 0.12s, wrapped in `prefers-reduced-motion: no-preference`. Under
+`reduce` the indeterminate progress bar becomes a static segment and the busy spinners slow to 2.4s (they still say "working").
+
+**Contrast.** `npx vitest run src/theme` fails if a family `-fg` is under 4.5:1 on any surface or wash, if white text is under 4.5:1 on a
+fill or gradient end, if a solid / rainbow colour is under 3:1, or if the toast, banner, grid, title bar or status bar text drops under 4.5:1.

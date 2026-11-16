@@ -85,10 +85,11 @@
   white-space: nowrap;
 }
 .dg-button:hover:not(:disabled) {
-  background: var(--dg-hover-bg);
+  background: var(--dg-accent-wash-soft);
+  border-color: var(--dg-accent-border);
 }
 .dg-button:active:not(:disabled) {
-  background: var(--dg-pressed-bg);
+  background: var(--dg-accent-wash);
 }
 .dg-button:focus-visible {
   border-color: var(--dg-focus-ring);
@@ -98,16 +99,25 @@
   color: var(--dg-button-disabled-fg);
   border-color: var(--dg-button-disabled-border);
 }
+.dg-button-primary:disabled {
+  background-image: none;
+  background-color: var(--dg-neutral-wash);
+}
 .dg-button-primary {
   background: var(--dg-button-primary-bg);
+  background-image: linear-gradient(135deg, var(--dg-accent-grad-from), var(--dg-accent-grad-to));
   border-color: var(--dg-button-primary-border);
   color: var(--dg-button-primary-fg);
 }
 .dg-button-primary:hover:not(:disabled) {
   background: var(--dg-button-primary-hover-bg);
+  background-image: linear-gradient(135deg, var(--dg-accent-grad-hover-from), var(--dg-accent-grad-hover-to));
+  border-color: var(--dg-button-primary-hover-bg);
 }
 .dg-button-primary:active:not(:disabled) {
   background: var(--dg-button-primary-pressed-bg);
+  background-image: linear-gradient(135deg, var(--dg-accent-grad-pressed-from), var(--dg-accent-grad-pressed-to));
+  border-color: var(--dg-button-primary-pressed-bg);
 }
 .dg-button-primary:focus-visible {
   box-shadow: 0 0 0 1px var(--dg-button-primary-focus-inner), 0 0 0 3px var(--dg-focus-ring);
@@ -140,11 +150,11 @@
 }
 .dg-textfield:focus-within {
   border-color: var(--dg-input-focus-border);
-  box-shadow: inset 0 0 0 1px var(--dg-input-focus-border);
+  box-shadow: inset 0 0 0 1px var(--dg-input-focus-border), 0 0 0 3px var(--dg-accent-wash);
 }
 .dg-textfield.dg-error {
   border-color: var(--dg-input-error-border);
-  box-shadow: inset 0 0 0 1px var(--dg-input-error-border);
+  box-shadow: inset 0 0 0 1px var(--dg-input-error-border), 0 0 0 3px var(--dg-danger-wash);
 }
 .dg-textfield.dg-disabled {
   border-color: var(--dg-input-disabled-border);
@@ -209,7 +219,7 @@
 }
 .dg-combo:focus-visible {
   border-color: var(--dg-input-focus-border);
-  box-shadow: inset 0 0 0 1px var(--dg-input-focus-border);
+  box-shadow: inset 0 0 0 1px var(--dg-input-focus-border), 0 0 0 3px var(--dg-accent-wash);
 }
 .dg-combo-text {
   flex: 1;
@@ -245,6 +255,7 @@
   overflow: hidden;
 }
 .dg-tab {
+  position: relative;
   display: flex;
   align-items: center;
   flex: none;
@@ -256,18 +267,32 @@
   white-space: nowrap;
 }
 .dg-tab:hover:not(.dg-selected) {
-  background: var(--dg-tab-hover-bg);
+  background: var(--dg-accent-wash-soft);
+  color: var(--dg-tab-fg);
 }
 .dg-tab.dg-selected {
   color: var(--dg-tab-fg);
   background: var(--dg-tab-selected-inactive-bg);
   border-color: var(--dg-tab-selected-inactive-border);
 }
-/* Focused island: the selected tab gets the blue pill. */
+/* Focused island: the selected tab gets the blue pill and a 2px accent -> violet underline (no layout shift). */
 .dg-island:focus-within .dg-tab.dg-selected,
 .dg-tabs-focused .dg-tab.dg-selected {
   background: var(--dg-tab-selected-bg);
   border-color: var(--dg-tab-selected-border);
+  color: var(--dg-tab-active-fg);
+}
+.dg-island:focus-within .dg-tab.dg-selected::after,
+.dg-tabs-focused .dg-tab.dg-selected::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--dg-tab-underline), var(--dg-special));
+  pointer-events: none;
 }
 .dg-tab-title {
   margin: 0 4px;
@@ -337,6 +362,7 @@
 .dg-tabs-dialog .dg-tab.dg-selected {
   background: var(--dg-tab-selected-bg);
   border-color: var(--dg-tab-selected-border);
+  color: var(--dg-tab-active-fg);
 }
 
 /* ---------------------------------------------------------------- Splitter */
@@ -344,6 +370,9 @@
   flex: none;
   position: relative;
   z-index: 5;
+}
+.dg-splitter:hover {
+  background: var(--dg-accent-wash);
 }
 .dg-splitter-vertical {
   width: var(--dg-gap);
@@ -369,9 +398,10 @@
   overflow-y: auto;
   padding: 4px 6px 5px;
   background: var(--dg-menu-bg);
+  background-image: linear-gradient(to bottom, var(--dg-dialog-glow), transparent 56px);
   border: 1px solid var(--dg-menu-border);
   border-radius: var(--dg-popup-radius);
-  box-shadow: var(--dg-menu-shadow);
+  box-shadow: var(--dg-menu-shadow), 0 0 0 1px var(--dg-accent-wash-soft);
   white-space: nowrap;
 }
 .dg-menu-row {
@@ -416,7 +446,7 @@
   margin-left: 6px;
   padding: 0 5px;
   border-radius: 4px;
-  background: var(--dg-accent);
+  background: linear-gradient(135deg, var(--dg-accent-grad-from), var(--dg-accent-grad-to));
   color: var(--dg-text-over-accent);
   font-size: 11px;
   line-height: 15px;
@@ -532,20 +562,54 @@
   width: var(--dg-notification-width);
 }
 .dg-notification {
+  /* severity: set by the kind below (info is the default); the toast is a wash of it over the notification surface */
+  --dg-sev: var(--dg-info);
+  --dg-sev-fg: var(--dg-info-fg);
+  --dg-sev-bg: var(--dg-notification-info-bg);
+  --dg-sev-border: var(--dg-notification-info-border);
   display: flex;
   gap: 6px;
   padding: 10px 12px 13px 16px;
   border-radius: var(--dg-notification-radius);
-  background: var(--dg-notification-bg);
+  background: var(--dg-sev-bg);
   color: var(--dg-notification-fg);
-  box-shadow: var(--dg-menu-shadow);
+  box-shadow: inset 4px 0 0 var(--dg-sev), 0 0 0 1px var(--dg-sev-border), var(--dg-menu-shadow);
   line-height: 17px;
 }
-.dg-notification-error {
-  background: var(--dg-notification-error-bg);
+.dg-notification-success,
+.dg-ntf-row.dg-ntf-success {
+  --dg-sev: var(--dg-success);
+  --dg-sev-fg: var(--dg-success-fg);
+  --dg-sev-bg: var(--dg-notification-success-bg);
+  --dg-sev-border: var(--dg-notification-success-border);
 }
-.dg-notification-warning {
-  background: var(--dg-notification-warning-bg);
+.dg-notification-warning,
+.dg-ntf-row.dg-ntf-warning {
+  --dg-sev: var(--dg-warning);
+  --dg-sev-fg: var(--dg-warning-fg);
+  --dg-sev-bg: var(--dg-notification-warning-bg);
+  --dg-sev-border: var(--dg-notification-warning-border);
+}
+.dg-notification-error,
+.dg-ntf-row.dg-ntf-error {
+  --dg-sev: var(--dg-danger);
+  --dg-sev-fg: var(--dg-danger-fg);
+  --dg-sev-bg: var(--dg-notification-error-bg);
+  --dg-sev-border: var(--dg-notification-error-border);
+}
+.dg-notification-title {
+  color: var(--dg-sev-fg);
+}
+/* Notifications tool window: the same severity as a tinted row with an edge */
+.dg-ntf-row {
+  --dg-sev: var(--dg-info);
+  --dg-sev-fg: var(--dg-info-fg);
+  --dg-sev-bg: var(--dg-notification-info-bg);
+  background: var(--dg-sev-bg);
+  box-shadow: inset 3px 0 0 var(--dg-sev);
+}
+.dg-ntf-row .dg-ntf-title {
+  color: var(--dg-sev-fg);
 }
 .dg-notification-icon {
   margin-top: 1px;
@@ -596,15 +660,30 @@
   background: var(--dg-dialog-overlay);
 }
 .dg-dialog {
+  position: relative;
   display: flex;
   flex-direction: column;
   max-width: calc(100vw - 32px);
   max-height: calc(100vh - 32px);
   background: var(--dg-dialog-bg);
+  /* the top glow: accent from above, violet towards the right */
+  background-image: linear-gradient(to bottom, var(--dg-dialog-glow), transparent 84px), linear-gradient(100deg, transparent 40%, var(--dg-dialog-glow-2) 100%);
+  background-repeat: no-repeat;
+  background-size: 100% 84px, 100% 84px;
   border: 1px solid var(--dg-popup-border);
   border-radius: var(--dg-dialog-radius);
-  box-shadow: var(--dg-menu-shadow);
+  box-shadow: var(--dg-menu-shadow), 0 0 0 1px var(--dg-accent-wash-soft);
   overflow: hidden;
+}
+/* 2px accent -> violet line along the top edge; absolute, so nothing moves */
+.dg-dialog::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--dg-accent), var(--dg-special));
+  pointer-events: none;
+  z-index: 1;
 }
 .dg-dialog-titlebar {
   display: flex;
@@ -677,9 +756,10 @@
   opacity: 1;
 }
 mark.dg-search-match {
-  background: var(--dg-search-match-bg);
-  color: var(--dg-text-over-accent);
+  background: var(--dg-warning-wash-strong);
+  color: inherit;
   border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--dg-warning-border);
 }
 
 .dg-tree {
@@ -722,6 +802,7 @@ mark.dg-search-match {
 .dg-tree:focus-within .dg-tree-row.dg-selected {
   background: var(--dg-tree-selection-bg);
   color: var(--dg-tree-selection-fg);
+  box-shadow: inset 2px 0 0 var(--dg-selection-edge);
 }
 .dg-tree-chevron {
   display: flex;
@@ -749,8 +830,9 @@ mark.dg-search-match {
 .dg-tree-badge {
   margin-left: 6px;
   padding: 0 3px;
-  border: 1px solid var(--dg-tree-badge-border);
+  border: 1px solid var(--dg-neutral-border);
   border-radius: 3px;
+  background: var(--dg-neutral-wash);
   color: var(--dg-tree-secondary-fg);
   font-size: var(--dg-font-size-small);
   line-height: 17px;
@@ -818,5 +900,60 @@ mark.dg-search-match {
 @keyframes dg-spokes-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ---------------------------------------------------------------- Popups: accent glow at the top and a 2px accent -> violet edge */
+/* Search Everywhere, Recent Files and the console history are feature popups with their own sheets; `:root[data-theme]`
+   gives these rules the weight to win over their `background` shorthand. Only images and an inset line: nothing moves. */
+:root[data-theme] .dgn-popup,
+:root[data-theme] .dgrf-popup,
+:root[data-theme] .dgc-h {
+  background-image: linear-gradient(to bottom, var(--dg-dialog-glow), transparent 72px), linear-gradient(100deg, transparent 45%, var(--dg-dialog-glow-2) 100%);
+  background-repeat: no-repeat;
+  background-size: 100% 72px, 100% 72px;
+  box-shadow: inset 0 2px 0 var(--dg-accent-border), var(--dg-popup-shadow), 0 0 0 1px var(--dg-accent-wash-soft);
+}
+
+/* ---------------------------------------------------------------- Tree icons: the hue of the family each kind belongs to */
+/* The icons are static SVG images, so they are tinted with a filter chain (grayscale, sepia, hue-rotate, saturate),
+   which keeps their light and dark parts. The chains are tokens (--dg-ico-filter-*, tuned per theme in tokens-extra.css).
+   The key icons (gold / blue), the data source brand icons and the error icon keep their own colours. */
+.dg-ico-table { filter: var(--dg-ico-filter-table); }
+.dg-ico-view { filter: var(--dg-ico-filter-view); }
+.dg-ico-schema { filter: var(--dg-ico-filter-schema); }
+.dg-ico-column { filter: var(--dg-ico-filter-column); }
+.dg-ico-index { filter: var(--dg-ico-filter-index); }
+.dg-ico-routine { filter: var(--dg-ico-filter-routine); }
+.dg-ico-misc { filter: var(--dg-ico-filter-misc); }
+
+/* ---------------------------------------------------------------- Text on a wash */
+/* Muted and secondary text is too weak on a coloured wash. Inside these elements it takes the stronger
+   value, so every line of a selected row, a menu row or a toast reads at 4.5:1 or more (colors.test.ts). */
+.dg-tree-row.dg-selected,
+.dg-menu-row.dg-active,
+.dg-notification,
+.dg-ntf-row,
+.dg-tab.dg-selected {
+  --dg-text-muted: var(--dg-text-muted-on-wash);
+  --dg-text-secondary: var(--dg-text-muted-on-wash);
+  --dg-tree-secondary-fg: var(--dg-text-muted-on-wash);
+  --dg-menu-accelerator-fg: var(--dg-text-muted-on-wash);
+}
+
+/* ---------------------------------------------------------------- Smooth state changes (not under reduced motion) */
+@media (prefers-reduced-motion: no-preference) {
+  .dg-button,
+  .dg-tab,
+  .dg-textfield,
+  .dg-combo,
+  .dg-splitter {
+    transition: background-color 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dg-spokes,
+  .dg-spinner {
+    animation-duration: 2.4s; /* the busy indicators slow down; they still say "working" */
   }
 }
