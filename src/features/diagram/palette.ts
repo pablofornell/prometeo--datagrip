@@ -12,9 +12,12 @@ import type { DiagramPalette } from "./svg";
 export const FALLBACK_FONT_MONO = '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", monospace';
 export const FALLBACK_FONT_UI = '"Inter", system-ui, -apple-system, "Segoe UI", sans-serif';
 
-/** The rainbow the diagram uses when the theme defines none: vivid on a dark canvas, deeper on a light one. */
-export const FALLBACK_RAINBOW_DARK = ["#e05652", "#e08f52", "#e0bf52", "#a3e052", "#52e086", "#52e0c4", "#52c9e0", "#5294e0", "#5256e0", "#9452e0", "#e052e0", "#e05294"];
-export const FALLBACK_RAINBOW_LIGHT = ["#bf2722", "#bf6622", "#bf9a22", "#7bbf22", "#22bf5b", "#22bf9f", "#22a5bf", "#226bbf", "#2227bf", "#6b22bf", "#bf22bf", "#bf226b"];
+/**
+ * The rainbow the diagram uses when the theme defines none: the same twelve colours, in the same order, as the shared
+ * `--rainbow-1..12` tokens (src/styles/tokens-extra.css), so the slot order of `groups.ts` holds with or without them.
+ */
+export const FALLBACK_RAINBOW_DARK = ["#4a86ff", "#ff9f3d", "#2ed98a", "#e36bff", "#ffd23f", "#22d3ee", "#ff5c6c", "#a3e635", "#b57bff", "#ff7ab8", "#2dd4bf", "#c8a27a"];
+export const FALLBACK_RAINBOW_LIGHT = ["#2563f5", "#c85a00", "#07844a", "#b72fd6", "#9a7100", "#06819d", "#dc2f45", "#5e8400", "#8b45f2", "#d6277f", "#0c8f7e", "#8a6a3f"];
 
 /** Reads a custom property of `<html>`; empty outside the DOM (unit tests). */
 const cssVar = (name: string): string => (typeof document === "undefined" ? "" : getComputedStyle(document.documentElement).getPropertyValue(name).trim());

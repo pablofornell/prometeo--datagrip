@@ -10,6 +10,10 @@
  *  - the search runs inside a window around the two ports and widens only when it fails, so a diagram of hundreds of
  *    tables stays fast, and a dragged table re-routes just its own edges (`only`).
  *
+ * `routeEdges` routes a whole diagram in one go. A drag uses `Router` instead: it builds the obstacle lattice once,
+ * and every frame only moves the dragged box on it (unblock the old rectangle, block the new one, refresh the wall
+ * flags around them) and routes the edges that touch the box, so a frame costs a few searches and no allocation.
+ *
  * Self references are drawn as a loop on the right of the box. Pure and deterministic (fixed edge order, ties broken
  * by insertion order).
  */
@@ -122,6 +126,12 @@ const stubEnd = (p: Port): Pt => ({ x: p.side === "L" ? p.x - STUB : p.x + STUB,
 
 // ---------------------------------------------------------------- A* on the lattice
 
+/** Lattice points whose use count a routing pass raised (so a transient pass can give them back). */
+interface Marks {
+  h: number[];
+  v: number[];
+}
+
 class Grid {
   readonly ox: number;
   readonly oy: number;
@@ -148,7 +158,8 @@ class Grid {
     this.heapVal = v;
   }
 
-  constructor(rects: readonly Rect[], pad: number) {
+  /** `alloc` false: only the geometry (a diagram too big to search never reads the lattice). */
+  constructor(rects: readonly Rect[], pad: number, alloc = true) {
     let minX = Infinity;
     let minY = Infinity;
     let maxX = -Infinity;
@@ -164,7 +175,7 @@ class Grid {
     this.oy = Math.floor((minY - pad) / G) * G;
     this.nx = Math.ceil((maxX + pad - this.ox) / G) + 1;
     this.ny = Math.ceil((maxY + pad - this.oy) / G) + 1;
-    const n = this.nx * this.ny;
+    const n = alloc ? this.nx * this.ny : 0;
     this.blocked = new Uint8Array(n);
     this.near = new Uint8Array(n);
     this.hUse = new Uint8Array(n);
@@ -174,13 +185,32 @@ class Grid {
   cx = (x: number): number => Math.round((x - this.ox) / G);
   cy = (y: number): number => Math.round((y - this.oy) / G);
 
-  /** Blocks the lattice points strictly inside `r` inflated by one step. */
-  block(r: Rect): void {
-    const x0 = Math.max(0, Math.floor((r.x - G - this.ox) / G) + 1);
-    const x1 = Math.min(this.nx - 1, Math.ceil((r.x + r.w + G - this.ox) / G) - 1);
-    const y0 = Math.max(0, Math.floor((r.y - G - this.oy) / G) + 1);
-    const y1 = Math.min(this.ny - 1, Math.ceil((r.y + r.h + G - this.oy) / G) - 1);
-    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) this.blocked[y * this.nx + x] = 1;
+  /** The lattice points strictly inside `r` inflated by one step, as an inclusive range (empty when x1 < x0 or y1 < y0). */
+  private span(r: Rect): { x0: number; x1: number; y0: number; y1: number } {
+    return {
+      x0: Math.max(0, Math.floor((r.x - G - this.ox) / G) + 1),
+      x1: Math.min(this.nx - 1, Math.ceil((r.x + r.w + G - this.ox) / G) - 1),
+      y0: Math.max(0, Math.floor((r.y - G - this.oy) / G) + 1),
+      y1: Math.min(this.ny - 1, Math.ceil((r.y + r.h + G - this.oy) / G) - 1),
+    };
+  }
+
+  /** Blocks the lattice points strictly inside `r` inflated by one step (a count: boxes may overlap). */
+  block(r: Rect, delta = 1): void {
+    const { x0, x1, y0, y1 } = this.span(r);
+    const { nx, blocked } = this;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const i = y * nx + x;
+        if (delta > 0) {
+          if (blocked[i] < 255) blocked[i]++;
+        } else if (blocked[i] > 0) blocked[i]--;
+      }
+  }
+
+  /** Undoes `block(r)` of the same rectangle (the wall flags are refreshed by `refreshWalls`). */
+  unblock(r: Rect): void {
+    this.block(r, -1);
   }
 
   /** Every lattice neighbour of the point is an obstacle (or off the grid). */
@@ -190,32 +220,60 @@ class Grid {
     return !(open(x - 1, y) || open(x + 1, y) || open(x, y - 1) || open(x, y + 1));
   }
 
-  finishWalls(): void {
+  /** Recomputes `near` (a free point next to an obstacle) in and around the blocked range of `r`; the rest is untouched. */
+  refreshWalls(r: Rect): void {
+    const { x0, x1, y0, y1 } = this.span(r);
+    if (x1 < x0 || y1 < y0) return;
     const { nx, ny, blocked, near } = this;
-    for (let y = 0; y < ny; y++)
-      for (let x = 0; x < nx; x++) {
+    const ya = Math.max(0, y0 - 1);
+    const yb = Math.min(ny - 1, y1 + 1);
+    const xa = Math.max(0, x0 - 1);
+    const xb = Math.min(nx - 1, x1 + 1);
+    for (let y = ya; y <= yb; y++)
+      for (let x = xa; x <= xb; x++) {
         const i = y * nx + x;
-        if (blocked[i]) continue;
-        if ((x > 0 && blocked[i - 1]) || (x < nx - 1 && blocked[i + 1]) || (y > 0 && blocked[i - nx]) || (y < ny - 1 && blocked[i + nx])) near[i] = 1;
+        near[i] = !blocked[i] && ((x > 0 && blocked[i - 1] > 0) || (x < nx - 1 && blocked[i + 1] > 0) || (y > 0 && blocked[i - nx] > 0) || (y < ny - 1 && blocked[i + nx] > 0)) ? 1 : 0;
       }
   }
 
-  /** Records a routed polyline (lattice points) so later edges keep off it. */
-  mark(path: readonly number[]): void {
+  /** Is `r` (with room for the stubs and a few steps of detour) inside the lattice? */
+  contains(r: Rect, steps: number): boolean {
+    return this.cx(r.x) - steps >= 0 && this.cy(r.y) - steps >= 0 && this.cx(r.x + r.w) + steps < this.nx && this.cy(r.y + r.h) + steps < this.ny;
+  }
+
+  /** Records a routed polyline (lattice points) so later edges keep off it; `undo` collects what `release` takes back. */
+  mark(path: readonly number[], undo?: Marks): void {
     for (let k = 1; k < path.length - 1; k++) {
       const a = path[k];
       const horizontal = path[k - 1] === a - 1 || path[k - 1] === a + 1 || path[k + 1] === a - 1 || path[k + 1] === a + 1;
       const vertical = path[k - 1] === a - this.nx || path[k - 1] === a + this.nx || path[k + 1] === a - this.nx || path[k + 1] === a + this.nx;
-      if (horizontal && this.hUse[a] < 255) this.hUse[a]++;
-      if (vertical && this.vUse[a] < 255) this.vUse[a]++;
+      if (horizontal && this.hUse[a] < 255) {
+        this.hUse[a]++;
+        undo?.h.push(a);
+      }
+      if (vertical && this.vUse[a] < 255) {
+        this.vUse[a]++;
+        undo?.v.push(a);
+      }
     }
   }
 
   /** Marks one lattice point as crossed by a horizontal run (the stub of a port). */
-  markStub(x: number, y: number): void {
+  markStub(x: number, y: number, undo?: Marks): void {
     if (x < 0 || y < 0 || x >= this.nx || y >= this.ny) return;
     const i = y * this.nx + x;
-    if (this.hUse[i] < 255) this.hUse[i]++;
+    if (this.hUse[i] < 255) {
+      this.hUse[i]++;
+      undo?.h.push(i);
+    }
+  }
+
+  /** Takes back the marks collected in `undo`. */
+  release(undo: Marks): void {
+    for (const i of undo.h) this.hUse[i]--;
+    for (const i of undo.v) this.vUse[i]--;
+    undo.h.length = 0;
+    undo.v.length = 0;
   }
 
   /**
@@ -391,109 +449,195 @@ function selfLoop(e: DiagramEdge, node: DiagramNode, r: Rect, k: number): Routed
   ];
 }
 
-export function routeEdges(model: DiagramModel, rects: readonly Rect[], opts: RouteOptions = {}): RoutedEdge[] {
-  const loops = new Set<number>();
-  for (const e of model.edges) if (e.from === e.to) loops.add(e.from);
-
-  const grid = new Grid(rects.map((r, i) => (loops.has(i) ? { ...r, w: r.w + LOOP_ROOM } : r)), 14 * G);
-  // A diagram too big for a lattice search (hundreds of tables, tens of thousands of pixels) gets plain Z-shaped
-  // edges: still orthogonal and ported, just not steered around the boxes.
-  const huge = grid.nx * grid.ny > MAX_LATTICE_POINTS;
-  if (!huge) {
-    // (a self-reference loop is not an obstacle: other edges may cross it, and edges into the same port merge with it)
-    rects.forEach((r) => grid.block(r));
-    grid.finishWalls();
-  }
-
-  const result: RoutedEdge[] = new Array(model.edges.length);
-  const want = (i: number): boolean => !opts.only || opts.only.has(i);
-
-  // edges that stay as they were still occupy their tracks
-  if (opts.only && opts.previous) {
-    for (let i = 0; i < model.edges.length; i++) {
-      const prev = opts.previous[i];
-      if (want(i) || !prev) continue;
-      result[i] = prev;
-      if (prev.self) continue;
-      const lat = prev.points.map((p) => grid.cy(p.y) * grid.nx + grid.cx(p.x));
-      // the polyline has corners only: expand to every lattice point it passes
-      const full: number[] = [];
-      for (let k = 0; k < lat.length; k++) {
-        if (k === 0) {
-          full.push(lat[0]);
-          continue;
-        }
-        let a = lat[k - 1];
-        const b = lat[k];
-        if (Math.floor(a / grid.nx) !== Math.floor(b / grid.nx) && (b - a) % grid.nx !== 0) {
-          full.push(b); // off the lattice: not a straight run
-          continue;
-        }
-        const step = Math.abs(b - a) >= grid.nx ? (b > a ? grid.nx : -grid.nx) : b > a ? 1 : -1;
-        while (a !== b) {
-          a += step;
-          full.push(a);
-        }
-      }
-      grid.mark(full);
-    }
-  }
-
-  interface Job {
-    index: number;
-    child: Rect;
-    parent: Rect;
-    dist: number;
-  }
-  const jobs: Job[] = [];
-  const loopOrdinal = new Map<number, number>();
-  model.edges.forEach((e, index) => {
-    if (!want(index)) return;
-    const child = rects[e.from];
-    const parent = rects[e.to];
-    if (e.self) {
-      const k = loopOrdinal.get(e.from) ?? 0;
-      loopOrdinal.set(e.from, k + 1);
-      const pts = selfLoop(e, model.nodes[e.from], child, k);
-      result[index] = { index, points: pts, from: { ...pts[0], side: "R" }, to: { ...pts[3], side: "R" }, self: true, label: null };
-      return;
-    }
-    jobs.push({ index, child, parent, dist: Math.abs(child.x - parent.x) + Math.abs(child.y - parent.y) });
-  });
-  jobs.sort((a, b) => a.dist - b.dist || a.index - b.index);
-
-  for (const job of jobs) {
-    const e = model.edges[job.index];
-    const [cs, ps] = chooseSides(job.child, job.parent);
-    const from = portAt(job.child, cs, job.child.y + portOffset(model.nodes[e.from], e.columns));
-    const to = portAt(job.parent, ps, job.parent.y + portOffset(model.nodes[e.to], e.refColumns));
-    const a = stubEnd(from);
-    const b = stubEnd(to);
-    const sx = grid.cx(a.x);
-    const sy = grid.cy(a.y);
-    const gx = grid.cx(b.x);
-    const gy = grid.cy(b.y);
-
-    let path: number[] | null = null;
-    if (huge) {
-      const mx = Math.round((a.x + b.x) / 2 / G) * G;
-      result[job.index] = { index: job.index, points: simplify([from, a, { x: mx, y: a.y }, { x: mx, y: b.y }, b, to]), from, to, self: false, label: null };
+/** Lattice points a stored route passes through (the polyline has corners only: every point in between is added). */
+function latticeOf(grid: Grid, points: readonly Pt[]): number[] {
+  const lat = points.map((p) => grid.cy(p.y) * grid.nx + grid.cx(p.x));
+  const full: number[] = [];
+  for (let k = 0; k < lat.length; k++) {
+    if (k === 0) {
+      full.push(lat[0]);
       continue;
     }
-    // A port whose stub end is walled in cannot be reached by a hard search: go straight to the soft one.
-    const full = Math.max(grid.nx, grid.ny);
-    const tries: (readonly [number, boolean])[] = grid.sealed(sx, sy) || grid.sealed(gx, gy) ? [[full, true]] : [[24, false], [80, false], [full, false], [full, true]];
-    for (const [margin, soft] of tries) {
-      path = grid.search(sx, sy, cs === "L" ? 1 : 0, gx, gy, margin, soft);
-      if (path) break;
+    let a = lat[k - 1];
+    const b = lat[k];
+    if (Math.floor(a / grid.nx) !== Math.floor(b / grid.nx) && (b - a) % grid.nx !== 0) {
+      full.push(b); // off the lattice: not a straight run
+      continue;
     }
-    const mid: Pt[] = (path ?? [sy * grid.nx + sx, gy * grid.nx + gx]).map((c) => ({ x: grid.ox + (c % grid.nx) * G, y: grid.oy + Math.floor(c / grid.nx) * G }));
-    if (path) grid.mark(path);
-    grid.markStub(sx, sy);
-    grid.markStub(gx, gy);
-    // ports off the lattice (hand-placed boxes) join the lattice with a short jog
-    const points = simplify([from, { x: mid[0].x, y: from.y }, ...mid, { x: mid[mid.length - 1].x, y: to.y }, to]);
-    result[job.index] = { index: job.index, points, from, to, self: false, label: null };
+    const step = Math.abs(b - a) >= grid.nx ? (b > a ? grid.nx : -grid.nx) : b > a ? 1 : -1;
+    while (a !== b) {
+      a += step;
+      full.push(a);
+    }
+  }
+  return full;
+}
+
+/** Extra lattice room added around the boxes when a dragged box leaves the lattice and it has to be rebuilt. */
+const REBUILD_SLACK = 30 * G;
+/** Widest search window (lattice steps around the two ports) of a preview route. */
+const PREVIEW_MARGIN = 80;
+/** Steps of room a box needs around it inside the lattice (stubs, one wall step, some detour). */
+const BOX_ROOM = 6;
+
+/**
+ * The router of one diagram: the obstacle lattice (built once) and the routes laid on it. `routeEdges` is the one-shot
+ * use; a drag keeps the router, moves the dragged box on it (`moveBox`) and routes just the edges that touch it
+ * (`route`, transient) every frame.
+ */
+export class Router {
+  private grid!: Grid;
+  private huge = false;
+  private readonly loops = new Set<number>();
+  /** The boxes (blocked on the lattice) and the same with the room of a self-reference loop (the extent of the lattice). */
+  private readonly rects: Rect[];
+  private readonly extent: Rect[];
+  /** Routes that stay as they are: they occupy their tracks, and come back after a rebuild of the lattice. */
+  private held: RoutedEdge[] = [];
+  /**
+   * A draft for a drag frame: the widest searches (the whole lattice, a walled-in port forcing a soft search across it)
+   * are capped at `PREVIEW_MARGIN`, so no single frame can take long. The drop turns it off and routes exactly.
+   */
+  preview = false;
+
+  constructor(
+    private readonly model: DiagramModel,
+    rects: readonly Rect[],
+  ) {
+    for (const e of model.edges) if (e.from === e.to) this.loops.add(e.from);
+    this.rects = [...rects];
+    this.extent = rects.map((r, i) => this.roomOf(r, i));
+    this.build(14 * G);
+  }
+
+  private roomOf(r: Rect, i: number): Rect {
+    return this.loops.has(i) ? { ...r, w: r.w + LOOP_ROOM } : r;
+  }
+
+  private build(pad: number): void {
+    // A diagram too big for a lattice search (hundreds of tables, tens of thousands of pixels) gets plain Z-shaped
+    // edges: still orthogonal and ported, just not steered around the boxes (and it needs no lattice at all).
+    const probe = new Grid(this.extent, pad, false);
+    this.huge = probe.nx * probe.ny > MAX_LATTICE_POINTS;
+    this.grid = this.huge ? probe : new Grid(this.extent, pad);
+    if (this.huge) return;
+    // (a self-reference loop is not an obstacle: other edges may cross it, and edges into the same port merge with it)
+    for (const r of this.rects) this.grid.block(r);
+    for (const r of this.rects) this.grid.refreshWalls(r);
+    for (const r of this.held) this.markHeld(r);
+  }
+
+  private markHeld(r: RoutedEdge): void {
+    if (r.self) return;
+    this.grid.mark(latticeOf(this.grid, r.points));
+  }
+
+  /** Routes that stay as they were (`previous` minus `except`): they occupy their tracks and are kept out of the way. */
+  hold(previous: readonly (RoutedEdge | undefined)[], except: ReadonlySet<number>): void {
+    previous.forEach((r, i) => {
+      if (!r || except.has(i)) return;
+      this.held.push(r);
+      if (!this.huge) this.markHeld(r);
+    });
+  }
+
+  /** Moves a box on the lattice: its old rectangle is freed and the new one blocked. */
+  moveBox(index: number, rect: Rect): void {
+    const old = this.rects[index];
+    this.rects[index] = rect;
+    const room = this.roomOf(rect, index);
+    this.extent[index] = room;
+    if (this.huge) return;
+    if (!this.grid.contains(room, BOX_ROOM)) {
+      this.build(14 * G + REBUILD_SLACK); // dragged out of the lattice: a bigger one around the new place
+      return;
+    }
+    this.grid.unblock(old);
+    this.grid.block(rect);
+    this.grid.refreshWalls(old);
+    this.grid.refreshWalls(rect);
+  }
+
+  /**
+   * Routes the edges of `edges` (every edge when absent) between the current boxes. With `transient` the tracks they
+   * take are given back afterwards, so the next call starts from the held routes alone (a drag frame).
+   */
+  route(edges?: ReadonlySet<number>, transient = false): RoutedEdge[] {
+    const { model, grid, huge } = this;
+    const rects = this.rects;
+    const result: RoutedEdge[] = new Array(model.edges.length);
+    const undo: Marks | undefined = transient ? { h: [], v: [] } : undefined;
+
+    interface Job {
+      index: number;
+      child: Rect;
+      parent: Rect;
+      dist: number;
+    }
+    const jobs: Job[] = [];
+    const loopOrdinal = new Map<number, number>();
+    model.edges.forEach((e, index) => {
+      if (edges && !edges.has(index)) return;
+      const child = rects[e.from];
+      const parent = rects[e.to];
+      if (e.self) {
+        const k = loopOrdinal.get(e.from) ?? 0;
+        loopOrdinal.set(e.from, k + 1);
+        const pts = selfLoop(e, model.nodes[e.from], child, k);
+        result[index] = { index, points: pts, from: { ...pts[0], side: "R" }, to: { ...pts[3], side: "R" }, self: true, label: null };
+        return;
+      }
+      jobs.push({ index, child, parent, dist: Math.abs(child.x - parent.x) + Math.abs(child.y - parent.y) });
+    });
+    jobs.sort((a, b) => a.dist - b.dist || a.index - b.index);
+
+    for (const job of jobs) {
+      const e = model.edges[job.index];
+      const [cs, ps] = chooseSides(job.child, job.parent);
+      const from = portAt(job.child, cs, job.child.y + portOffset(model.nodes[e.from], e.columns));
+      const to = portAt(job.parent, ps, job.parent.y + portOffset(model.nodes[e.to], e.refColumns));
+      const a = stubEnd(from);
+      const b = stubEnd(to);
+      const sx = grid.cx(a.x);
+      const sy = grid.cy(a.y);
+      const gx = grid.cx(b.x);
+      const gy = grid.cy(b.y);
+
+      let path: number[] | null = null;
+      if (huge) {
+        const mx = Math.round((a.x + b.x) / 2 / G) * G;
+        result[job.index] = { index: job.index, points: simplify([from, a, { x: mx, y: a.y }, { x: mx, y: b.y }, b, to]), from, to, self: false, label: null };
+        continue;
+      }
+      // A port whose stub end is walled in cannot be reached by a hard search: go straight to the soft one.
+      const full = this.preview ? PREVIEW_MARGIN : Math.max(grid.nx, grid.ny);
+      const widening: (readonly [number, boolean])[] = this.preview ? [[24, false], [PREVIEW_MARGIN, false], [PREVIEW_MARGIN, true]] : [[24, false], [80, false], [full, false], [full, true]];
+      const tries: (readonly [number, boolean])[] = grid.sealed(sx, sy) || grid.sealed(gx, gy) ? [[full, true]] : widening;
+      for (const [margin, soft] of tries) {
+        path = grid.search(sx, sy, cs === "L" ? 1 : 0, gx, gy, margin, soft);
+        if (path) break;
+      }
+      const mid: Pt[] = (path ?? [sy * grid.nx + sx, gy * grid.nx + gx]).map((c) => ({ x: grid.ox + (c % grid.nx) * G, y: grid.oy + Math.floor(c / grid.nx) * G }));
+      if (path) grid.mark(path, undo);
+      grid.markStub(sx, sy, undo);
+      grid.markStub(gx, gy, undo);
+      // ports off the lattice (hand-placed boxes) join the lattice with a short jog
+      const points = simplify([from, { x: mid[0].x, y: from.y }, ...mid, { x: mid[mid.length - 1].x, y: to.y }, to]);
+      result[job.index] = { index: job.index, points, from, to, self: false, label: null };
+    }
+    if (undo) grid.release(undo);
+    return result;
+  }
+}
+
+export function routeEdges(model: DiagramModel, rects: readonly Rect[], opts: RouteOptions = {}): RoutedEdge[] {
+  const router = new Router(model, rects);
+  const { only, previous } = opts;
+  // edges that stay as they were still occupy their tracks
+  if (only && previous) router.hold(previous, only);
+  const result = router.route(only);
+  if (only && previous) {
+    for (let i = 0; i < model.edges.length; i++) if (!only.has(i) && previous[i]) result[i] = previous[i]!;
   }
   return result;
 }
@@ -508,12 +652,20 @@ const overlaps = (a: LabelBox, b: Rect, pad: number): boolean => Math.abs(a.x - 
 /**
  * Gives every routed edge the spot of its label: on a segment long enough to hold it, closest to the middle of the
  * line, where it overlaps neither a table box, nor the markers at the ports, nor another label. Edges whose label
- * finds no room get none.
+ * finds no room get none. With `only`, just those edges are placed again and every other label stays where it is
+ * (and is avoided), so a dragged table does not shuffle the labels of the whole diagram.
  */
-export function placeLabels(model: DiagramModel, routes: RoutedEdge[], rects: readonly Rect[]): void {
+export function placeLabels(model: DiagramModel, routes: RoutedEdge[], rects: readonly Rect[], only?: ReadonlySet<number>): void {
   const taken: Rect[] = [];
+  if (only) {
+    for (const r of routes) {
+      if (!r || only.has(r.index) || !r.label) continue;
+      taken.push({ x: r.label.x - r.label.w / 2, y: r.label.y - r.label.h / 2, w: r.label.w, h: r.label.h });
+    }
+  }
   for (const r of routes) {
     if (!r) continue;
+    if (only && !only.has(r.index)) continue;
     r.label = null;
     const text = model.edges[r.index].label;
     if (!text) continue;

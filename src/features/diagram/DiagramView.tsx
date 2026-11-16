@@ -2,10 +2,16 @@
  * Diagram view (`editor.view.diagram`): a 34px toolbar over a pannable / zoomable SVG of the database diagram, with a
  * legend, a minimap and keyboard navigation. The SVG is generated as a single string by `renderDiagramSvg` and
  * injected via `innerHTML`; everything interactive after that (hover / selection spotlight, row highlights, level of
- * detail, live edge re-routing while a box is dragged) only toggles classes and patches the edges of the moved table,
- * so it never re-renders the whole diagram. Node positions moved by the user live in a per-tab map keyed by
- * `schema.name` (stale keys are pruned on reload) and are dropped on re-layout or when the options that change box
- * sizes change. Fit zooms to the same padded box the SVG emits as its viewBox.
+ * detail, live edge re-routing while a box is dragged and when it is dropped) only toggles classes and patches the
+ * edges of the moved table, so it never re-renders the whole diagram. Node positions moved by the user live in a
+ * per-tab map keyed by `schema.name` (stale keys are pruned on reload) and are dropped on re-layout or when the
+ * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox.
+ *
+ * Layout and routing are the expensive part (hundreds of milliseconds for hundreds of tables), so they never run in a
+ * reactive update on the main thread: `engineClient` runs them in a web worker (and cancels a stale job when the
+ * options change again). What is on screen is `base`, the last finished job (model, layout, routed scene); until the
+ * next one lands the old diagram stays put, with a subtle progress bar. A drag builds the obstacle lattice once and
+ * routes only the dragged table's edges each frame; the drop keeps those routes and every other one as they are.
  */
 import { For, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ObjectRef } from "../../api/types";
@@ -16,11 +22,13 @@ import { loadSchemaSnapshot, schemaSnapshotErrorFor, schemaSnapshotFor } from ".
 import { openDdlTab, openTableTab } from "../table/commands";
 import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus } from "./focus";
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
-import { layoutDiagram, resolveDrop, type Direction } from "./layout";
-import { DGM, buildDiagram, prunePositions, subsetOf, type ColumnsMode, type DiagramOptions } from "./model";
+import { DragSession } from "./drag";
+import { Cancelled, createSceneEngine } from "./engineClient";
+import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
+import { DGM, buildDiagram, prunePositions, subsetOf, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
-import { routeEdges } from "./route";
-import { buildScene, edgeColor, edgeInner, renderDiagramSvg } from "./svg";
+import type { RoutedEdge } from "./route";
+import { applyBounds, buildScene, edgeColor, edgeInner, renderDiagramSvg, type Scene } from "./svg";
 import { centerOn, fitView, minimapFrame, revealRect, visibleRect, zoomAt, type View } from "./view";
 import "./diagram.css";
 
@@ -78,7 +86,21 @@ export function DiagramView(props: { tab: EditorTab; active: boolean }): JSX.Ele
 
 type Drag =
   | { mode: "pan"; sx: number; sy: number; tx: number; ty: number }
-  | { mode: "node"; index: number; key: string; ox: number; oy: number; sx: number; sy: number; x: number; y: number; moved: boolean; edges: Set<number> };
+  | { mode: "node"; index: number; key: string; ox: number; oy: number; sx: number; sy: number; x: number; y: number; moved: boolean; session: DragSession | null };
+
+/** What the last finished layout + routing job produced, with the inputs it was made from. */
+interface Base {
+  model: DiagramModel;
+  options: DiagramOptions;
+  direction: Direction;
+  layout: LayoutResult;
+  scene: Scene;
+}
+
+const EMPTY_OPTIONS: DiagramOptions = { columns: "all", showTypes: true };
+const EMPTY_MODEL = buildDiagram([], EMPTY_OPTIONS);
+const EMPTY_LAYOUT = layoutDiagram(EMPTY_MODEL);
+const EMPTY_SCENE = buildScene(EMPTY_MODEL, EMPTY_LAYOUT);
 
 function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema: string | null; tables?: string[] }): JSX.Element {
   const prefs = loadPrefs();
@@ -95,6 +117,11 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const [view, setView] = createSignal<View>({ zoom: 1, tx: 24, ty: 24 });
   const [stageSize, setStageSize] = createSignal({ width: 0, height: 0 });
   const [loading, setLoading] = createSignal(true);
+  // The diagram on screen: the last finished job, the scene a drop made of it (no new job for a drop), and whether a
+  // newer job is running.
+  const [base, setBase] = createSignal<Base | null>(null);
+  const [dropped, setDropped] = createSignal<Scene | null>(null);
+  const [computing, setComputing] = createSignal(false);
   // Bumped when `<html data-theme>` actually changes: the theme memo fires before `apply()` sets the attribute, so
   // reading the CSS variables in that same tick would keep the previous theme's colours.
   const [themeEpoch, setThemeEpoch] = createSignal(0);
@@ -108,13 +135,22 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   let frame = 0;
   let nodeEls: Element[] = [];
   let edgeEls: Element[] = [];
+  const engine = createSceneEngine();
+  // What the scene on screen stands for: a change to any of these asks for a new job (a drop updates `positions`).
+  let current: { model: DiagramModel; direction: Direction; positions: Map<string, { x: number; y: number }> } | null = null;
+  let fitAfterJob = false;
 
   const objects = () => subsetOf(schemaSnapshotFor(props.dsId, props.schema), props.tables);
   const loadError = () => schemaSnapshotErrorFor(props.dsId, props.schema);
-  const options = (): DiagramOptions => ({ columns: columnsMode(), showTypes: showTypes() });
-  const model = createMemo(() => buildDiagram(objects(), options()));
-  const layout = createMemo(() => layoutDiagram(model(), { direction: direction() }));
-  const scene = createMemo(() => buildScene(model(), layout(), positions()));
+  /** The model the options ask for; what is drawn (`model`) catches up when the job for it has finished. */
+  const wanted = createMemo(() => {
+    const o: DiagramOptions = { columns: columnsMode(), showTypes: showTypes() };
+    return { model: buildDiagram(objects(), o), options: o };
+  });
+  const model = createMemo(() => base()?.model ?? EMPTY_MODEL);
+  const layout = createMemo(() => base()?.layout ?? EMPTY_LAYOUT);
+  const scene = createMemo(() => dropped() ?? base()?.scene ?? EMPTY_SCENE);
+  const drawnOptions = (): DiagramOptions => base()?.options ?? EMPTY_OPTIONS;
   const colors = createMemo(() => assignColors(model(), colorMode()));
   const palette = createMemo(() => {
     theme();
@@ -123,7 +159,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   });
   const focus = createMemo<Focus | null>(() => hover() ?? selection(), null, { equals: sameFocus });
 
-  const svgString = (): string => renderDiagramSvg(model(), layout(), { columns: columnsMode(), showTypes: showTypes(), colors: colors(), edgeLabels: edgeLabels() }, palette(), positions(), scene());
+  /** The SVG of what is on screen (the scene is read untracked by the render effect: a drop patches the DOM instead). */
+  const svgString = (): string => renderDiagramSvg(model(), layout(), { columns: drawnOptions().columns, showTypes: drawnOptions().showTypes, colors: colors(), edgeLabels: edgeLabels() }, palette(), undefined, untrack(scene));
 
   const reload = (): void => {
     setLoading(true);
@@ -146,6 +183,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     onCleanup(() => {
+      engine.dispose();
       observer.disconnect();
       ro?.disconnect();
       cancelAnimationFrame(frame);
@@ -166,12 +204,13 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   // Big schemas start with keys only, several schemas start coloured by schema (until the user chooses).
   createEffect(() => {
-    const n = model().nodes.length;
+    const m = wanted().model;
+    const n = m.nodes.length;
     if (n === 0 || autoDefaults) return;
     autoDefaults = true;
     untrack(() => {
       if (!userPickedColumns && n >= KEYS_ONLY_FROM) setColumnsMode("keys");
-      if (new Set(model().nodes.map((x) => x.schema)).size > 1 && prefs.colorMode === "cluster") setColorMode("schema");
+      if (new Set(m.nodes.map((x) => x.schema)).size > 1 && prefs.colorMode === "cluster") setColorMode("schema");
     });
   });
 
@@ -188,7 +227,47 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     });
 
   // A reloaded snapshot may drop tables: their dragged positions go with them (positions are keyed by schema.name).
-  createEffect(() => setPositions((prev) => prunePositions(prev, model().nodes)));
+  createEffect(() => setPositions((prev) => prunePositions(prev, wanted().model.nodes)));
+
+  // Layout and routing run in the worker, one job at a time (a newer one cancels the older). The diagram on screen
+  // stays as it is until the job lands; then it is swapped in one go.
+  const schedule = (w: { model: DiagramModel; options: DiagramOptions }, dir: Direction, pos: Map<string, { x: number; y: number }>): void => {
+    const cur = current;
+    if (!cur && w.model.nodes.length === 0) return; // nothing loaded yet: nothing to lay out
+    if (cur && cur.model === w.model && cur.direction === dir && cur.positions === pos) {
+      engine.cancel(); // back to what is on screen: whatever was being computed is not wanted any more
+      setComputing(false);
+      return;
+    }
+    const reuse = cur && cur.model === w.model && cur.direction === dir ? untrack(base)?.layout ?? null : null;
+    setComputing(true);
+    engine
+      .run({ model: w.model, direction: dir, layout: reuse, positions: [...pos] })
+      .then((res) => {
+        if (drag?.mode === "node") drag = null; // the boxes it holds are gone
+        current = { model: w.model, direction: dir, positions: pos };
+        batch(() => {
+          setDropped(null);
+          setBase({ model: w.model, options: w.options, direction: dir, layout: res.layout, scene: res.scene });
+          setComputing(false);
+        });
+        if (fitAfterJob) {
+          fitAfterJob = false;
+          requestAnimationFrame(fit);
+        }
+      })
+      .catch((err: unknown) => {
+        if (err instanceof Cancelled) return;
+        setComputing(false);
+        notify({ kind: "error", title: "Diagram", body: err instanceof Error ? err.message : String(err) });
+      });
+  };
+  createEffect(() => {
+    const w = wanted();
+    const dir = direction();
+    const pos = positions();
+    untrack(() => schedule(w, dir, pos));
+  });
 
   // A selection that no longer exists (the snapshot reloaded smaller) is dropped.
   createEffect(() => {
@@ -293,7 +372,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   };
   const relayout = (): void => {
     resetting(() => {});
-    requestAnimationFrame(fit);
+    fitAfterJob = true;
   };
   const zoomBy = (factor: number): void => {
     const r = stage.getBoundingClientRect();
@@ -302,7 +381,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const chooseDirection = (d: Direction): void => {
     if (d === direction()) return;
     resetting(() => setDirection(d));
-    requestAnimationFrame(fit);
+    fitAfterJob = true; // the new layout is fitted when it lands
   };
 
   // Fit once, when the tab is first shown with data. A 0x0 stage (a restored tab at startup) fails the fit; the
@@ -344,11 +423,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     setHover(null);
     const node = layout().nodes[index];
     const r = scene().rects[index];
-    const edges = new Set<number>();
-    model().edges.forEach((ed, i) => {
-      if (ed.from === index || ed.to === index) edges.add(i);
-    });
-    drag = { mode: "node", index, key: node.key, ox: r.x, oy: r.y, sx: e.clientX, sy: e.clientY, x: r.x, y: r.y, moved: false, edges };
+    drag = { mode: "node", index, key: node.key, ox: r.x, oy: r.y, sx: e.clientX, sy: e.clientY, x: r.x, y: r.y, moved: false, session: null };
   }
 
   function onMouseMove(e: MouseEvent): void {
@@ -368,6 +443,17 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       });
   }
 
+  /** Draws a route (and its label) in the edge's element and in its spotlight copy, if it has one. */
+  const patchEdge = (i: number, route: RoutedEdge): void => {
+    const m = model();
+    const edge = m.edges[i];
+    const html = edgeInner(edge, route, m, edgeColor(edge, m, colors(), palette()), palette());
+    const el = edgeEls[i];
+    if (el) el.innerHTML = html;
+    const copy = stage.querySelector(`.dg-edges-hl > [data-edge="${i}"]`);
+    if (copy) copy.innerHTML = html;
+  };
+
   /** Live drag: the box follows the pointer on the lattice and its edges are routed again around the other boxes. */
   function moveNode(clientX: number, clientY: number): void {
     const d = drag;
@@ -383,19 +469,13 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     d.x = x;
     d.y = y;
     nodeEls[d.index]?.setAttribute("transform", `translate(${x} ${y})`);
-    if (d.edges.size === 0) return;
+    // The obstacle lattice is built once (on the first move) and then only updated around the box, and only the
+    // edges of this table are routed: a frame costs a few searches.
     const sc = scene();
-    const rects = sc.rects.map((r, i) => (i === d.index ? { ...r, x, y } : r));
-    const routes = routeEdges(model(), rects, { only: d.edges, previous: sc.routes });
-    const m = model();
-    for (const i of d.edges) {
-      const r = routes[i];
-      const el = edgeEls[i];
-      if (!r || !el) continue;
-      r.label = null;
-      el.innerHTML = edgeInner(m.edges[i], r, m, edgeColor(m.edges[i], m, colors(), palette()), palette());
-    }
-    applyFocus();
+    d.session ??= new DragSession(model(), sc, d.index);
+    const r = sc.rects[d.index];
+    const routes = d.session.move({ x, y, w: r.w, h: r.h });
+    for (const i of d.session.edges) if (routes[i]) patchEdge(i, routes[i]);
   }
 
   function onMouseUp(): void {
@@ -408,12 +488,25 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       frame = 0;
       pending = null;
     }
-    if (d.mode === "node" && d.moved) {
+    if (d.mode === "node" && d.moved && d.session) {
       const sc = scene();
       const others = sc.rects.filter((_, i) => i !== d.index).map((r) => ({ x: r.x, y: r.y, width: r.w, height: r.h }));
       const size = layout().nodes[d.index];
       const spot = resolveDrop({ x: d.x, y: d.y }, size, others);
-      setPositions((prev) => new Map(prev).set(d.key, spot));
+      // The drop keeps the routes of the drag (re-routed once more only when the spot differs) and every other route
+      // as it is; the DOM already shows them, so it is patched, not rendered again.
+      const r = sc.rects[d.index];
+      const done = d.session.finish({ x: spot.x, y: spot.y, w: r.w, h: r.h });
+      const next = new Map(positions()).set(d.key, spot);
+      nodeEls[d.index]?.setAttribute("transform", `translate(${spot.x} ${spot.y})`);
+      for (const i of done.changed) if (done.scene.routes[i]) patchEdge(i, done.scene.routes[i]);
+      const svg = stage.querySelector("svg");
+      if (svg) applyBounds(svg, done.scene.bounds);
+      if (current) current = { ...current, positions: next };
+      batch(() => {
+        setDropped(done.scene);
+        setPositions(next);
+      });
     }
   }
 
@@ -794,6 +887,12 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
         </Show>
         <Show when={isLoading()}>
           <div class="dgd-overlay">Loading diagram…</div>
+        </Show>
+        <Show when={computing() && !hasData() && objects().length > 0}>
+          <div class="dgd-overlay">Laying out diagram…</div>
+        </Show>
+        <Show when={computing() && hasData()}>
+          <div class="dgd-busy" role="progressbar" aria-label="Updating the diagram" />
         </Show>
         <Show when={!loading() && loadError() !== undefined && objects().length === 0}>
           <div class="dgd-overlay error">
