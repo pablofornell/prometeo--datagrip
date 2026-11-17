@@ -163,6 +163,8 @@ export interface SqlEditorProps {
   /** Font size / line height override of this editor (the Settings preview); default: the `editorFontSize` / `editorLineHeight` settings. */
   fontSize?: number;
   lineHeight?: number;
+  /** Ctrl+Mouse Wheel changes the editor font size (the `editorWheelZoom` setting). `false` turns it off: the previews in the Settings dialog, which edit a draft. */
+  wheelZoom?: boolean;
   /**
    * Single-line mode for the table editor's WHERE / ORDER BY fields: no gutter, stripe or frame,
    * newlines are stripped and Enter calls `onSubmit`.

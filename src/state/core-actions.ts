@@ -26,7 +26,7 @@ import {
   toggleToolWindow,
 } from "./layout";
 import { goBack, goForward, canGoBack, canGoForward, initNavHistory } from "./nav-history";
-import { DEFAULT_SETTINGS, settings, updateSettings } from "./settings";
+import { DEFAULT_SETTINGS, EDITOR_FONT_MAX, EDITOR_FONT_MIN, settings, updateSettings } from "./settings";
 import { activeTabId, closeAllTabs, closeOtherTabs, closeTab, cycleTab } from "./tabs";
 import { type ThemePref, setThemePref, themePref } from "./theme";
 import { isModalOpen, menuBarOpen, setAboutOpen, setMenuBarOpen } from "./ui";
@@ -181,14 +181,14 @@ export function registerCoreActions(): () => void {
       id: "view.fontIncrease",
       title: "Increase Font Size in All Editors",
       shortcut: "Alt+Shift+.",
-      enabled: () => settings.editorFontSize < 40,
+      enabled: () => settings.editorFontSize < EDITOR_FONT_MAX,
       run: () => updateSettings({ editorFontSize: settings.editorFontSize + 1 }),
     },
     {
       id: "view.fontDecrease",
       title: "Decrease Font Size in All Editors",
       shortcut: "Alt+Shift+Comma",
-      enabled: () => settings.editorFontSize > 8,
+      enabled: () => settings.editorFontSize > EDITOR_FONT_MIN,
       run: () => updateSettings({ editorFontSize: settings.editorFontSize - 1 }),
     },
     {

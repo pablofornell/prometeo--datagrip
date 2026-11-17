@@ -310,12 +310,12 @@ export const SqlEditor: Component<SqlEditorProps> = (props) => {
             return true;
           },
         }),
-        // Ctrl+wheel changes the global editor font size; not in one-line fields, nor in an editor with its own size (Settings preview)
+        // Ctrl+wheel changes the global editor font size; not in one-line fields, nor where `wheelZoom` is false (Settings previews)
         ...(single
           ? []
           : [
               wheelZoomExtension({
-                enabled: () => settings.editorWheelZoom && props.fontSize === undefined,
+                enabled: () => settings.editorWheelZoom && props.wheelZoom !== false,
                 size: () => settings.editorFontSize,
                 setSize: (n) => updateSettings({ editorFontSize: n }),
               }),

@@ -13,6 +13,10 @@ import { EMPTY_OVERRIDES, type SchemeId, type SchemeOverrides, sanitizeOverrides
 import { loadLocal, saveUiState } from "./persist";
 import { theme } from "./theme";
 
+/** Allowed editor font size in px: the settings file import, the font size actions and the Ctrl+wheel zoom keep to this range. */
+export const EDITOR_FONT_MIN = 8;
+export const EDITOR_FONT_MAX = 48;
+
 export interface Settings {
   /** Rows fetched per page in result and table grids (DataGrip default 500). 0 = all. */
   gridPageSize: number;

@@ -208,6 +208,7 @@ export function ColorSchemePage(props: { draft: Draft; open: (id: string) => voi
           dialect="postgres"
           schema={SCHEMA}
           readOnly
+          wheelZoom={false}
           gutter={false}
           stripe={false}
           statementFrame={false}
