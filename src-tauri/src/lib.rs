@@ -229,14 +229,18 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            // the plugin keeps its lock until this handler returns: release it first, so that a relaunch during the
-            // shutdown starts a new instance instead of being forwarded to this dying one and lost
-            tauri_plugin_single_instance::destroy(handle);
-            if let Some(state) = handle.try_state::<AppState>() {
-                // make sure the debounced ui-state write is not lost on exit
+            let state = handle.try_state::<AppState>();
+            // make sure the debounced ui-state write is not lost on exit; it is written before the lock is released,
+            // so that a relaunch reads the final state and not the one from before the last debounce
+            if let Some(state) = &state {
                 if let Err(e) = state.ui.flush() {
                     tracing::error!("cannot save ui state: {e}");
                 }
+            }
+            // the plugin keeps its lock until this handler returns: release it before the (bounded) connection close,
+            // so that a relaunch during the shutdown starts a new instance instead of being forwarded to this dying one
+            tauri_plugin_single_instance::destroy(handle);
+            if let Some(state) = state {
                 // roll back open transactions and close the connections in an orderly way
                 tauri::async_runtime::block_on(state.shutdown());
             }
