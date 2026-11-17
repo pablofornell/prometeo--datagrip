@@ -12,6 +12,8 @@
  * options change again). What is on screen is `base`, the last finished job (model, layout, routed scene); until the
  * next one lands the old diagram stays put, with a subtle progress bar. A drag builds the obstacle lattice once and
  * routes only the dragged table's edges each frame; the drop keeps those routes and every other one as they are.
+ * `scheduler` decides when jobs run: no table can be picked up while a job is pending (the cursor says so), and a job
+ * waits for a drag in progress instead of swapping the diagram under the pointer.
  */
 import { For, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ObjectRef } from "../../api/types";
@@ -23,11 +25,12 @@ import { openDdlTab, openTableTab } from "../table/commands";
 import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus } from "./focus";
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
 import { DragSession } from "./drag";
-import { Cancelled, createSceneEngine } from "./engineClient";
+import { createSceneEngine } from "./engineClient";
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { DGM, buildDiagram, prunePositions, subsetOf, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
 import type { RoutedEdge } from "./route";
+import { createScheduler } from "./scheduler";
 import { applyBounds, buildScene, edgeColor, edgeInner, renderDiagramSvg, type Scene } from "./svg";
 import { centerOn, fitView, minimapFrame, revealRect, visibleRect, zoomAt, type View } from "./view";
 import "./diagram.css";
@@ -135,10 +138,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   let frame = 0;
   let nodeEls: Element[] = [];
   let edgeEls: Element[] = [];
-  const engine = createSceneEngine();
-  // What the scene on screen stands for: a change to any of these asks for a new job (a drop updates `positions`).
-  let current: { model: DiagramModel; direction: Direction; positions: Map<string, { x: number; y: number }> } | null = null;
-  let fitAfterJob = false;
+  let fitFrame = 0;
 
   const objects = () => subsetOf(schemaSnapshotFor(props.dsId, props.schema), props.tables);
   const loadError = () => schemaSnapshotErrorFor(props.dsId, props.schema);
@@ -183,10 +183,11 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     onCleanup(() => {
-      engine.dispose();
+      scheduler.dispose();
       observer.disconnect();
       ro?.disconnect();
       cancelAnimationFrame(frame);
+      cancelAnimationFrame(fitFrame);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     });
@@ -231,42 +232,23 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   // Layout and routing run in the worker, one job at a time (a newer one cancels the older). The diagram on screen
   // stays as it is until the job lands; then it is swapped in one go.
-  const schedule = (w: { model: DiagramModel; options: DiagramOptions }, dir: Direction, pos: Map<string, { x: number; y: number }>): void => {
-    const cur = current;
-    if (!cur && w.model.nodes.length === 0) return; // nothing loaded yet: nothing to lay out
-    if (cur && cur.model === w.model && cur.direction === dir && cur.positions === pos) {
-      engine.cancel(); // back to what is on screen: whatever was being computed is not wanted any more
-      setComputing(false);
-      return;
-    }
-    const reuse = cur && cur.model === w.model && cur.direction === dir ? untrack(base)?.layout ?? null : null;
-    setComputing(true);
-    engine
-      .run({ model: w.model, direction: dir, layout: reuse, positions: [...pos] })
-      .then((res) => {
-        if (drag?.mode === "node") drag = null; // the boxes it holds are gone
-        current = { model: w.model, direction: dir, positions: pos };
-        batch(() => {
-          setDropped(null);
-          setBase({ model: w.model, options: w.options, direction: dir, layout: res.layout, scene: res.scene });
-          setComputing(false);
-        });
-        if (fitAfterJob) {
-          fitAfterJob = false;
-          requestAnimationFrame(fit);
-        }
-      })
-      .catch((err: unknown) => {
-        if (err instanceof Cancelled) return;
+  const scheduler = createScheduler<DiagramOptions>(createSceneEngine(), {
+    busy: setComputing,
+    landed: ({ inputs, meta, res, fit: fitNow }) => {
+      batch(() => {
+        setDropped(null);
+        setBase({ model: inputs.model, options: meta, direction: inputs.direction, layout: res.layout, scene: res.scene });
         setComputing(false);
-        notify({ kind: "error", title: "Diagram", body: err instanceof Error ? err.message : String(err) });
       });
-  };
+      if (fitNow) fitFrame = requestAnimationFrame(fit);
+    },
+    failed: (err) => notify({ kind: "error", title: "Diagram", body: err instanceof Error ? err.message : String(err) }),
+  });
   createEffect(() => {
     const w = wanted();
     const dir = direction();
     const pos = positions();
-    untrack(() => schedule(w, dir, pos));
+    untrack(() => scheduler.request({ model: w.model, direction: dir, positions: pos }, w.options));
   });
 
   // A selection that no longer exists (the snapshot reloaded smaller) is dropped.
@@ -372,7 +354,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   };
   const relayout = (): void => {
     resetting(() => {});
-    fitAfterJob = true;
+    scheduler.fitWhenLanded();
   };
   const zoomBy = (factor: number): void => {
     const r = stage.getBoundingClientRect();
@@ -381,7 +363,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const chooseDirection = (d: Direction): void => {
     if (d === direction()) return;
     resetting(() => setDirection(d));
-    fitAfterJob = true; // the new layout is fitted when it lands
+    scheduler.fitWhenLanded(); // the new layout is fitted when it lands
   };
 
   // Fit once, when the tab is first shown with data. A 0x0 stage (a restored tab at startup) fails the fit; the
@@ -421,6 +403,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     }
     setSelection({ kind: "node", index });
     setHover(null);
+    // A newer layout is being computed: these boxes are about to move, so they cannot be picked up (the cursor says so).
+    if (!scheduler.beginDrag()) return;
     const node = layout().nodes[index];
     const r = scene().rects[index];
     drag = { mode: "node", index, key: node.key, ox: r.x, oy: r.y, sx: e.clientX, sy: e.clientY, x: r.x, y: r.y, moved: false, session: null };
@@ -428,6 +412,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   function onMouseMove(e: MouseEvent): void {
     if (!drag) return;
+    if (e.buttons === 0) return onMouseUp(); // the button was released outside the window: the drag is over
     if (drag.mode === "pan") {
       const d = drag;
       setView((v) => ({ ...v, tx: d.tx + (e.clientX - d.sx), ty: d.ty + (e.clientY - d.sy) }));
@@ -488,26 +473,35 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       frame = 0;
       pending = null;
     }
-    if (d.mode === "node" && d.moved && d.session) {
+    if (d.mode !== "node") return;
+    if (!(d.moved && d.session)) return scheduler.endDrag();
+    if (!scheduler.canDrop()) {
+      // The options changed, or Re-layout was pressed, while the box was in the pointer: that diagram is about to be
+      // replaced, so the move is not kept (it would pin one box of the new layout). The box goes back until it lands.
       const sc = scene();
-      const others = sc.rects.filter((_, i) => i !== d.index).map((r) => ({ x: r.x, y: r.y, width: r.w, height: r.h }));
-      const size = layout().nodes[d.index];
-      const spot = resolveDrop({ x: d.x, y: d.y }, size, others);
-      // The drop keeps the routes of the drag (re-routed once more only when the spot differs) and every other route
-      // as it is; the DOM already shows them, so it is patched, not rendered again.
       const r = sc.rects[d.index];
-      const done = d.session.finish({ x: spot.x, y: spot.y, w: r.w, h: r.h });
-      const next = new Map(positions()).set(d.key, spot);
-      nodeEls[d.index]?.setAttribute("transform", `translate(${spot.x} ${spot.y})`);
-      for (const i of done.changed) if (done.scene.routes[i]) patchEdge(i, done.scene.routes[i]);
-      const svg = stage.querySelector("svg");
-      if (svg) applyBounds(svg, done.scene.bounds);
-      if (current) current = { ...current, positions: next };
-      batch(() => {
-        setDropped(done.scene);
-        setPositions(next);
-      });
+      nodeEls[d.index]?.setAttribute("transform", `translate(${r.x} ${r.y})`);
+      for (const i of d.session.edges) if (sc.routes[i]) patchEdge(i, sc.routes[i]);
+      return scheduler.endDrag();
     }
+    const sc = scene();
+    const others = sc.rects.filter((_, i) => i !== d.index).map((r) => ({ x: r.x, y: r.y, width: r.w, height: r.h }));
+    const size = layout().nodes[d.index];
+    const spot = resolveDrop({ x: d.x, y: d.y }, size, others);
+    // The drop keeps the routes of the drag (re-routed once more only when the spot differs) and every other route
+    // as it is; the DOM already shows them, so it is patched, not rendered again.
+    const r = sc.rects[d.index];
+    const done = d.session.finish({ x: spot.x, y: spot.y, w: r.w, h: r.h });
+    const next = new Map(positions()).set(d.key, spot);
+    nodeEls[d.index]?.setAttribute("transform", `translate(${spot.x} ${spot.y})`);
+    for (const i of done.changed) if (done.scene.routes[i]) patchEdge(i, done.scene.routes[i]);
+    const svg = stage.querySelector("svg");
+    if (svg) applyBounds(svg, done.scene.bounds);
+    scheduler.endDrag(next); // first: the diagram on screen now stands for `next`, so the positions below start no job
+    batch(() => {
+      setDropped(done.scene);
+      setPositions(next);
+    });
   }
 
   function onMouseOver(e: MouseEvent): void {
@@ -857,6 +851,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       <div class="dgd-body">
         <div
           class="dgd-stage"
+          classList={{ computing: computing() }}
           ref={stage}
           tabindex={0}
           role="application"
