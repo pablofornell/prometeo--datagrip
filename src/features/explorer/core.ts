@@ -91,7 +91,8 @@ export const treeRoots = createRoot(() =>
       const members = list.filter((n) => dsGroupOf(n.id) === name);
       let f = folderNodes.get(id);
       if (!f) {
-        f = { id, label: name, icon: iconOf("folder"), hasChildren: true, data: { dsId: "", kind: "folder", name, path: [], extra: { dsFolder: true }, driver: "postgres", icon: iconOf("folder") } };
+        // no top-level `icon`: the shared Tree draws that one from the icon kit, where the local `x:` key has no file (an <img> without src = broken-image box). The label draws the icon (`data.icon`), as for every explorer node.
+        f = { id, label: name, hasChildren: true, data: { dsId: "", kind: "folder", name, path: [], extra: { dsFolder: true }, driver: "postgres", icon: iconOf("folder") } };
         folderNodes.set(id, f);
         nodes.set(id, f);
       }
