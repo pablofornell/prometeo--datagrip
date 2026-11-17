@@ -983,6 +983,11 @@ impl Client {
         result
     }
 
+    /// See [`Capabilities::server_has_md5_combo_key`].
+    pub(crate) fn server_has_md5_combo_key(&self) -> bool {
+        self.caps.server_has_md5_combo_key()
+    }
+
     /// Returns the maximum string size for the database.
     pub(crate) fn max_string_size(&self) -> u32 {
         self.caps.max_string_size()

@@ -65,6 +65,9 @@ pub const ORA_TYPE_NUM_LONG_RAW: u16 = 24;
 // and 11g servers, which refuse a define as LONG / LONG RAW (ORA-00932)
 pub const ORA_TYPE_NUM_LONG_VARCHAR: u16 = 94;
 pub const ORA_TYPE_NUM_LONG_VARRAW: u16 = 95;
+// the buffer size of such a define: 10.2 crashes (ORA-07445 in memcpy) on a
+// NULL value when it is 0x7FFFFFFF, the size of a LONG define
+pub const LONG_VAR_DEFINE_SIZE: u32 = 0x3FFF_FFFF;
 pub const ORA_TYPE_NUM_NUMBER: u16 = 2;
 pub const ORA_TYPE_NUM_OBJECT: u16 = 109;
 pub const ORA_TYPE_NUM_RAW: u16 = 23;

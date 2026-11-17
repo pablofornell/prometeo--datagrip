@@ -103,8 +103,8 @@ impl ConnectMessage<'_> {
             let flags1: u8 = resp.read_u8()?;
             if flags1 & NSI_NA_REQUIRED != 0 {
                 return Err(Error::not_implemented(
-                    "native network encryption or data integrity required \
-                     by the server"
+                    "native network encryption or data integrity required by \
+                     the server"
                         .to_string(),
                 ));
             }
@@ -114,7 +114,11 @@ impl ConnectMessage<'_> {
         resp.advance(12)?;
         let flags1: u8 = resp.read_u8()?;
         if flags1 & NSI_NA_REQUIRED != 0 {
-            todo!();
+            return Err(Error::not_implemented(
+                "native network encryption or data integrity required by the \
+                 server"
+                    .to_string(),
+            ));
         }
         resp.advance(9)?;
         self.sdu = resp.read_u32be()?;
@@ -201,9 +205,7 @@ impl Message for ConnectMessage<'_> {
                         .to_string(),
                 );
             }
-            _ => {
-                todo!()
-            }
+            _ => return Err(Error::unexpected_result()),
         }
         Ok(())
     }

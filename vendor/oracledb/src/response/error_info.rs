@@ -71,7 +71,8 @@ impl ErrorInfo {
         }
         // before 12.1 (10g / 11g servers) three length-prefixed fields follow
         // and the error number and row count are the short ones read above
-        if !client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_1)
+        if !client
+            .supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_1)
         {
             for _ in 0..3 {
                 let _ = resp.read_bytes_with_double_length()?;

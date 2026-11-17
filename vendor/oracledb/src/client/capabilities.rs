@@ -132,6 +132,7 @@ pub struct Capabilities {
     supports_end_user_security_context: bool,
     supports_ha_readiness: bool,
     supports_big_chunks: bool,
+    server_logon_types: u8,
 }
 
 impl Capabilities {
@@ -155,6 +156,9 @@ impl Capabilities {
         if field_version < self.ttc_field_version {
             self.ttc_field_version = field_version;
             self.compile_caps[CCAP_IX_FIELD_VERSION] = self.ttc_field_version;
+        }
+        if let Some(logon_types) = caps.get(CCAP_IX_LOGON_TYPES) {
+            self.server_logon_types = *logon_types;
         }
         // 10g / 11g servers do not have big chunks: the chunks of long
         // values have one-byte lengths
@@ -275,6 +279,7 @@ impl Capabilities {
             supports_end_user_security_context: false,
             supports_ha_readiness: false,
             supports_big_chunks: true,
+            server_logon_types: 0xff,
         };
         caps.init_compile_caps();
         caps.init_runtime_caps();
@@ -313,6 +318,13 @@ impl Capabilities {
     /// Returns whether the connection supports setting request boundaries.
     pub fn supports_request_boundaries(&self) -> bool {
         self.supports_request_boundaries
+    }
+
+    /// Returns whether the server builds the combo key of an 11G verifier
+    /// the old way: MD5 of the XOR of the session key halves (10g / 11g
+    /// servers, whose logon types have no `0x20` bit; what go-ora checks).
+    pub fn server_has_md5_combo_key(&self) -> bool {
+        self.server_logon_types & CCAP_VAL_O7LOGON == 0
     }
 
     /// Returns whether the chunks of long values have UB4 lengths (false for
