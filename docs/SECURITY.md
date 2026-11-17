@@ -34,9 +34,17 @@ source is flagged `passwordStorage: "file"`.
 * The Data Sources dialog shows a warning in its footer for as long as that is the case.
 * One failed write to the store (a locked entry) does not switch the whole session to the file: only
   that data source's password goes to the file, the others keep using the store.
-* The file is created readable by its owner only: mode `0600` on Linux and macOS; on Windows the
-  inherited ACL is removed and only the current user keeps access (`icacls`), applied to the temporary file while it is still empty, before any content is
-  written. Leftover temporary files of a crashed run (`data-sources.tmp<pid>`) are deleted at
+* The file is created readable by its owner only: mode `0600` on Linux and macOS; on Windows the ACL
+  is replaced with a protected one (no inheritance) that has exactly one entry, full access for the
+  current user. It is set with the Win32 security API (`SetNamedSecurityInfoW`), using the SID of
+  the process token (not the `USERNAME` / `USERDOMAIN` variables, so it works the same for local,
+  domain and Microsoft / Azure AD accounts and non-ASCII names). SYSTEM and administrators lose
+  the inherited access too; an administrator can still take ownership. The ACL is applied to the
+  temporary file while it is still empty, before any content is written, and travels with the
+  atomic rename. **If it cannot be applied, the save fails** with an error that names the Win32
+  error code, and no password is written: a plain-text password is never left readable by other
+  accounts. (A pre-existing file or a backup copy that cannot be restricted is only logged, since
+  refusing there would lose data.) Leftover temporary files of a crashed run (`data-sources.tmp<pid>`) are deleted at
   start, and a backup copy of the file (`.corrupt-` / `.newer-`) gets the same protection. The
   strict protection also applies when the file holds a secret option or a secret URL parameter
   (`sslpassword`, `token`...), not only a password.

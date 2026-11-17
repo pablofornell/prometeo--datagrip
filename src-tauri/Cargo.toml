@@ -42,6 +42,8 @@ keyring = { version = "3", default-features = false, features = ["async-secret-s
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# Win32 security API: the ACL of the file that holds plain-text passwords (store.rs). 0.61 is already in Cargo.lock through Tauri.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["apple-native"] }

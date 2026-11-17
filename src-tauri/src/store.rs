@@ -58,47 +58,150 @@ pub fn restrict_to_owner(path: &Path) {
     let _ = path;
 }
 
-/// Windows: remove the inherited ACL entries of `path` and leave the current user as the only one with access
-/// (`icacls`; best effort, a failure is logged). The folders under the user profile are already private to the
-/// user, SYSTEM and administrators; this makes a file with plain-text passwords private to the user alone.
-/// No-op elsewhere.
-pub fn restrict_acl_to_user(path: &Path) {
+/// Windows: replace the ACL of `path` with a protected one that has exactly one entry, full access for the current
+/// user (the SID of the process token, not the `USERNAME` / `USERDOMAIN` variables), so no inherited entry
+/// (SYSTEM, administrators, the folder's other readers) is left. This makes a file with plain-text passwords
+/// private to the user alone, the closest equivalent of `0600`. The owner is left as it is: the owner can always
+/// rewrite the ACL, and changing it needs more privileges than this has to ask for. No-op elsewhere.
+pub fn restrict_acl_to_user(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        use std::process::{Command, Stdio};
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let Some(user) = std::env::var_os("USERNAME") else {
-            tracing::warn!("cannot restrict {}: USERNAME is not set", path.display());
-            return;
-        };
-        let mut who = std::env::var_os("USERDOMAIN").unwrap_or_default();
-        if !who.is_empty() {
-            who.push("\\");
-        }
-        who.push(user);
-        who.push(":(F)");
-        let icacls = std::env::var_os("SystemRoot")
-            .map(|r| PathBuf::from(r).join("System32").join("icacls.exe"))
-            .unwrap_or_else(|| PathBuf::from("icacls.exe"));
-        let done = Command::new(icacls)
-            .arg(path)
-            .args(["/inheritance:r", "/grant:r"])
-            .arg(who)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .creation_flags(CREATE_NO_WINDOW)
-            .status();
-        if !matches!(done, Ok(s) if s.success()) {
-            tracing::warn!(
-                "cannot restrict the access to {} to the current user",
-                path.display()
-            );
-        }
+        win_acl::restrict_to_current_user(path)
     }
     #[cfg(not(windows))]
-    let _ = path;
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// [`restrict_acl_to_user`] for a file that already exists and cannot be refused: a failure is logged (the path,
+/// never the content) and the file stays as it is.
+fn restrict_acl_or_warn(path: &Path) {
+    if let Err(e) = restrict_acl_to_user(path) {
+        tracing::warn!("{e}");
+    }
+}
+
+/// The Win32 security API calls behind [`restrict_acl_to_user`].
+#[cfg(windows)]
+mod win_acl {
+    use std::os::windows::ffi::OsStrExt;
+    use std::path::Path;
+    use std::ptr::{null, null_mut};
+
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_SUCCESS, HANDLE};
+    use windows_sys::Win32::Security::Authorization::{SetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{
+        AddAccessAllowedAce, GetLengthSid, GetTokenInformation, InitializeAcl, TokenUser,
+        ACCESS_ALLOWED_ACE, ACL, ACL_REVISION, DACL_SECURITY_INFORMATION,
+        PROTECTED_DACL_SECURITY_INFORMATION, PSID, TOKEN_QUERY, TOKEN_USER,
+    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+
+    /// The SID of the user the process runs as, owned by this struct (8-byte aligned, as `TOKEN_USER` needs).
+    pub struct UserSid {
+        buf: Vec<u64>,
+    }
+
+    impl UserSid {
+        /// The user of the process token (`OpenProcessToken` + `GetTokenInformation(TokenUser)`).
+        pub fn current() -> Result<UserSid, String> {
+            let mut token: HANDLE = null_mut();
+            // SAFETY: plain FFI calls with valid out pointers; the token handle is closed before returning.
+            unsafe {
+                if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+                    return Err(format!(
+                        "OpenProcessToken failed (error {})",
+                        GetLastError()
+                    ));
+                }
+                let user = Self::token_user(token);
+                CloseHandle(token);
+                user
+            }
+        }
+
+        /// SAFETY: `token` is an open token handle with `TOKEN_QUERY` access.
+        unsafe fn token_user(token: HANDLE) -> Result<UserSid, String> {
+            let mut needed = 0u32;
+            // the first call only reports the size
+            GetTokenInformation(token, TokenUser, null_mut(), 0, &mut needed);
+            if needed == 0 {
+                return Err(format!(
+                    "GetTokenInformation failed (error {})",
+                    GetLastError()
+                ));
+            }
+            let mut buf = vec![0u64; (needed as usize).div_ceil(8)];
+            if GetTokenInformation(
+                token,
+                TokenUser,
+                buf.as_mut_ptr().cast(),
+                needed,
+                &mut needed,
+            ) == 0
+            {
+                return Err(format!(
+                    "GetTokenInformation failed (error {})",
+                    GetLastError()
+                ));
+            }
+            Ok(UserSid { buf })
+        }
+
+        /// Points into `self`: valid as long as `self` lives.
+        pub fn psid(&self) -> PSID {
+            // SAFETY: `buf` holds a `TOKEN_USER` written by `GetTokenInformation`.
+            unsafe { (*self.buf.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+        }
+    }
+
+    /// Replace the ACL of `path` with a protected one holding a single "allow everything" entry for the current
+    /// user.
+    pub fn restrict_to_current_user(path: &Path) -> Result<(), String> {
+        let fail = |what: &str, code: u32| {
+            format!(
+                "Cannot restrict the access to {} to the current user ({what}, error {code})",
+                path.display()
+            )
+        };
+        let sid = UserSid::current()
+            .map_err(|e| format!("Cannot restrict the access to {}: {e}", path.display()))?;
+        // SAFETY: `acl` is a zero-initialised, 8-byte aligned buffer big enough for the header and one ACE
+        // (the ACE's `SidStart` field is the first 4 bytes of the SID, hence `- 4`); `sid` outlives every call.
+        let code = unsafe {
+            let sid_len = GetLengthSid(sid.psid()) as usize;
+            let acl_len = (size_of::<ACL>() + size_of::<ACCESS_ALLOWED_ACE>() - size_of::<u32>()
+                + sid_len)
+                .next_multiple_of(4);
+            let mut acl = vec![0u64; acl_len.div_ceil(8)];
+            let acl = acl.as_mut_ptr().cast::<ACL>();
+            if InitializeAcl(acl, acl_len as u32, ACL_REVISION) == 0 {
+                return Err(fail("InitializeAcl", GetLastError()));
+            }
+            if AddAccessAllowedAce(acl, ACL_REVISION, FILE_ALL_ACCESS, sid.psid()) == 0 {
+                return Err(fail("AddAccessAllowedAce", GetLastError()));
+            }
+            let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+            // PROTECTED: nothing is inherited from the folder, and the inherited entries already on the file go
+            SetNamedSecurityInfoW(
+                wide.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                acl,
+                null(),
+            )
+        };
+        if code == ERROR_SUCCESS {
+            Ok(())
+        } else {
+            Err(fail("SetNamedSecurityInfoW", code))
+        }
+    }
 }
 
 fn write_atomic_mode(path: &Path, bytes: &[u8], protect: Protect) -> Result<(), String> {
@@ -124,7 +227,13 @@ fn write_atomic_mode(path: &Path, bytes: &[u8], protect: Protect) -> Result<(), 
         restrict_to_owner(&tmp);
     }
     if protect == Protect::Secret {
-        restrict_acl_to_user(&tmp);
+        // A secret that cannot be made private is not written at all: the save fails (and the user is told why)
+        // instead of leaving a password readable by other accounts. The temp file is still empty here.
+        if let Err(e) = restrict_acl_to_user(&tmp) {
+            drop(file);
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("{e}. Nothing was saved."));
+        }
     }
     let written = {
         use std::io::Write;
@@ -209,7 +318,7 @@ fn set_aside(path: &Path, kind: &str) -> (Option<String>, String) {
         Ok(()) => {
             // the file may hold passwords: a copy made by the fallback gets the folder's ACL, not the original's
             restrict_to_owner(&backup);
-            restrict_acl_to_user(&backup);
+            restrict_acl_or_warn(&backup);
             format!("The original file was saved as {}.", backup.display())
         }
         Err(e) => format!("The original file could not be saved ({e}); it will be overwritten."),
@@ -718,7 +827,7 @@ impl DataSourceStore {
         };
         restrict_to_owner(&path);
         if items.iter().any(holds_plain_secret) {
-            restrict_acl_to_user(&path);
+            restrict_acl_or_warn(&path);
         }
         let legacy: Vec<DataSourceConfig> = items
             .iter()
@@ -2212,18 +2321,96 @@ mod tests {
         let path = dir.path().join("ds.json");
         let store = DataSourceStore::load(path.clone(), Arc::new(NoKeyring)).unwrap();
         store.save(cfg("a", Some("pw"))).unwrap();
-        let acl = std::process::Command::new("icacls")
-            .arg(&path)
-            .output()
-            .unwrap();
-        let acl = String::from_utf8_lossy(&acl.stdout).to_lowercase();
-        let user = std::env::var("USERNAME").unwrap().to_lowercase();
-        let entries = acl.matches(":(").count();
-        assert_eq!(entries, 1, "exactly one ACL entry expected");
-        assert!(
-            acl.contains(&format!("{user}:(f)")),
-            "the entry must be the current user's"
-        );
+        assert_only_the_current_user_has_access(&path);
+        // a second save replaces the file through the rename: the new file is protected as well
+        store.save(cfg("b", Some("pw2"))).unwrap();
+        assert_only_the_current_user_has_access(&path);
+        // a file made by something else inherits the folder's ACL until it is restricted
+        let other = dir.path().join("other.json");
+        fs::write(&other, "{}").unwrap();
+        restrict_acl_to_user(&other).unwrap();
+        assert_only_the_current_user_has_access(&other);
+    }
+
+    /// Reads the ACL through the Win32 API (not through `icacls`, whose text is localised): the DACL must be
+    /// protected (no inheritance) and hold exactly one "allowed" entry, with all file rights, for the SID of the
+    /// process token.
+    #[cfg(windows)]
+    fn assert_only_the_current_user_has_access(path: &Path) {
+        use std::os::windows::ffi::OsStrExt;
+        use std::ptr::null_mut;
+        use windows_sys::Win32::Foundation::{LocalFree, ERROR_SUCCESS};
+        use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+        use windows_sys::Win32::Security::{
+            AclSizeInformation, EqualSid, GetAce, GetAclInformation, GetSecurityDescriptorControl,
+            ACCESS_ALLOWED_ACE, ACL, ACL_SIZE_INFORMATION, DACL_SECURITY_INFORMATION,
+            PSECURITY_DESCRIPTOR, SE_DACL_PROTECTED,
+        };
+        use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
+        /// `ACCESS_ALLOWED_ACE_TYPE`
+        const ACCESS_ALLOWED: u8 = 0;
+
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let me = win_acl::UserSid::current().unwrap();
+        let mut dacl: *mut ACL = null_mut();
+        let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+        // SAFETY: valid out pointers; `descriptor` (which `dacl` points into) is freed at the end.
+        unsafe {
+            let code = GetNamedSecurityInfoW(
+                wide.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                null_mut(),
+                null_mut(),
+                &mut dacl,
+                null_mut(),
+                &mut descriptor,
+            );
+            assert_eq!(code, ERROR_SUCCESS, "GetNamedSecurityInfoW");
+            assert!(!descriptor.is_null(), "a security descriptor");
+            assert!(!dacl.is_null(), "the file has a DACL");
+
+            let (mut control, mut revision) = (0u16, 0u32);
+            assert_ne!(
+                GetSecurityDescriptorControl(descriptor, &mut control, &mut revision),
+                0
+            );
+            assert_ne!(
+                control & SE_DACL_PROTECTED,
+                0,
+                "the DACL must be protected (inheritance removed)"
+            );
+
+            let mut info = ACL_SIZE_INFORMATION {
+                AceCount: 0,
+                AclBytesInUse: 0,
+                AclBytesFree: 0,
+            };
+            assert_ne!(
+                GetAclInformation(
+                    dacl,
+                    (&mut info as *mut ACL_SIZE_INFORMATION).cast(),
+                    size_of::<ACL_SIZE_INFORMATION>() as u32,
+                    AclSizeInformation,
+                ),
+                0
+            );
+            assert_eq!(info.AceCount, 1, "exactly one ACL entry expected");
+
+            let mut ace: *mut std::ffi::c_void = null_mut();
+            assert_ne!(GetAce(dacl, 0, &mut ace), 0);
+            let ace = &*ace.cast::<ACCESS_ALLOWED_ACE>();
+            assert_eq!(ace.Header.AceType, ACCESS_ALLOWED, "an allow entry");
+            assert_eq!(ace.Header.AceFlags & 0x1F, 0, "not an inheritable entry");
+            assert_eq!(ace.Mask & FILE_ALL_ACCESS, FILE_ALL_ACCESS, "full access");
+            let sid = std::ptr::addr_of!(ace.SidStart) as *mut std::ffi::c_void;
+            assert_ne!(
+                EqualSid(sid, me.psid()),
+                0,
+                "the entry must be the current user's"
+            );
+            LocalFree(descriptor);
+        }
     }
 
     // ------------------------------------------------------------ file format versions
