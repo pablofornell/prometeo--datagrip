@@ -171,8 +171,9 @@ db-up-oracle-legacy: ## Start the optional Oracle 10g XE test container (old-ser
 	elif docker ps -a --format '{{.Names}}' | grep -qx "$$name"; then echo "[db] starting $$name"; docker start "$$name" >/dev/null; \
 	else echo "[db] creating $$name"; docker run -d --name "$$name" --shm-size=1g -p 127.0.0.1:$(ORACLE_LEGACY_PORT):1521 $(ORACLE_LEGACY_IMAGE) >/dev/null; fi; \
 	echo "[db] waiting for Oracle 10g"; \
-	for i in $$(seq 1 90); do printf 'select 42 from dual;\n' | sys 2>/dev/null | grep -qw 42 && break; sleep 2; done; \
-	printf 'select 42 from dual;\n' | sys | grep -qw 42 || { echo "[db] Oracle 10g is not ready"; exit 1; }; \
+	ready() { printf "select 'DB' || 'READY' from dual;\n" | sys 2>/dev/null | grep -q DBREADY; }; \
+	for i in $$(seq 1 90); do ready && break; sleep 2; done; \
+	ready || { echo "[db] Oracle 10g is not ready"; exit 1; }; \
 	procs=$$(printf 'set heading off feedback off pagesize 0\nselect value from v$$parameter where name = '"'"'processes'"'"';\n' | sys | tr -d '[:space:]'); \
 	if [ "$$procs" -lt 150 ]; then \
 	  echo "[db] processes $$procs -> 150 (restart)"; \

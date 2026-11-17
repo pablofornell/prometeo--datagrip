@@ -151,6 +151,48 @@ async fn version_console_and_transactions() {
     mgr.disconnect(&cfg.id).await;
 }
 
+/// The Stop button: the break marker goes out with the 16-bit packet length of these servers.
+#[tokio::test]
+async fn cancel_running_statements() {
+    use std::time::{Duration, Instant};
+    let (cfg, mgr) = setup!();
+    let s = mgr.open_session(&cfg.id).await.unwrap();
+    for (sql, max_rows) in [
+        // busy on the server, no row yet
+        (
+            "select count(*) from all_objects a, all_objects b, all_objects c",
+            0,
+        ),
+        // a stream of rows
+        (
+            "select a.object_id, b.object_name from all_objects a, all_objects b",
+            100_000_000,
+        ),
+    ] {
+        let t0 = Instant::now();
+        let mut opts = ExecOptions::default();
+        if max_rows > 0 {
+            opts.max_rows = max_rows;
+        }
+        let mut h = mgr.execute(&s, sql, opts).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        mgr.cancel(&h.id).unwrap();
+        let ev = wait_done(&mut h).await;
+        assert!(
+            errors(&ev).iter().any(|e| e.starts_with("ORA-01013")),
+            "{sql}: {:?}",
+            errors(&ev)
+        );
+        assert!(t0.elapsed() < Duration::from_secs(15), "{:?}", t0.elapsed());
+        // the connection is still good
+        assert_eq!(
+            txt(&scalar(&run(&mgr, &s, "select 42 from dual").await)),
+            "42"
+        );
+    }
+    mgr.close_session(&s).await;
+}
+
 #[tokio::test]
 async fn introspection() {
     let (cfg, mgr) = setup!();

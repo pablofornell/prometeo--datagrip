@@ -62,6 +62,12 @@ saved connections.
 - MySQL/MariaDB: check the bind address and user grants for the client host.
 - Oracle: the first start of a container or a fresh database can take minutes; wait until it
   accepts connections.
+- Oracle 10g / 11g: these releases work (tested with 10.2 and 11.2). "connections to this
+  database server are not supported" means an older server (9i or before). A "not implemented"
+  error about native network encryption or data integrity means the server requires it
+  (`SQLNET.ENCRYPTION_SERVER` / `SQLNET.CRYPTO_CHECKSUM_SERVER` = `REQUIRED`), which the driver
+  does not do. Oracle XE 10g allows 40 processes: when the listener refuses connections
+  (ORA-12516), close sessions or raise `PROCESSES`.
 - If the connection drops while a query runs (server restart, `pg_terminate_backend`, `KILL`),
   the app reports a lost connection and marks the session. Reconnect from the explorer; an open
   transaction cannot be recovered and must be repeated.
