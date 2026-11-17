@@ -161,7 +161,7 @@ jobs:
 
       # Signing is optional: set the repository secrets
       # TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD to enable updater
-      # signatures. The release is created as a draft so it can be reviewed before publishing.
+      # signatures. The release is published directly: the `version` and `check` jobs must pass before this job runs.
       - name: Build and attach bundles
         uses: tauri-apps/tauri-action@v0
         env:
@@ -171,7 +171,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Prometeo DataGrip ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
 
