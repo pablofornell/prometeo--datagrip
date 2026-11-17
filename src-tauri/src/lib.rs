@@ -229,6 +229,9 @@ pub fn run() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
+            // the plugin keeps its lock until this handler returns: release it first, so that a relaunch during the
+            // shutdown starts a new instance instead of being forwarded to this dying one and lost
+            tauri_plugin_single_instance::destroy(handle);
             if let Some(state) = handle.try_state::<AppState>() {
                 // make sure the debounced ui-state write is not lost on exit
                 if let Err(e) = state.ui.flush() {

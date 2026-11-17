@@ -421,18 +421,28 @@ impl ConnectionManager {
 
     /// Close the pool and every session of the data source.
     pub async fn disconnect(&self, ds_id: &str) {
-        let sessions: Vec<String> = self
+        let sessions: Vec<Arc<Session>> = self
             .inner
             .sessions
             .lock()
             .unwrap()
             .values()
             .filter(|s| s.live.cfg.id == ds_id)
-            .map(|s| s.id.clone())
+            .cloned()
             .collect();
-        for s in sessions {
-            self.close_session(&SessionId(s)).await;
+        // stop what every session is running first (a cancelled statement is interrupted on the server), then
+        // close them together: one stuck session must not delay the others, nor the pool
+        for s in &sessions {
+            if let Some((_, ctl)) = s.current.lock().unwrap().as_ref() {
+                ctl.token.cancel();
+            }
         }
+        futures_util::future::join_all(
+            sessions
+                .iter()
+                .map(|s| async move { self.close_session(&SessionId(s.id.clone())).await }),
+        )
+        .await;
         let live = self.inner.sources.write().unwrap().remove(ds_id);
         if let Some(l) = live {
             l.pool.close().await;
@@ -732,5 +742,64 @@ mod schema_tests {
             session_schema_sql(Driver::Sqlite, "main"),
             Err(DbError::Unsupported(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod disconnect_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn lite(dir: &std::path::Path, id: &str) -> DataSourceConfig {
+        DataSourceConfig {
+            id: id.into(),
+            name: id.into(),
+            driver: Driver::Sqlite,
+            file: dir.join(format!("{id}.db")).to_string_lossy().into_owned(),
+            options: [("create".to_string(), "true".to_string())].into(),
+            ..Default::default()
+        }
+    }
+
+    /// `pool.close()` waits for every checked-out connection: a source whose pool work never ends must not keep
+    /// the others from closing when they are disconnected together (what the app does on exit).
+    #[tokio::test]
+    async fn a_held_pool_does_not_block_the_disconnect_of_the_other_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let mgr = ConnectionManager::new();
+        for id in ["held", "a", "b"] {
+            mgr.connect(&lite(dir.path(), id)).await.unwrap();
+        }
+        // a session with a statement in flight on the free sources must not matter either
+        let s = mgr.open_session("a").await.unwrap();
+        let live = mgr.live("held").unwrap();
+        let Pool::Lite(p) = &live.pool else {
+            unreachable!()
+        };
+        let _checked_out = p.acquire().await.unwrap();
+
+        let started = Instant::now();
+        let per_source = Duration::from_millis(300);
+        let results = futures_util::future::join_all(["held", "a", "b"].map(|id| {
+            let mgr = mgr.clone();
+            async move {
+                (
+                    id,
+                    tokio::time::timeout(per_source, mgr.disconnect(id))
+                        .await
+                        .is_ok(),
+                )
+            }
+        }))
+        .await;
+        assert_eq!(results, [("held", false), ("a", true), ("b", true)]);
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(!mgr.is_connected("a") && !mgr.is_connected("b"));
+        assert!(
+            mgr.session(&s).is_err(),
+            "the session of a closed source is gone"
+        );
+        // the stuck one was already taken out of the registry: nothing can use it any more
+        assert!(!mgr.is_connected("held"));
     }
 }
