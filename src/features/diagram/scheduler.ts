@@ -4,7 +4,9 @@
  *
  *  - what is on screen (`shown`: the inputs of the last landed job, plus its layout so a positions-only change can
  *    reuse it) already is what is wanted: nothing runs, and whatever was in flight is cancelled;
- *  - otherwise a job runs (cancelling the older one), reusing the layout when only the positions changed;
+ *  - otherwise a job runs (cancelling the older one), reusing the layout when only the positions changed, or when
+ *    the model changed but keeps its layout key (a table was expanded or collapsed: the boxes make room, they do
+ *    not move to a new layout);
  *  - while a table is being dragged nothing is started: the diagram under the pointer must not be swapped out from
  *    under it, so the request waits and is settled when the drag ends.
  *
@@ -27,17 +29,24 @@ export interface Inputs {
   model: DiagramModel;
   direction: Direction;
   positions: Positions;
+  /**
+   * Two models with the same key (and direction) share a layout: they have the same tables, edges and box widths,
+   * only box heights differ. Absent: the model itself is the key.
+   */
+  layoutKey?: object;
 }
 
 export type Plan = { action: "idle" } | { action: "run"; reuseLayout: boolean };
 
 const sameInputs = (a: Inputs, b: Inputs): boolean => a.model === b.model && a.direction === b.direction && a.positions === b.positions;
 
+const layoutKeyOf = (i: Inputs): object => i.layoutKey ?? i.model;
+
 /** What to do for `want` when `shown` is on screen (null: nothing has landed yet). Pure. */
 export function planJob(shown: Inputs | null, want: Inputs): Plan {
   if (!shown) return want.model.nodes.length === 0 ? { action: "idle" } : { action: "run", reuseLayout: false };
   if (sameInputs(shown, want)) return { action: "idle" };
-  return { action: "run", reuseLayout: shown.model === want.model && shown.direction === want.direction };
+  return { action: "run", reuseLayout: layoutKeyOf(shown) === layoutKeyOf(want) && shown.direction === want.direction };
 }
 
 export interface Landed<Meta> {

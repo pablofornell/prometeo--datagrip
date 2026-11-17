@@ -5,7 +5,9 @@
  * detail, live edge re-routing while a box is dragged and when it is dropped) only toggles classes and patches the
  * edges of the moved table, so it never re-renders the whole diagram. Node positions moved by the user live in a
  * per-tab map keyed by `schema.name` (stale keys are pruned on reload) and are dropped on re-layout or when the
- * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox.
+ * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox. A table that has
+ * more columns than the row limit can be expanded (its last row, its context menu, the E key) and collapsed again; the
+ * set of expanded tables is per tab, and expanding keeps the layout: only the boxes below the table move.
  *
  * Layout and routing are the expensive part (hundreds of milliseconds for hundreds of tables), so they never run in a
  * reactive update on the main thread: `engineClient` runs them in a web worker (and cancels a stale job when the
@@ -118,6 +120,9 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const [selection, setSelection] = createSignal<Focus | null>(null);
   const [hover, setHover] = createSignal<Focus | null>(null);
   const [positions, setPositions] = createSignal<Map<string, { x: number; y: number }>>(new Map());
+  // Tables (by `nodeKey`) that show every column past the row limit, and a counter that Re-layout bumps.
+  const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
+  const [layoutGen, setLayoutGen] = createSignal(0);
   const [view, setView] = createSignal<View>({ zoom: 1, tx: 24, ty: 24 });
   const [stageSize, setStageSize] = createSignal({ width: 0, height: 0 });
   const [loading, setLoading] = createSignal(true);
@@ -140,13 +145,23 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   let nodeEls: Element[] = [];
   let edgeEls: Element[] = [];
   let fitFrame = 0;
+  /** The table whose expand / collapse row the button went down on (the click on the same row toggles it). */
+  let pressedToggle: number | null = null;
 
   const objects = () => subsetOf(schemaSnapshotFor(props.dsId, props.schema), props.tables);
   const loadError = () => schemaSnapshotErrorFor(props.dsId, props.schema);
   /** The model the options ask for; what is drawn (`model`) catches up when the job for it has finished. */
   const wanted = createMemo(() => {
-    const o: DiagramOptions = { columns: columnsMode(), showTypes: showTypes() };
+    const o: DiagramOptions = { columns: columnsMode(), showTypes: showTypes(), expanded: expanded() };
     return { model: buildDiagram(objects(), o), options: o };
+  });
+  /** A new object when the tables, the options that set box widths, or Re-layout ask for a new layout (not on expand). */
+  const layoutKey = createMemo(() => {
+    objects();
+    columnsMode();
+    showTypes();
+    layoutGen();
+    return {};
   });
   const model = createMemo(() => base()?.model ?? EMPTY_MODEL);
   const layout = createMemo(() => base()?.layout ?? EMPTY_LAYOUT);
@@ -249,7 +264,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     const w = wanted();
     const dir = direction();
     const pos = positions();
-    untrack(() => scheduler.request({ model: w.model, direction: dir, positions: pos }, w.options));
+    const key = layoutKey();
+    untrack(() => scheduler.request({ model: w.model, direction: dir, positions: pos, layoutKey: key }, w.options));
   });
 
   // A selection that no longer exists (the snapshot reloaded smaller) is dropped.
@@ -354,9 +370,35 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     setView(centerOn({ zoom: 1, tx: 0, ty: 0 }, { width: r.width, height: r.height }, b.x + Math.min(b.width, r.width) / 2, b.y + Math.min(b.height, r.height) / 2));
   };
   const relayout = (): void => {
-    resetting(() => {});
+    resetting(() => setLayoutGen((g) => g + 1));
     scheduler.fitWhenLanded();
   };
+
+  // ---------------------------------------------------------------- expanding tables past the row limit
+
+  /** Expands a table the row limit cuts, or collapses an expanded one. The layout stays: the boxes below make room. */
+  const toggleColumns = (index: number): void => {
+    const node = model().nodes[index];
+    if (!node || !(node.capped > 0 || node.expanded)) return;
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (node.expanded) next.delete(node.key);
+      else next.add(node.key);
+      return next;
+    });
+  };
+  const canExpandAll = createMemo(() => model().nodes.some((n) => n.capped > 0));
+  const canCollapseAll = createMemo(() => model().nodes.some((n) => n.expanded));
+  const expandAll = (): void => {
+    setExpanded((prev) => new Set([...prev, ...model().nodes.filter((n) => n.capped > 0).map((n) => n.key)]));
+  };
+  const collapseAll = (): void => {
+    setExpanded(new Set<string>());
+  };
+  const expandItems = (): MenuItem[] => [
+    { label: "Expand All Tables", enabled: canExpandAll(), run: expandAll },
+    { label: "Collapse All Tables", enabled: canCollapseAll(), run: collapseAll },
+  ];
   const zoomBy = (factor: number): void => {
     const r = stage.getBoundingClientRect();
     setView((v) => zoomAt(v, factor, r.width / 2, r.height / 2));
@@ -386,10 +428,23 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     const el = (e.target as Element | null)?.closest?.("[data-edge]");
     return el ? Number(el.getAttribute("data-edge")) : null;
   };
+  /** The table whose expand / collapse row is under the pointer. */
+  const toggleAt = (e: Event): number | null => {
+    const el = (e.target as Element | null)?.closest?.("[data-toggle]");
+    return el ? Number(el.getAttribute("data-toggle")) : null;
+  };
 
   function onMouseDown(e: MouseEvent): void {
+    pressedToggle = null;
     if (e.button !== 0) return;
     stage.focus({ preventScroll: true });
+    const toggle = toggleAt(e);
+    if (toggle !== null) {
+      // a button, not a handle: the table is selected but not picked up
+      setSelection({ kind: "node", index: toggle });
+      pressedToggle = toggle;
+      return;
+    }
     const index = nodeAt(e);
     if (index === null) {
       const edge = edgeAt(e);
@@ -487,11 +542,11 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     }
     const sc = scene();
     const others = sc.rects.filter((_, i) => i !== d.index).map((r) => ({ x: r.x, y: r.y, width: r.w, height: r.h }));
-    const size = layout().nodes[d.index];
-    const spot = resolveDrop({ x: d.x, y: d.y }, size, others);
+    // the size on screen: an expanded or collapsed table is not the size it was laid out with
+    const r = sc.rects[d.index];
+    const spot = resolveDrop({ x: d.x, y: d.y }, { width: r.w, height: r.h }, others);
     // The drop keeps the routes of the drag (re-routed once more only when the spot differs) and every other route
     // as it is; the DOM already shows them, so it is patched, not rendered again.
-    const r = sc.rects[d.index];
     const done = d.session.finish({ x: spot.x, y: spot.y, w: r.w, h: r.h });
     const next = new Map(positions()).set(d.key, spot);
     nodeEls[d.index]?.setAttribute("transform", `translate(${spot.x} ${spot.y})`);
@@ -521,7 +576,14 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     setView((v) => zoomAt(v, factor, e.clientX - r.left, e.clientY - r.top));
   }
 
+  function onClick(e: MouseEvent): void {
+    const toggle = toggleAt(e);
+    if (toggle !== null && toggle === pressedToggle) toggleColumns(toggle);
+    pressedToggle = null;
+  }
+
   function onDblClick(e: MouseEvent): void {
+    if (toggleAt(e) !== null) return;
     const index = nodeAt(e);
     if (index === null) return;
     openNode(index);
@@ -541,6 +603,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
         [
           { label: "Fit Diagram", run: () => void fit() },
           { label: "Re-layout", run: relayout },
+          { type: "separator" },
+          ...expandItems(),
         ],
         { x: e.clientX, y: e.clientY },
       );
@@ -555,6 +619,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
         { label: "Open Data", icon: "dg/edit-data", run: () => openNode(index) },
         { label: "Go to DDL", icon: "dg/table", run: () => void openDdlTab(props.dsId, ref) },
         { type: "separator" } as MenuItem,
+        ...(node.capped > 0 ? [{ label: "Show All Columns", shortcut: "E", run: () => toggleColumns(index) } as MenuItem] : []),
+        ...(node.expanded ? [{ label: "Show Fewer Columns", shortcut: "E", run: () => toggleColumns(index) } as MenuItem] : []),
         ...(moved ? [{ label: "Reset Position", run: () => setPositions((p) => { const m = new Map(p); m.delete(node.key); return m; }) } as MenuItem] : []),
         { label: "Copy Name", run: () => void navigator.clipboard?.writeText(node.name).catch(() => {}) },
       ],
@@ -624,6 +690,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       case "Enter":
         if (sel?.kind === "node") openNode(sel.index);
         break;
+      case "e":
+      case "E":
+        if (sel?.kind === "node") toggleColumns(sel.index);
+        break;
       case "Escape":
         setSelection(null);
         break;
@@ -668,7 +738,11 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   const openColumnsMenu = (anchor: HTMLElement): void =>
     openMenu(
-      (Object.keys(COLUMN_LABEL) as ColumnsMode[]).map<MenuItem>((m) => ({ label: COLUMN_LABEL[m], checked: columnsMode() === m, run: () => chooseColumns(m) })),
+      [
+        ...(Object.keys(COLUMN_LABEL) as ColumnsMode[]).map<MenuItem>((m) => ({ label: COLUMN_LABEL[m], checked: columnsMode() === m, run: () => chooseColumns(m) })),
+        { type: "separator" },
+        ...expandItems(),
+      ],
       { anchor },
     );
   const openColorMenu = (anchor: HTMLElement): void =>
@@ -836,11 +910,12 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
           ref={stage}
           tabindex={0}
           role="application"
-          aria-label={`Database diagram, ${model().nodes.length} tables. Arrow keys move between tables, Enter opens one, plus and minus zoom, 0 fits.`}
+          aria-label={`Database diagram, ${model().nodes.length} tables. Arrow keys move between tables, Enter opens one, E expands or collapses its columns, plus and minus zoom, 0 fits.`}
           onMouseDown={onMouseDown}
           onMouseOver={onMouseOver}
           onMouseLeave={() => setHover(null)}
           onWheel={onWheel}
+          onClick={onClick}
           onDblClick={onDblClick}
           onContextMenu={onContextMenu}
           onKeyDown={onKeyDown}

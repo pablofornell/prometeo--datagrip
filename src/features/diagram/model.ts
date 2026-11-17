@@ -48,6 +48,13 @@ export interface DiagramNode {
   rows: DiagramColumn[];
   /** Columns not drawn: a footer row ("+N more") stands in for them, and is where their edge ports attach. */
   hidden: number;
+  /**
+   * Columns that only the row limit (`DGM.maxRows`) leaves out: the footer row then expands the box to show them.
+   * 0 when the limit does not cut the box (also when the column mode hides the columns).
+   */
+  capped: number;
+  /** The box shows every column past the row limit; its last row collapses it again. */
+  expanded: boolean;
   /** The schema is shown next to the name (the diagram spans several schemas). */
   showSchema: boolean;
   width: number;
@@ -76,6 +83,8 @@ export type ColumnsMode = "all" | "keys" | "none";
 export interface DiagramOptions {
   columns: ColumnsMode;
   showTypes: boolean;
+  /** Tables (by `nodeKey`) that show every column past the row limit. */
+  expanded?: ReadonlySet<string>;
 }
 
 // ---------------------------------------------------------------- geometry metrics (shared with layout.ts / route.ts / svg.ts)
@@ -114,9 +123,11 @@ export function visibleColumns(columns: readonly DiagramColumn[], mode: ColumnsM
 
 /**
  * The rows a box draws, and how many columns it leaves out. Past `DGM.maxRows` the keys always stay (edge ports
- * attach to them) and the first other columns fill the remaining rows, in their original order.
+ * attach to them) and the first other columns fill the remaining rows, in their original order; `capped` counts the
+ * columns the limit cut. An `expand`ed box has no limit (`expanded` is true only when the limit would cut it, and
+ * `capped` is then 0).
  */
-export function displayRows<T extends DiagramColumn>(columns: readonly T[], mode: ColumnsMode): { rows: T[]; hidden: number } {
+export function displayRows<T extends DiagramColumn>(columns: readonly T[], mode: ColumnsMode, expand = false): { rows: T[]; hidden: number; capped: number; expanded: boolean } {
   const vis = visibleColumns(columns, mode) as T[];
   let rows = vis;
   if (vis.length > DGM.maxRows) {
@@ -132,11 +143,20 @@ export function displayRows<T extends DiagramColumn>(columns: readonly T[], mode
     }
     rows = vis.filter((c) => keep.has(c));
   }
-  return { rows, hidden: columns.length - rows.length };
+  const cut = vis.length - rows.length;
+  if (expand && cut > 0) return { rows: vis, hidden: columns.length - vis.length, capped: 0, expanded: true };
+  return { rows, hidden: columns.length - rows.length, capped: cut, expanded: false };
 }
 
 /** Text of the footer row that stands in for the columns the box does not draw. */
 export const footerText = (hidden: number, shown: number): string => (shown === 0 ? `${hidden} column${hidden === 1 ? "" : "s"}` : `+${hidden} more`);
+
+/** Text of the footer row that expands a box the row limit cut (`capped` columns), or collapses it again. */
+export const toggleText = (capped: number, expanded: boolean): string =>
+  expanded ? "Show fewer columns" : `Show ${capped} more column${capped === 1 ? "" : "s"}`;
+
+/** The box has a last row that expands or collapses it (the row limit cuts it, or it is expanded). */
+export const hasToggle = (node: Pick<DiagramNode, "capped" | "expanded">): boolean => node.capped > 0 || node.expanded;
 
 /** Top of row `j` (0-based, the footer row is `rows.length`) relative to the box. */
 export const rowTop = (j: number): number => DGM.headerH + j * DGM.rowH;
@@ -156,24 +176,31 @@ export function rowChars(width: number, rows: readonly { name: string; typeName:
 /** `text` cut to `max` characters with a trailing ellipsis. */
 export const clip = (text: string, max: number): string => (text.length <= max ? text : max <= 1 ? "…" : text.slice(0, max - 1) + "…");
 
-/** Width / height of a table box for the given columns and options (the layout uses these, so they must be deterministic). */
+/**
+ * Width / height of a table box for the given columns and options (the layout uses these, so they must be
+ * deterministic). The width counts every column of the mode, also those the row limit leaves out, so expanding a box
+ * (`expand`) only makes it taller: the boxes around it keep their place.
+ */
 export function measureTable(
   name: string,
   columns: readonly { name: string; typeName: string; isPk: boolean; isFk: boolean; isRef?: boolean }[],
   opts: DiagramOptions,
   schema?: string,
+  expand = false,
 ): { width: number; height: number } {
-  const { rows, hidden } = displayRows(columns, opts.columns);
+  const { rows, hidden, capped, expanded } = displayRows(columns, opts.columns, expand);
+  const vis = visibleColumns(columns, opts.columns);
   let nameW = 0;
   let typeW = 0;
-  for (const c of rows) nameW = Math.max(nameW, c.name.length);
-  if (hidden > 0) nameW = Math.max(nameW, footerText(hidden, rows.length).length);
-  if (opts.showTypes) for (const c of rows) typeW = Math.max(typeW, Math.min(c.typeName.length, DGM.maxTypeChars));
+  for (const c of vis) nameW = Math.max(nameW, c.name.length);
+  if (capped > 0 || expanded) nameW = Math.max(nameW, toggleText(vis.length - DGM.maxRows, false).length, toggleText(0, true).length);
+  else if (hidden > 0) nameW = Math.max(nameW, footerText(hidden, rows.length).length);
+  if (opts.showTypes) for (const c of vis) typeW = Math.max(typeW, Math.min(c.typeName.length, DGM.maxTypeChars));
   const rowsW = DGM.padX * 2 + DGM.iconW + nameW * DGM.charW + (opts.showTypes && typeW ? DGM.colGap + typeW * DGM.charW : 0);
   // The header holds the glyph, the (semi-bold) name and, across schemas, the schema in a smaller muted face.
   const headW = DGM.padX * 2 + 18 + name.length * 7.6 + (schema ? 14 + schema.length * 6.4 : 0);
   const width = Math.min(DGM.maxW, Math.max(DGM.minW, up(Math.max(rowsW, headW))));
-  const nrows = rows.length + (hidden > 0 ? 1 : 0);
+  const nrows = rows.length + (hidden > 0 || expanded ? 1 : 0);
   const height = DGM.headerH + nrows * DGM.rowH + DGM.padBottom;
   return { width, height: up(height) };
 }
@@ -253,9 +280,10 @@ export function buildDiagram(objects: readonly DiagramInputObject[], opts: Diagr
     for (const fk of o.foreignKeys ?? []) for (const c of fk.columns) fkCols.add(c);
     const refCols = referenced.get(key);
     const columns: DiagramColumn[] = o.columns.map((c) => ({ name: c.name, typeName: c.typeName, isPk: c.isPk, isFk: fkCols.has(c.name), isRef: refCols?.has(c.name) ?? false }));
-    const { rows, hidden } = displayRows(columns, opts.columns);
-    const { width, height } = measureTable(o.name, columns, opts, showSchema ? o.schema : undefined);
-    nodes.push({ index, key: nodeKey(o.schema, o.name), schema: o.schema, name: o.name, kind: o.kind, columns, rows, hidden, showSchema, width, height });
+    const expand = opts.expanded?.has(nodeKey(o.schema, o.name)) ?? false;
+    const { rows, hidden, capped, expanded } = displayRows(columns, opts.columns, expand);
+    const { width, height } = measureTable(o.name, columns, opts, showSchema ? o.schema : undefined, expand);
+    nodes.push({ index, key: nodeKey(o.schema, o.name), schema: o.schema, name: o.name, kind: o.kind, columns, rows, hidden, capped, expanded, showSchema, width, height });
   }
 
   const edges: DiagramEdge[] = [];

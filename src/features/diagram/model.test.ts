@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DGM, buildDiagram, clip, displayRows, footerText, measureTable, nodeKey, prunePositions, subsetOf, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
+import { DGM, buildDiagram, clip, displayRows, footerText, hasToggle, measureTable, nodeKey, prunePositions, subsetOf, toggleText, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -145,7 +145,7 @@ describe("displayRows", () => {
     const r = displayRows(many(60), "keys");
     expect(r.rows.map((c) => c.name)).toEqual(["c0", "c45", "c50"]);
     expect(r.hidden).toBe(57);
-    expect(displayRows(many(5), "none")).toEqual({ rows: [], hidden: 5 });
+    expect(displayRows(many(5), "none")).toEqual({ rows: [], hidden: 5, capped: 0, expanded: false });
   });
 
   it("builds a footer row into the box height", () => {
@@ -155,6 +155,50 @@ describe("displayRows", () => {
     expect(footerText(7, 0)).toBe("7 columns");
     expect(footerText(1, 0)).toBe("1 column");
     expect(footerText(7, 3)).toBe("+7 more");
+  });
+});
+
+describe("expanding a table past the row limit", () => {
+  const many = (n: number, keys: (i: number) => boolean = (i) => i === 0) => Array.from({ length: n }, (_, i) => ({ name: `column_${i}`, typeName: "int", isPk: keys(i), isFk: false }));
+
+  it("counts the columns the limit cuts, and shows them all when expanded", () => {
+    const cut = displayRows(many(80), "all");
+    expect(cut).toMatchObject({ hidden: 80 - DGM.maxRows, capped: 80 - DGM.maxRows, expanded: false });
+    const open = displayRows(many(80), "all", true);
+    expect(open.rows.map((c) => c.name)).toEqual(many(80).map((c) => c.name));
+    expect(open).toMatchObject({ hidden: 0, capped: 0, expanded: true });
+  });
+
+  it("does nothing where the limit cuts nothing: a short table, keys only, compact, a table of keys only", () => {
+    expect(displayRows(many(DGM.maxRows), "all", true)).toMatchObject({ hidden: 0, capped: 0, expanded: false });
+    expect(displayRows(many(80), "keys", true)).toMatchObject({ hidden: 79, capped: 0, expanded: false });
+    expect(displayRows(many(80), "none", true)).toMatchObject({ hidden: 80, capped: 0, expanded: false });
+    expect(displayRows(many(40, () => true), "all", true)).toMatchObject({ hidden: 0, capped: 0, expanded: false });
+  });
+
+  it("keeps the box width, so that only the boxes below it move", () => {
+    const cols = many(80).map((c, i) => (i === 70 ? { ...c, name: "a_much_longer_column_name_past_the_limit" } : c));
+    const closed = measureTable("t", cols, opts);
+    const open = measureTable("t", cols, opts, undefined, true);
+    expect(open.width).toBe(closed.width);
+    expect(open.height - closed.height).toBe((80 - DGM.maxRows) * DGM.rowH);
+    // the hidden long name is part of the width already
+    expect(closed.width).toBeGreaterThan(measureTable("t", many(80), opts).width);
+  });
+
+  it("expands the tables of the option set only, and words the toggle row", () => {
+    const big = { schema: "s", name: "big", kind: "table" as const, columns: many(60) };
+    const other = { ...big, name: "other" };
+    const m = buildDiagram([big, other], { ...opts, expanded: new Set([nodeKey("s", "big")]) });
+    const [b, o] = m.nodes;
+    expect(b).toMatchObject({ name: "big", expanded: true, capped: 0, hidden: 0 });
+    expect(b.rows).toHaveLength(60);
+    expect(o).toMatchObject({ name: "other", expanded: false, capped: 60 - DGM.maxRows });
+    expect(hasToggle(b) && hasToggle(o)).toBe(true);
+    expect(b.height).toBe(DGM.headerH + 61 * DGM.rowH + DGM.padBottom);
+    expect(toggleText(32, false)).toBe("Show 32 more columns");
+    expect(toggleText(1, false)).toBe("Show 1 more column");
+    expect(toggleText(0, true)).toBe("Show fewer columns");
   });
 });
 
