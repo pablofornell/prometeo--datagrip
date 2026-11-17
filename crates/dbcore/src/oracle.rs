@@ -20,7 +20,7 @@
 //!   reported like any other (Auto mode ends it after the statement, Manual mode leaves it to the user).
 //! * **Keep alive**: an idle connection pings the server every `keepAlive` seconds (option, default 90, 0 = off).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -46,6 +46,47 @@ const FETCH_ROWS: u32 = 500;
 /// Rows buffered between the worker and the reader of a stream.
 const STREAM_BUFFER: usize = 256;
 const DEFAULT_KEEPALIVE_SECS: u64 = 90;
+
+/// Server release as `major * 100 + minor` (10.2 is 1002, 12.1 is 1201); 0 when it is not known.
+pub(crate) const fn release(major: u32, minor: u32) -> u32 {
+    major * 100 + minor
+}
+
+/// First release with `OFFSET .. FETCH`, `WITH FUNCTION` and `CROSS APPLY`. (Dictionary columns are asked of the
+/// server instead: [`ORA_OPTIONAL_COLUMNS`].)
+pub(crate) const ORA_12_1: u32 = release(12, 1);
+/// First release with `LISTAGG`.
+pub(crate) const ORA_11_2: u32 = release(11, 2);
+
+/// Dictionary columns that only newer releases have (`view`, `column`). Whether the server has them is asked once
+/// per pool ([`OraPool::has_dict_column`]), instead of trusting a release number: the SQL then reads the column where
+/// it exists and an older equivalent (a `LONG`, a constant) where it does not.
+pub(crate) const ORA_OPTIONAL_COLUMNS: &[(&str, &str)] = &[
+    ("ALL_USERS", "ORACLE_MAINTAINED"),
+    ("ALL_TAB_COLS", "DATA_DEFAULT_VC"),
+    ("ALL_TAB_COLS", "IDENTITY_COLUMN"),
+    ("ALL_TAB_COLS", "DEFAULT_ON_NULL"),
+    ("ALL_TAB_COLS", "USER_GENERATED"),
+    ("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC"),
+    ("ALL_VIEWS", "TEXT_VC"),
+    ("ALL_PART_TABLES", "INTERVAL"),
+    ("ALL_TAB_PARTITIONS", "INTERVAL"),
+    ("ALL_PROCEDURES", "SUBPROGRAM_ID"),
+    ("ALL_PROCEDURES", "OVERLOAD"),
+    ("ALL_ARGUMENTS", "SUBPROGRAM_ID"),
+];
+
+/// The statement that tells which of [`ORA_OPTIONAL_COLUMNS`] the server has (`VIEW.COLUMN` per row).
+fn optional_columns_sql() -> String {
+    let pairs: Vec<String> = ORA_OPTIONAL_COLUMNS
+        .iter()
+        .map(|(v, c)| format!("(table_name = '{v}' and column_name = '{c}')"))
+        .collect();
+    format!(
+        "select table_name || '.' || column_name from all_tab_columns where owner = 'SYS' and ({})",
+        pairs.join(" or ")
+    )
+}
 
 /// Banner -> label shown as the server version.
 pub(crate) fn version_label(banner: &str) -> String {
@@ -652,6 +693,18 @@ struct Worker {
     cancel: Arc<AtomicBool>,
     /// Columns of the last query, for [`Cmd::Describe`] of a query that returned no row.
     last_cols: Option<(String, Arc<Vec<OraCol>>)>,
+    /// Size of the two string binds of [`DRAIN_OUTPUT`]: [`output_bind_len`] of the server.
+    output_bind_len: usize,
+}
+
+/// The longest string a PL/SQL bind can hold: 32767 bytes, but only 32512 before 12.1 (a longer bind is refused
+/// with ORA-01460 on 10g / 11g).
+fn output_bind_len(server_release: u32) -> usize {
+    if server_release < ORA_12_1 {
+        32512
+    } else {
+        32767
+    }
 }
 
 /// Statements a read-only data source refuses (the server refuses DML itself, in the read-only transaction).
@@ -961,8 +1014,8 @@ impl Worker {
     fn output(&mut self) -> Result<Vec<String>> {
         let mut lines = Vec::new();
         loop {
-            let buf = " ".repeat(32767);
-            let tail = " ".repeat(32767);
+            let buf = " ".repeat(self.output_bind_len);
+            let tail = " ".repeat(self.output_bind_len);
             let mut res = self
                 .conn
                 .execute(DRAIN_OUTPUT, &[&buf, &tail])
@@ -1007,7 +1060,7 @@ fn worker_main(
     in_tx: Arc<AtomicBool>,
     alive: Arc<AtomicBool>,
     cancel: OraCancel,
-    ready: oneshot::Sender<Result<()>>,
+    ready: oneshot::Sender<Result<u32>>,
 ) {
     let _alive_guard = AliveGuard(alive.clone());
     let connected = (|| {
@@ -1037,6 +1090,11 @@ fn worker_main(
         }
     };
     *cancel.handle.lock().unwrap() = conn.cancel_handle().ok();
+    // from the logon reply: no round trip
+    let server_release = conn
+        .version()
+        .map(|v| release(v.0 as u32, v.1 as u32))
+        .unwrap_or(0);
     let mut w = Worker {
         conn,
         read_only: opts.read_only,
@@ -1044,8 +1102,9 @@ fn worker_main(
         alive,
         cancel: cancel.flag.clone(),
         last_cols: None,
+        output_bind_len: output_bind_len(server_release),
     };
-    if ready.send(Ok(())).is_err() {
+    if ready.send(Ok(server_release)).is_err() {
         return;
     }
     let keepalive = (opts.keepalive_secs > 0).then(|| Duration::from_secs(opts.keepalive_secs));
@@ -1144,6 +1203,8 @@ pub struct OraConn {
     cancel: OraCancel,
     in_tx: Arc<AtomicBool>,
     alive: Arc<AtomicBool>,
+    /// [`release`] of the server.
+    server_release: u32,
 }
 
 impl OraConn {
@@ -1163,13 +1224,19 @@ impl OraConn {
             .name("oracle-conn".into())
             .spawn(move || worker_main(o, enable_output, rx, i, a, c, ready_tx))
             .map_err(DbError::Io)?;
-        ready_rx.await.map_err(|_| worker_gone())??;
+        let server_release = ready_rx.await.map_err(|_| worker_gone())??;
         Ok(OraConn {
             tx,
             cancel,
             in_tx,
             alive,
+            server_release,
         })
+    }
+
+    /// [`release`] of the server (10.2 is 1002).
+    pub(crate) fn server_release(&self) -> u32 {
+        self.server_release
     }
 
     pub(crate) fn cancel_handle(&self) -> OraCancel {
@@ -1495,6 +1562,10 @@ struct PoolInner {
     idle: Mutex<Vec<OraConn>>,
     permits: Arc<Semaphore>,
     closed: AtomicBool,
+    /// [`release`] of the server, learned from the first connection (0 until then).
+    server_release: AtomicU32,
+    /// Which of [`ORA_OPTIONAL_COLUMNS`] the server has (`VIEW.COLUMN`), asked once.
+    dict_columns: tokio::sync::OnceCell<std::collections::HashSet<String>>,
 }
 
 /// Pool of Oracle connections (introspection, table reads, edits).
@@ -1537,8 +1608,41 @@ impl OraPool {
                 idle: Mutex::new(Vec::new()),
                 permits: Arc::new(Semaphore::new(POOL_MAX)),
                 closed: AtomicBool::new(false),
+                server_release: AtomicU32::new(0),
+                dict_columns: tokio::sync::OnceCell::new(),
             }),
         })
+    }
+
+    /// Whether the dictionary view `view` has `column` (one of [`ORA_OPTIONAL_COLUMNS`]). Asked of the server once
+    /// per pool; when even that fails the answer is `false`, so the SQL for old servers is used (it works on every
+    /// release, only with less detail).
+    pub(crate) async fn has_dict_column(&self, view: &str, column: &str) -> bool {
+        debug_assert!(
+            ORA_OPTIONAL_COLUMNS.contains(&(view, column)),
+            "{view}.{column} is not in ORA_OPTIONAL_COLUMNS"
+        );
+        let found = self
+            .inner
+            .dict_columns
+            .get_or_try_init(|| async {
+                let rows = self.query_strings(&optional_columns_sql()).await?;
+                Ok::<_, DbError>(
+                    rows.into_iter()
+                        .filter_map(|r| r.into_iter().next().flatten())
+                        .collect(),
+                )
+            })
+            .await;
+        found.is_ok_and(|set| set.contains(&format!("{view}.{column}")))
+    }
+
+    /// [`release`] of the server (10.2 is 1002). Known after the first connection; before that one is opened.
+    pub(crate) async fn server_release(&self) -> Result<u32> {
+        match self.inner.server_release.load(Ordering::Relaxed) {
+            0 => Ok(self.acquire().await?.conn().server_release()),
+            r => Ok(r),
+        }
     }
 
     async fn acquire(&self) -> Result<Pooled> {
@@ -1566,6 +1670,9 @@ impl OraPool {
                 Some(_) => continue,
                 None => {
                     let c = OraConn::open(&self.inner.opts, false).await?;
+                    self.inner
+                        .server_release
+                        .store(c.server_release(), Ordering::Relaxed);
                     return Ok(Pooled {
                         conn: Some(c),
                         inner: self.inner.clone(),
@@ -1705,6 +1812,25 @@ impl OraPool {
             .await
     }
 
+    /// Run the PL/SQL block `setup` (it sets session state such as `DBMS_METADATA` transforms; no commit) and then
+    /// each of `queries` on the same pooled connection. Each query has its own result. Servers without
+    /// `WITH FUNCTION` (before 12.1) need this to read with session settings in effect.
+    pub(crate) async fn queries_after(
+        &self,
+        setup: &str,
+        queries: &[String],
+    ) -> Result<Vec<Result<Vec<Vec<Option<String>>>>>> {
+        self.with_conn(|p| async move {
+            p.conn().exec_with(setup, &[], false).await?;
+            let mut out = Vec::with_capacity(queries.len());
+            for q in queries {
+                out.push(p.conn().strings(q).await);
+            }
+            Ok(out)
+        })
+        .await
+    }
+
     /// Run `sql` with positional binds (`:1`, `:2`, ...; [`OraBind::Null`] is NULL) on a pooled connection and
     /// commit.
     pub async fn exec_binds(&self, sql: &str, binds: &[OraBind]) -> Result<u64> {
@@ -1763,6 +1889,42 @@ impl OraTx {
 mod tests {
     use super::*;
     use futures_util::StreamExt;
+
+    #[test]
+    fn releases_compare_by_major_then_minor() {
+        assert_eq!(release(10, 2), 1002);
+        assert!(release(11, 2) < ORA_12_1 && release(12, 1) == ORA_12_1);
+        assert!(release(19, 0) > ORA_12_1 && release(23, 26) > release(21, 3));
+        assert!(release(11, 1) < ORA_11_2 && release(11, 2) == ORA_11_2);
+        assert_eq!(
+            (
+                output_bind_len(release(10, 2)),
+                output_bind_len(release(11, 2))
+            ),
+            (32512, 32512)
+        );
+        assert_eq!(
+            (
+                output_bind_len(release(12, 1)),
+                output_bind_len(release(23, 26))
+            ),
+            (32767, 32767)
+        );
+    }
+
+    #[test]
+    fn optional_columns_are_asked_in_one_statement() {
+        let sql = optional_columns_sql();
+        assert!(sql.starts_with(
+            "select table_name || '.' || column_name from all_tab_columns where owner = 'SYS' and ("
+        ));
+        for (v, c) in ORA_OPTIONAL_COLUMNS {
+            assert!(
+                sql.contains(&format!("(table_name = '{v}' and column_name = '{c}')")),
+                "{v}.{c}: {sql}"
+            );
+        }
+    }
 
     #[test]
     fn compiled_object_names_the_created_stored_object() {

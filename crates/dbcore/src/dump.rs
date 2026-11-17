@@ -45,6 +45,7 @@ use crate::error::{DbError, Result};
 use crate::exec::query_pool;
 use crate::export::sql_literal_typed;
 use crate::import::CancellationToken;
+use crate::introspect::OraCols;
 use crate::manager::ConnectionManager;
 use crate::model::*;
 use crate::quote::{oracle_time_literal, qualified, quote_ident, quote_literal, OracleTimeKind};
@@ -1655,6 +1656,9 @@ enum OraKind {
     Xml,
     /// `JSON` (21c+ type): read as its text, written as `JSON(..)`.
     Json,
+    /// `LONG`: no SQL expression longer than 4000 bytes converts to it, so a longer value is put together in a
+    /// PL/SQL `LONG` variable (32760 bytes at most).
+    Long,
 }
 
 fn ora_kind(data_type: &str) -> OraKind {
@@ -1664,6 +1668,7 @@ fn ora_kind(data_type: &str) -> OraKind {
         "CLOB" => OraKind::Clob,
         "NCLOB" => OraKind::NClob,
         "NUMBER" | "FLOAT" => OraKind::Number,
+        "LONG" => OraKind::Long,
         "BINARY_FLOAT" => OraKind::BinFloat,
         "BINARY_DOUBLE" => OraKind::BinDouble,
         "DATE" => OraKind::Date,
@@ -1806,6 +1811,22 @@ fn ora_text_lit(s: &str, nat: bool) -> OraLit {
     }
 }
 
+/// A `LONG` value: a plain literal up to 4000 bytes, else the literal pieces a PL/SQL block joins in a `LONG`
+/// variable (a `TO_CLOB` chain is refused: ORA-22835).
+fn ora_long_lit(s: &str) -> OraLit {
+    if s.len() <= 4000 {
+        return OraLit::Sql(ora_q(s));
+    }
+    OraLit::Lob {
+        var: "LONG",
+        pieces: ora_text_pieces(s, ORA_PLSQL_TEXT)
+            .iter()
+            .map(|p| ora_q(p))
+            .collect(),
+        wrap: None,
+    }
+}
+
 /// BLOB bytes (hex text): `TO_BLOB(HEXTORAW('..'))` up to 2000 bytes (the limit of a SQL RAW). `||` does not
 /// join BLOBs (ORA-01465 / ORA-22849), so a longer one is built in a PL/SQL block from `DBMS_LOB.APPEND` pieces
 /// (the pieces of a [`OraLit::Lob`] of a BLOB are hex text).
@@ -1909,6 +1930,7 @@ fn ora_literal(c: &Value, kind: OraKind) -> OraLit {
             sql(ora_raw_lit(m["$bin"].as_str().unwrap_or("")))
         }
         (Value::String(s), OraKind::NText | OraKind::NClob) => ora_text_lit(s, true),
+        (Value::String(s), OraKind::Long) => ora_long_lit(s),
         (Value::String(s), _) => ora_text_lit(s, false),
         (other, _) => sql(ora_q(&other.to_string())),
     }
@@ -1928,7 +1950,7 @@ fn ora_insert_stmt(dst: &str, cols: &str, rows: &[String]) -> String {
 }
 
 /// One row with a LOB too long for a literal chain: an anonymous block that builds the LOBs in temporary
-/// LOBs and inserts the row (ends with the `/` line the splitter wants).
+/// LOBs (a `LONG` in a variable) and inserts the row (ends with the `/` line the splitter wants).
 fn ora_block_insert(dst: &str, cols: &str, lits: &[OraLit]) -> String {
     let mut decl = String::new();
     let mut body = String::new();
@@ -1938,6 +1960,18 @@ fn ora_block_insert(dst: &str, cols: &str, lits: &[OraLit]) -> String {
     for (i, l) in lits.iter().enumerate() {
         match l {
             OraLit::Sql(e) => vals.push(e.clone()),
+            OraLit::Lob {
+                var: "LONG",
+                pieces,
+                ..
+            } => {
+                let v = format!("v{i}");
+                decl.push_str(&format!("    {v} LONG;\n"));
+                for p in pieces {
+                    body.push_str(&format!("    {v} := {v} || {p};\n"));
+                }
+                vals.push(v);
+            }
             OraLit::Lob { var, pieces, wrap } => {
                 let v = format!("v{i}");
                 decl.push_str(&format!("    {v} {var};\n"));
@@ -2706,19 +2740,33 @@ async fn dump_ora<W: Write>(
         Vec::new()
     };
 
-    // ---- columns (tables and views) in one query
+    // ---- columns (tables and views) in one query. 10g / 11g: no `*_VC` text columns, identity columns or
+    // `USER_GENERATED` (the identity part of the row is NULL there)
+    let oc = OraCols::of(pool).await;
+    let (identity_cols, identity_join) = if oc.identity {
+        (
+            "i.generation_type, sq.last_number, sq.increment_by, sq.min_value, sq.max_value, sq.cycle_flag, \
+             sq.order_flag, sq.cache_size, i.identity_options",
+            "left join all_tab_identity_cols i on i.owner = c.owner and i.table_name = c.table_name and i.column_name = c.column_name \
+             left join all_sequences sq on sq.sequence_owner = i.owner and sq.sequence_name = i.sequence_name",
+        )
+    } else {
+        ("null, null, null, null, null, null, null, null, null", "")
+    };
     let col_rows = pool
         .query_strings(&format!(
             "select c.table_name, c.column_name, c.data_type, c.data_type_owner, c.data_length, c.data_precision, \
-                    c.data_scale, c.char_length, c.char_used, c.nullable, c.data_default_vc, c.identity_column, \
-                    c.virtual_column, c.default_on_null, c.hidden_column, \
-                    i.generation_type, sq.last_number, sq.increment_by, sq.min_value, sq.max_value, sq.cycle_flag, \
-                    sq.order_flag, sq.cache_size, i.identity_options \
+                    c.data_scale, c.char_length, c.char_used, c.nullable, {default}, {identity}, \
+                    c.virtual_column, {on_null}, c.hidden_column, \
+                    {identity_cols} \
              from all_tab_cols c \
-             left join all_tab_identity_cols i on i.owner = c.owner and i.table_name = c.table_name and i.column_name = c.column_name \
-             left join all_sequences sq on sq.sequence_owner = i.owner and sq.sequence_name = i.sequence_name \
-             where c.owner = {o} and c.user_generated = 'YES' \
-             order by c.table_name, c.internal_column_id"
+             {identity_join} \
+             where c.owner = {o} and {user} \
+             order by c.table_name, c.internal_column_id",
+            default = oc.default("c"),
+            identity = oc.identity("c"),
+            on_null = oc.default_on_null("c"),
+            user = oc.user_generated("c", true),
         ))
         .await?;
     let mut cols_of: HashMap<String, Vec<OraCol>> = HashMap::new();
@@ -2780,19 +2828,31 @@ async fn dump_ora<W: Write>(
     // ---- primary key, unique and check constraints
     let con_rows = pool
         .query_strings(&format!(
-            "select c.table_name, c.constraint_name, c.constraint_type, c.search_condition_vc, c.generated, c.status, \
+            "select c.table_name, c.constraint_name, c.constraint_type, {check}, c.generated, c.status, \
                     c.deferrable, c.deferred, cc.column_name, \
                     (select count(*) from all_cons_columns hc \
                      join all_tab_cols h on h.owner = hc.owner and h.table_name = hc.table_name \
-                                        and h.column_name = hc.column_name and h.user_generated = 'NO' \
+                                        and h.column_name = hc.column_name and {system_col} \
                      where hc.owner = c.owner and hc.constraint_name = c.constraint_name) as hidden \
              from all_constraints c \
              left join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name \
-             where c.owner = {o} and c.constraint_type in ('P', 'U', 'C') \
-               and coalesce(instr(c.search_condition_vc, 'SYS_NC'), 0) = 0 \
-             order by c.table_name, decode(c.constraint_type, 'P', 1, 'U', 2, 3), c.constraint_name, cc.position"
+             where c.owner = {o} and c.constraint_type in ('P', 'U', 'C') {sys_nc} \
+             order by c.table_name, decode(c.constraint_type, 'P', 1, 'U', 2, 3), c.constraint_name, cc.position",
+            check = oc.check("c"),
+            system_col = oc.user_generated("h", false),
+            // a `LONG` condition cannot be searched in SQL: those rows are left out below
+            sys_nc = if oc.check_vc {
+                "and coalesce(instr(c.search_condition_vc, 'SYS_NC'), 0) = 0"
+            } else {
+                ""
+            },
         ))
         .await?;
+    // the checks on server-made columns (`SYS_NC..`), for servers where SQL could not leave them out
+    let con_rows: Vec<Row> = con_rows
+        .into_iter()
+        .filter(|r| oc.check_vc || !s(r, 3).contains("SYS_NC"))
+        .collect();
     let mut items_of: HashMap<String, Vec<String>> = HashMap::new();
     let mut pk_of: HashMap<String, Vec<String>> = HashMap::new();
     // constraints left out because one of their columns is hidden: their names, by table
@@ -2937,8 +2997,14 @@ async fn dump_ora<W: Write>(
     let mut parts_of: HashMap<String, OraPartSpec> = HashMap::new();
     for r in pool
         .query_strings(&format!(
-            "select table_name, partitioning_type, subpartitioning_type, interval, def_subpartition_count \
-             from all_part_tables where owner = {o}"
+            "select table_name, partitioning_type, subpartitioning_type, {interval}, def_subpartition_count \
+             from all_part_tables where owner = {o}",
+            // interval partitioning is 11.1+
+            interval = if pool.ora_has_column("ALL_PART_TABLES", "INTERVAL").await {
+                "interval"
+            } else {
+                "null"
+            }
         ))
         .await?
     {
@@ -2979,8 +3045,13 @@ async fn dump_ora<W: Write>(
         }
         for r in pool
             .query_strings(&format!(
-                "select table_name, partition_name, high_value, interval from all_tab_partitions \
-                 where table_owner = {o} order by table_name, partition_position"
+                "select table_name, partition_name, high_value, {interval} from all_tab_partitions \
+                 where table_owner = {o} order by table_name, partition_position",
+                interval = if pool.ora_has_column("ALL_TAB_PARTITIONS", "INTERVAL").await {
+                    "interval"
+                } else {
+                    "'NO'"
+                }
             ))
             .await?
         {
@@ -3702,6 +3773,35 @@ mod tests {
     use super::*;
     use crate::split::split_statements;
     use serde_json::json;
+
+    #[test]
+    fn oracle_long_values_over_4000_bytes_go_through_a_plsql_variable() {
+        assert_eq!(ora_kind("LONG"), OraKind::Long);
+        assert_eq!(
+            ora_literal(&json!("short"), OraKind::Long),
+            OraLit::Sql("'short'".into())
+        );
+        let long = format!("{}'{}", "a".repeat(29_999), "b".repeat(10_000));
+        let lit = ora_literal(&json!(long), OraKind::Long);
+        let OraLit::Lob { var, pieces, wrap } = &lit else {
+            panic!("{lit:?}");
+        };
+        assert_eq!((*var, pieces.len(), wrap), ("LONG", 2, &None));
+        let block = ora_block_insert("T", "ID, BODY", &[OraLit::Sql("1".into()), lit.clone()]);
+        assert!(
+            block.starts_with("DECLARE\n    v1 LONG;\nBEGIN\n    v1 := v1 || 'aaa"),
+            "{block}"
+        );
+        assert_eq!(block.matches("    v1 := v1 || ").count(), 2, "{block}");
+        assert!(block.contains("    v1 := v1 || 'bbbb"), "{block}");
+        assert!(
+            block.ends_with("    INSERT INTO T (ID, BODY) VALUES (1, v1);\nEND;\n/"),
+            "{block}"
+        );
+        assert!(!block.contains("CREATETEMPORARY") && !block.contains("FREETEMPORARY"));
+        let stmts = split_statements(&block, Driver::Oracle);
+        assert_eq!(stmts.len(), 1);
+    }
 
     #[test]
     fn topo_sort_orders_referenced_tables_first_and_is_stable() {

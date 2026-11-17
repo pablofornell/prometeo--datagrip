@@ -411,12 +411,12 @@ async fn table_data_with(
     {
         sql.push_str(&format!(" order by {o}"));
     }
+    // servers before 12.1 have no `OFFSET .. FETCH`: the page is cut with ROWNUM and comes with one more column
+    let mut rownum_col = false;
     if d == Driver::Oracle {
-        sql.push_str(&format!(
-            " offset {} rows fetch next {} rows only",
-            req.offset,
-            limit.saturating_add(1)
-        ));
+        let release = live.pool.ora_release().await?;
+        rownum_col = release < crate::oracle::ORA_12_1;
+        sql = ora_page_sql(&sql, req.offset, limit.saturating_add(1), release);
     } else {
         sql.push_str(&format!(
             " limit {} offset {}",
@@ -426,7 +426,7 @@ async fn table_data_with(
     }
 
     let mut rows: Vec<Vec<Cell>> = Vec::new();
-    let cols = match conn.as_mut() {
+    let mut cols = match conn.as_mut() {
         None => {
             query_pool(live, &sql, 256, |_, r| {
                 rows.push(r);
@@ -442,11 +442,18 @@ async fn table_data_with(
             .await?
         }
     };
+    if rownum_col {
+        for r in rows.iter_mut() {
+            r.pop();
+        }
+        if let Some(c) = cols.as_mut() {
+            c.pop();
+        }
+    }
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
 
     // split the hidden locator column off the rows
-    let mut cols = cols;
     let mut row_locators: Option<Vec<Cell>> = None;
     if addr != RowAddr::None {
         let mut locs = Vec::with_capacity(rows.len());
@@ -753,6 +760,19 @@ fn my_is_text(type_name: &str) -> bool {
     ]
     .iter()
     .any(|p| t.starts_with(p))
+}
+
+/// Oracle: `sql` cut to the rows `offset + 1 ..= offset + fetch`. 12.1+ (`release`, see [`crate::oracle::release`])
+/// appends `OFFSET .. FETCH`; older servers get the query wrapped in two ROWNUM filters, which adds the row number
+/// as the last column (the caller drops it).
+pub(crate) fn ora_page_sql(sql: &str, offset: u64, fetch: u64, release: u32) -> String {
+    if release >= crate::oracle::ORA_12_1 {
+        return format!("{sql} offset {offset} rows fetch next {fetch} rows only");
+    }
+    format!(
+        "select * from (select q.*, rownum prometeo_rn from ({sql}) q where rownum <= {}) where prometeo_rn > {offset}",
+        offset.saturating_add(fetch)
+    )
 }
 
 /// `("tableoid", "ctid")` parts of a PG locator `"<oid>:(<block>,<offset>)"`.
@@ -1128,6 +1148,28 @@ mod tests {
             generated: false,
             base_type: pg_cast_type(ty.split('(').next().unwrap_or(ty)),
         }
+    }
+
+    #[test]
+    fn oracle_paging_uses_rownum_before_12_1() {
+        let sql = "select * from DEMO.T order by A";
+        assert_eq!(
+            ora_page_sql(sql, 500, 501, crate::oracle::release(12, 1)),
+            "select * from DEMO.T order by A offset 500 rows fetch next 501 rows only"
+        );
+        assert_eq!(
+            ora_page_sql(sql, 500, 501, crate::oracle::release(23, 26)),
+            "select * from DEMO.T order by A offset 500 rows fetch next 501 rows only"
+        );
+        for old in [crate::oracle::release(10, 2), crate::oracle::release(11, 2)] {
+            assert_eq!(
+                ora_page_sql(sql, 500, 501, old),
+                "select * from (select q.*, rownum prometeo_rn from (select * from DEMO.T order by A) q \
+                 where rownum <= 1001) where prometeo_rn > 500"
+            );
+        }
+        assert!(ora_page_sql(sql, 0, 11, crate::oracle::release(10, 2))
+            .ends_with("rownum <= 11) where prometeo_rn > 0"));
     }
 
     fn change(kind: ChangeKind, key: &[(&str, Value)], values: &[(&str, Value)]) -> RowChange {

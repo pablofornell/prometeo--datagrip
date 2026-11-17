@@ -1276,6 +1276,146 @@ const ORA_FOLDERS: [&str; 8] = [
 /// `NOT NULL` constraints are columns' business, not entries of the `checks` folder.
 const ORA_REAL_CHECK: &str = "c.constraint_type = 'C' and not regexp_like(c.search_condition_vc, '^\"[^\"]+\" IS NOT NULL$')";
 
+/// The text of a check constraint is a NOT NULL constraint (`"COL" IS NOT NULL`): what [`ORA_REAL_CHECK`] leaves out,
+/// for servers where the text is only the `LONG` column `SEARCH_CONDITION`, which SQL cannot compare.
+pub(crate) fn ora_is_not_null_check(condition: &str) -> bool {
+    condition
+        .trim()
+        .strip_suffix("\" IS NOT NULL")
+        .and_then(|c| c.strip_prefix('"'))
+        .is_some_and(|name| !name.is_empty() && !name.contains('"'))
+}
+
+/// The check constraints of `owner`.`table` that are not NOT NULL constraints: name, condition, status. Servers
+/// without `ALL_CONSTRAINTS.SEARCH_CONDITION_VC` (before 12.1) read the `LONG` column and filter here.
+async fn ora_real_checks(pool: &Pool, owner: &str, table: &str) -> Result<Vec<Row>> {
+    if pool
+        .ora_has_column("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC")
+        .await
+    {
+        return ora_q(
+            pool,
+            &format!(
+                "select c.constraint_name, c.search_condition_vc, c.status from all_constraints c \
+                 where c.owner = :1 and c.table_name = :2 and {ORA_REAL_CHECK} order by c.constraint_name"
+            ),
+            &[owner, table],
+        )
+        .await;
+    }
+    let rows = ora_q(
+        pool,
+        "select c.constraint_name, c.search_condition, c.status from all_constraints c \
+         where c.owner = :1 and c.table_name = :2 and c.constraint_type = 'C' order by c.constraint_name",
+        &[owner, table],
+    )
+    .await?;
+    Ok(rows
+        .into_iter()
+        .filter(|r| !ora_is_not_null_check(&s(r, 1)))
+        .collect())
+}
+
+/// The columns of `ALL_TAB_COLS` / `ALL_CONSTRAINTS` that newer releases add, as the server has them: each method
+/// gives the SQL that reads one for the row alias `a`, or what older releases have instead.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OraCols {
+    /// `ALL_TAB_COLS.DATA_DEFAULT_VC` (else the `LONG` column `DATA_DEFAULT`).
+    pub default_vc: bool,
+    /// `ALL_TAB_COLS.IDENTITY_COLUMN` and `ALL_TAB_IDENTITY_COLS` (12.1+; else no column is an identity).
+    pub identity: bool,
+    /// `ALL_TAB_COLS.DEFAULT_ON_NULL` (12.1+).
+    pub default_on_null: bool,
+    /// `ALL_TAB_COLS.USER_GENERATED` (11.1+; else the columns that are not hidden are the user's: before 11.1 only
+    /// the server makes hidden columns).
+    pub user_generated: bool,
+    /// `ALL_CONSTRAINTS.SEARCH_CONDITION_VC` (else the `LONG` column `SEARCH_CONDITION`, which SQL cannot compare).
+    pub check_vc: bool,
+}
+
+impl OraCols {
+    /// All of them: a current server.
+    #[cfg(test)]
+    pub(crate) const ALL: OraCols = OraCols {
+        default_vc: true,
+        identity: true,
+        default_on_null: true,
+        user_generated: true,
+        check_vc: true,
+    };
+
+    /// What the server of `pool` has (asked once per pool, see [`crate::oracle::OraPool::has_dict_column`]).
+    pub(crate) async fn of(pool: &Pool) -> OraCols {
+        OraCols {
+            default_vc: pool.ora_has_column("ALL_TAB_COLS", "DATA_DEFAULT_VC").await,
+            identity: pool.ora_has_column("ALL_TAB_COLS", "IDENTITY_COLUMN").await,
+            default_on_null: pool.ora_has_column("ALL_TAB_COLS", "DEFAULT_ON_NULL").await,
+            user_generated: pool.ora_has_column("ALL_TAB_COLS", "USER_GENERATED").await,
+            check_vc: pool
+                .ora_has_column("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC")
+                .await,
+        }
+    }
+
+    /// The default value of column row `a` (text; a `LONG` on old servers, which the driver reads whole).
+    pub(crate) fn default(&self, a: &str) -> String {
+        if self.default_vc {
+            format!("{a}.data_default_vc")
+        } else {
+            format!("{a}.data_default")
+        }
+    }
+
+    /// `YES` / `NO`: column row `a` is an identity column.
+    pub(crate) fn identity(&self, a: &str) -> String {
+        if self.identity {
+            format!("{a}.identity_column")
+        } else {
+            "'NO'".to_string()
+        }
+    }
+
+    /// `YES` / `NO`: the default of column row `a` is `DEFAULT ON NULL`.
+    pub(crate) fn default_on_null(&self, a: &str) -> String {
+        if self.default_on_null {
+            format!("{a}.default_on_null")
+        } else {
+            "'NO'".to_string()
+        }
+    }
+
+    /// SQL condition: column row `a` was made by the user (`yes`) or by the server (`!yes`).
+    pub(crate) fn user_generated(&self, a: &str, yes: bool) -> String {
+        match (self.user_generated, yes) {
+            (true, true) => format!("{a}.user_generated = 'YES'"),
+            (true, false) => format!("{a}.user_generated = 'NO'"),
+            (false, true) => format!("{a}.hidden_column = 'NO'"),
+            (false, false) => format!("{a}.hidden_column = 'YES'"),
+        }
+    }
+
+    /// The condition text of constraint row `a`.
+    pub(crate) fn check(&self, a: &str) -> String {
+        if self.check_vc {
+            format!("{a}.search_condition_vc")
+        } else {
+            format!("{a}.search_condition")
+        }
+    }
+}
+
+/// SQL: the values of `expr` joined by `, ` in the order of `order`, NULLs left out: `LISTAGG` on 11.2+ (`release`,
+/// see [`crate::oracle::release`]). Older servers get the same text from `XMLAGG` (the XML escapes are undone).
+pub(crate) fn ora_list_agg(expr: &str, order: &str, release: u32) -> String {
+    if release >= crate::oracle::ORA_11_2 {
+        return format!("listagg({expr}, ', ') within group (order by {order})");
+    }
+    format!(
+        "substr(dbms_xmlgen.convert(xmlagg(xmlelement(e, case when ({expr}) is not null then ', ' || ({expr}) end) \
+         order by {order}).extract('//text()').getstringval(), 1), 3)"
+    )
+}
+
 /// `SYS_CONTEXT('USERENV','CURRENT_SCHEMA')`: where unqualified names resolve.
 pub(crate) async fn ora_current_schema(pool: &Pool) -> Result<String> {
     Ok(pool
@@ -1342,14 +1482,7 @@ const ORA_SYSTEM_USERS: &[&str] = &[
 /// Whether `ALL_USERS` has the `ORACLE_MAINTAINED` column (12.2+). Asked of the dictionary instead of tried and
 /// retried on ORA-00904; if even that fails the name list is used, which works on every version.
 pub(crate) async fn ora_has_maintained_flag(pool: &Pool) -> bool {
-    pool.query_strings(
-        "select count(*) from all_tab_columns \
-         where owner = 'SYS' and table_name = 'ALL_USERS' and column_name = 'ORACLE_MAINTAINED'",
-    )
-    .await
-    .ok()
-    .and_then(|rows| rows.first().map(|r| n(r, 0) > 0))
-    .unwrap_or(false)
+    pool.ora_has_column("ALL_USERS", "ORACLE_MAINTAINED").await
 }
 
 /// SQL boolean: the user `col` is one of Oracle's own (SYS, SYSTEM, ...). `maintained` = the server has
@@ -1403,10 +1536,11 @@ pub(crate) fn ora_type_expr(c: &str) -> String {
 
 /// Columns of a table / view: name, type, nullable (`Y`/`N`), default, identity (`YES`/`NO`), virtual (`YES`/`NO`),
 /// comment, position, primary key (`Y`/`N`), raw data type, PK position. (The comments are joined as a pre-filtered
-/// inline view: as a correlated sub-select per column the dictionary view costs ~0.8 s.)
-fn ora_columns_sql() -> String {
+/// inline view: as a correlated sub-select per column the dictionary view costs ~0.8 s.) `cols`: what the server has
+/// (10g / 11g read the default from the `LONG` column `DATA_DEFAULT` and have no identity columns).
+fn ora_columns_sql(cols: &OraCols) -> String {
     format!(
-        "select c.column_name, {ty}, c.nullable, c.data_default_vc, c.identity_column, c.virtual_column, \
+        "select c.column_name, {ty}, c.nullable, {default}, {identity}, c.virtual_column, \
                 cm.comments, \
                 c.column_id, \
                 case when pk.position is not null then 'Y' else 'N' end, c.data_type, pk.position \
@@ -1418,6 +1552,8 @@ fn ora_columns_sql() -> String {
                     where k.owner = :3 and k.table_name = :4 and k.constraint_type = 'P') pk on pk.column_name = c.column_name \
          where c.owner = :5 and c.table_name = :6 and c.hidden_column = 'NO' order by c.column_id",
         ty = ora_type_expr("c"),
+        default = cols.default("c"),
+        identity = cols.identity("c"),
     )
 }
 
@@ -1426,7 +1562,10 @@ async fn ora_columns(pool: &Pool, owner: &str, table: &str) -> Result<Vec<Row>> 
     let b = |v: &str| crate::oracle::OraBind::Text(v.to_string());
     let binds = [b(owner), b(table), b(owner), b(table), b(owner), b(table)];
     match pool {
-        Pool::Ora(p) => p.query_binds(&ora_columns_sql(), &binds).await,
+        Pool::Ora(p) => {
+            let sql = ora_columns_sql(&OraCols::of(pool).await);
+            p.query_binds(&sql, &binds).await
+        }
         _ => Ok(Vec::new()),
     }
 }
@@ -1622,10 +1761,15 @@ async fn ora_objects(pool: &Pool, ds: &str, path: &[String]) -> Result<Vec<TreeN
                 .collect())
         }
         "routines" => {
+            let args = ora_list_agg(
+                "a.argument_name || ' ' || a.data_type",
+                "a.position",
+                pool.ora_release().await?,
+            );
             let rows = pool
                 .query_strings(&format!(
                     "select ob.object_name, ob.object_type, ob.status, \
-                            (select listagg(a.argument_name || ' ' || a.data_type, ', ') within group (order by a.position) \
+                            (select {args} \
                                from all_arguments a where a.object_id = ob.object_id and a.package_name is null \
                                 and a.data_level = 0 and a.position > 0), \
                             (select max(a.data_type) from all_arguments a where a.object_id = ob.object_id and a.package_name is null \
@@ -1734,19 +1878,39 @@ async fn ora_object_folders(pool: &Pool, ds: &str, path: &[String]) -> Result<Ve
     let (sc, key, t) = (&path[0], path[1].as_str(), &path[2]);
     let (o, tl) = (ORA_LIT(sc), ORA_LIT(t));
     if key == "packages" {
-        // the members of a package are leaves right below it
+        // the members of a package are leaves right below it. 10g's `ALL_PROCEDURES` has neither `OVERLOAD` nor
+        // `SUBPROGRAM_ID` (the order of declaration, 11.1+): there the members come from `ALL_ARGUMENTS`, which has a
+        // row for every member (one without arguments too), sorted by name
+        let args = ora_list_agg(
+            "a.argument_name || ' ' || a.data_type",
+            "a.position",
+            pool.ora_release().await?,
+        );
+        let procs = if pool.ora_has_column("ALL_PROCEDURES", "OVERLOAD").await {
+            "all_procedures".to_string()
+        } else {
+            format!(
+                "(select distinct owner, package_name object_name, object_name procedure_name, overload \
+                  from all_arguments where owner = {o} and package_name = {tl})"
+            )
+        };
+        let order = if pool.ora_has_column("ALL_PROCEDURES", "SUBPROGRAM_ID").await {
+            "p.subprogram_id"
+        } else {
+            "p.procedure_name, p.overload"
+        };
         let rows = pool
             .query_strings(&format!(
                 "select p.procedure_name, p.overload, \
                         (select max(a.data_type) from all_arguments a where a.owner = p.owner and a.package_name = p.object_name \
                             and a.object_name = p.procedure_name and nvl(a.overload, '-') = nvl(p.overload, '-') \
                             and a.position = 0 and a.data_level = 0), \
-                        (select listagg(a.argument_name || ' ' || a.data_type, ', ') within group (order by a.position) \
+                        (select {args} \
                            from all_arguments a where a.owner = p.owner and a.package_name = p.object_name \
                             and a.object_name = p.procedure_name and nvl(a.overload, '-') = nvl(p.overload, '-') \
                             and a.position > 0 and a.data_level = 0) \
-                 from all_procedures p where p.owner = {o} and p.object_name = {tl} and p.procedure_name is not null \
-                 order by p.subprogram_id"
+                 from {procs} p where p.owner = {o} and p.object_name = {tl} and p.procedure_name is not null \
+                 order by {order}"
             ))
             .await?;
         return Ok(rows
@@ -1783,6 +1947,9 @@ async fn ora_object_folders(pool: &Pool, ds: &str, path: &[String]) -> Result<Ve
     if !matches!(key, "tables" | "views" | "materialized_views") {
         return Err(bad_path(path));
     }
+    let checks_vc = pool
+        .ora_has_column("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC")
+        .await;
     let rows = ora_q(
         pool,
         &format!(
@@ -1794,12 +1961,20 @@ async fn ora_object_folders(pool: &Pool, ds: &str, path: &[String]) -> Result<Ve
              (select count(*) from all_constraints c where c.owner = :9 and c.table_name = :10 and {chk}), \
              (select count(*) from all_triggers where table_owner = :11 and table_name = :12) \
              from dual",
-            chk = ORA_REAL_CHECK
+            chk = if checks_vc { ORA_REAL_CHECK } else { "1 = 0" }
         ),
         &[sc, t, sc, t, sc, t, sc, t, sc, t, sc, t],
     )
     .await?;
-    let r = rows.first().ok_or_else(|| bad_path(path))?;
+    let mut r = rows.first().cloned().ok_or_else(|| bad_path(path))?;
+    // without SEARCH_CONDITION_VC the NOT NULL constraints are told apart here
+    if !checks_vc && key == "tables" {
+        let count = ora_real_checks(pool, sc, t).await?.len();
+        if let Some(c) = r.get_mut(4) {
+            *c = Some(count.to_string());
+        }
+    }
+    let r = &r;
     let wanted: &[(&str, usize)] = match key {
         "tables" => &[
             ("columns", 0),
@@ -1862,13 +2037,16 @@ async fn ora_object_items(pool: &Pool, ds: &str, path: &[String]) -> Result<Vec<
                 .collect())
         }
         "keys" => {
+            let cols = ora_list_agg("cc.column_name", "cc.position", pool.ora_release().await?);
             let rows = ora_q(
                 pool,
-                "select c.constraint_name, c.constraint_type, \
-                            (select listagg(cc.column_name, ', ') within group (order by cc.position) from all_cons_columns cc \
+                &format!(
+                    "select c.constraint_name, c.constraint_type, \
+                            (select {cols} from all_cons_columns cc \
                                where cc.owner = c.owner and cc.constraint_name = c.constraint_name), c.status \
                      from all_constraints c where c.owner = :1 and c.table_name = :2 and c.constraint_type in ('P', 'U') \
-                     order by c.constraint_type, c.constraint_name",
+                     order by c.constraint_type, c.constraint_name"
+                ),
                 &[sc, t],
             )
             .await?;
@@ -1889,17 +2067,20 @@ async fn ora_object_items(pool: &Pool, ds: &str, path: &[String]) -> Result<Vec<
                 .collect())
         }
         "foreign_keys" => {
+            let cols = ora_list_agg("cc.column_name", "cc.position", pool.ora_release().await?);
             let rows = ora_q(
                 pool,
-                "select c.constraint_name, \
-                            (select listagg(cc.column_name, ', ') within group (order by cc.position) from all_cons_columns cc \
+                &format!(
+                    "select c.constraint_name, \
+                            (select {cols} from all_cons_columns cc \
                                where cc.owner = c.owner and cc.constraint_name = c.constraint_name), \
                             rc.owner, rc.table_name, \
-                            (select listagg(cc.column_name, ', ') within group (order by cc.position) from all_cons_columns cc \
+                            (select {cols} from all_cons_columns cc \
                                where cc.owner = rc.owner and cc.constraint_name = rc.constraint_name), \
                             c.delete_rule, c.status \
                      from all_constraints c join all_constraints rc on rc.owner = c.r_owner and rc.constraint_name = c.r_constraint_name \
-                     where c.owner = :1 and c.table_name = :2 and c.constraint_type = 'R' order by c.constraint_name",
+                     where c.owner = :1 and c.table_name = :2 and c.constraint_type = 'R' order by c.constraint_name"
+                ),
                 &[sc, t],
             )
             .await?;
@@ -1924,15 +2105,21 @@ async fn ora_object_items(pool: &Pool, ds: &str, path: &[String]) -> Result<Vec<
                 .collect())
         }
         "indexes" => {
+            let cols = ora_list_agg(
+                "ic.column_name || case when ic.descend = 'DESC' then ' DESC' else '' end",
+                "ic.column_position",
+                pool.ora_release().await?,
+            );
             let rows = ora_q(
                 pool,
-                "select i.index_name, i.uniqueness, i.index_type, \
-                            (select listagg(ic.column_name || case when ic.descend = 'DESC' then ' DESC' else '' end, ', ') \
-                                    within group (order by ic.column_position) \
+                &format!(
+                    "select i.index_name, i.uniqueness, i.index_type, \
+                            (select {cols} \
                                from all_ind_columns ic where ic.index_owner = i.owner and ic.index_name = i.index_name), \
                             (select count(*) from all_constraints k where k.owner = i.table_owner and k.table_name = i.table_name \
                                 and k.index_name = i.index_name and k.constraint_type = 'P') \
-                     from all_indexes i where i.table_owner = :1 and i.table_name = :2 order by i.index_name",
+                     from all_indexes i where i.table_owner = :1 and i.table_name = :2 order by i.index_name"
+                ),
                 &[sc, t],
             )
             .await?;
@@ -1952,16 +2139,7 @@ async fn ora_object_items(pool: &Pool, ds: &str, path: &[String]) -> Result<Vec<
                 .collect())
         }
         "checks" => {
-            let rows = ora_q(
-                pool,
-                &format!(
-                    "select c.constraint_name, c.search_condition_vc, c.status from all_constraints c \
-                     where c.owner = :1 and c.table_name = :2 and {chk} order by c.constraint_name",
-                    chk = ORA_REAL_CHECK
-                ),
-                &[sc, t],
-            )
-            .await?;
+            let rows = ora_real_checks(pool, sc, t).await?;
             Ok(rows
                 .iter()
                 .map(|r| {
@@ -2938,6 +3116,86 @@ async fn snapshot_foreign_keys(
         Driver::Sqlite => {}
     }
     Ok(map)
+}
+
+#[cfg(test)]
+mod old_release_tests {
+    use super::*;
+    use crate::oracle::release;
+
+    #[test]
+    fn listagg_from_11_2_xmlagg_before() {
+        let new = ora_list_agg("cc.column_name", "cc.position", release(11, 2));
+        assert_eq!(
+            new,
+            "listagg(cc.column_name, ', ') within group (order by cc.position)"
+        );
+        assert_eq!(
+            ora_list_agg("cc.column_name", "cc.position", release(23, 26)),
+            new
+        );
+        let old = ora_list_agg("a.x || ' ' || a.y", "a.position", release(10, 2));
+        assert!(!old.contains("listagg"), "{old}");
+        assert_eq!(
+            old,
+            "substr(dbms_xmlgen.convert(xmlagg(xmlelement(e, case when (a.x || ' ' || a.y) is not null \
+             then ', ' || (a.x || ' ' || a.y) end) order by a.position).extract('//text()').getstringval(), 1), 3)"
+        );
+        assert_eq!(
+            ora_list_agg("x", "y", release(11, 1)),
+            ora_list_agg("x", "y", release(10, 2))
+        );
+    }
+
+    #[test]
+    fn not_null_checks_are_told_apart_without_sql() {
+        assert!(ora_is_not_null_check("\"NAME\" IS NOT NULL"));
+        assert!(ora_is_not_null_check(" \"A B\" IS NOT NULL\n"));
+        assert!(!ora_is_not_null_check("salary > 0"));
+        assert!(!ora_is_not_null_check(
+            "\"A\" IS NOT NULL AND \"B\" IS NOT NULL"
+        ));
+        assert!(!ora_is_not_null_check("\"\" IS NOT NULL"));
+    }
+
+    #[test]
+    fn dictionary_columns_of_old_servers() {
+        let all = OraCols::ALL;
+        assert_eq!(all.default("c"), "c.data_default_vc");
+        assert_eq!(all.identity("c"), "c.identity_column");
+        assert_eq!(all.default_on_null("c"), "c.default_on_null");
+        assert_eq!(all.user_generated("c", true), "c.user_generated = 'YES'");
+        assert_eq!(all.user_generated("h", false), "h.user_generated = 'NO'");
+        assert_eq!(all.check("c"), "c.search_condition_vc");
+        let old = OraCols {
+            default_vc: false,
+            identity: false,
+            default_on_null: false,
+            user_generated: false,
+            check_vc: false,
+        };
+        assert_eq!(old.default("c"), "c.data_default");
+        assert_eq!(old.identity("c"), "'NO'");
+        assert_eq!(old.default_on_null("c"), "'NO'");
+        assert_eq!(old.user_generated("c", true), "c.hidden_column = 'NO'");
+        assert_eq!(old.user_generated("h", false), "h.hidden_column = 'YES'");
+        assert_eq!(old.check("c"), "c.search_condition");
+
+        let sql = ora_columns_sql(&all);
+        assert!(
+            sql.contains("c.data_default_vc, c.identity_column, c.virtual_column"),
+            "{sql}"
+        );
+        let sql = ora_columns_sql(&old);
+        assert!(
+            sql.contains("c.data_default, 'NO', c.virtual_column"),
+            "{sql}"
+        );
+        assert!(
+            !sql.contains("_vc") && !sql.contains("identity_column"),
+            "{sql}"
+        );
+    }
 }
 
 #[cfg(test)]

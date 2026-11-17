@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::conn::Live;
 use crate::error::Result;
-use crate::introspect::{ora_table_filter, ora_type_expr};
+use crate::introspect::{ora_table_filter, ora_type_expr, OraCols};
 use crate::manager::ConnectionManager;
 use crate::model::Driver;
 use crate::quote::{quote_ident, quote_literal};
@@ -730,14 +730,19 @@ async fn ora_model(live: &Live, schema: &str, prefix: Option<&str>) -> Result<Sc
         ))
         .await?;
     let mut tables = Tables::new(names.iter().map(|r| s(r, 0)).collect());
+    // 10g / 11g: no `*_VC` text columns, identity columns or `USER_GENERATED`
+    let oc = OraCols::of(pool).await;
 
     // ---- columns
     let cols = pool
         .query_strings(&format!(
-            "select c.table_name, c.column_name, {ty}, c.nullable, c.data_default_vc, c.identity_column, c.virtual_column \
-             from all_tab_cols c where c.owner = {o} and c.user_generated = 'YES' {p} \
+            "select c.table_name, c.column_name, {ty}, c.nullable, {default}, {identity}, c.virtual_column \
+             from all_tab_cols c where c.owner = {o} and {user} {p} \
              order by c.table_name, c.internal_column_id",
             ty = ora_type_expr("c"),
+            default = oc.default("c"),
+            identity = oc.identity("c"),
+            user = oc.user_generated("c", true),
             p = prefix_sql(d, "c.table_name", prefix)
         ))
         .await?;
@@ -765,7 +770,7 @@ async fn ora_model(live: &Live, schema: &str, prefix: Option<&str>) -> Result<Sc
     // ---- primary key, unique, check and foreign key constraints (one row per column)
     let con = pool
         .query_strings(&format!(
-            "select c.table_name, c.constraint_name, c.constraint_type, c.search_condition_vc, c.delete_rule, cc.column_name, \
+            "select c.table_name, c.constraint_name, c.constraint_type, {check}, c.delete_rule, cc.column_name, \
                     r.owner, r.table_name, rc.column_name, c.generated, c.status \
              from all_constraints c \
              left join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name \
@@ -774,6 +779,7 @@ async fn ora_model(live: &Live, schema: &str, prefix: Option<&str>) -> Result<Sc
                                           and rc.position = cc.position \
              where c.owner = {o} and c.constraint_type in ('P', 'U', 'C', 'R') {p} \
              order by c.table_name, c.constraint_name, cc.position",
+            check = oc.check("c"),
             p = prefix_sql(d, "c.table_name", prefix)
         ))
         .await?;

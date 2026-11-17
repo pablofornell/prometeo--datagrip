@@ -3,7 +3,8 @@
 //! * Oracle: `ALL_DEPENDENCIES` (views, routines, packages, triggers, synonyms that depend on the object),
 //!   `ALL_SYNONYMS`, `ALL_TRIGGERS`, the foreign keys of `ALL_CONSTRAINTS`; `ALL_SOURCE` gives the line of each
 //!   PL/SQL unit that mentions the name, `ALL_VIEWS.TEXT` the views that mention a column (read in full: `TEXT_VC`
-//!   is cut at 4000 characters). Only the units the search found are read, and never Oracle's own owners.
+//!   is cut at 4000 characters; servers before 12.1 have no `TEXT_VC` and the `LONG` column is read directly).
+//!   Only the units the search found are read, and never Oracle's own owners.
 //! * PostgreSQL: `pg_depend` / `pg_rewrite` (views), `pg_constraint` (foreign keys), `pg_trigger`, `pg_index`,
 //!   and the texts of the routines (`pg_proc.prosrc`).
 //! * MySQL: `information_schema` `VIEWS`, `ROUTINES`, `KEY_COLUMN_USAGE`, `TRIGGERS`, `STATISTICS`.
@@ -557,22 +558,11 @@ async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
             .filter(|k| k.2 == UsageKind::View)
             .map(|k| (k.0.clone(), k.1.clone()))
             .collect();
-        // `TEXT_VC` is cut at 4000 characters: a longer view is read from `TEXT` (LONG) through a function that returns
-        // a CLOB (a VARCHAR2 result is limited to 4000 bytes in SQL here)
+        let with_vc = pool.ora_release().await? >= crate::oracle::ORA_12_1
+            && pool.ora_has_column("ALL_VIEWS", "TEXT_VC").await;
         for filter in ora_pair_filters(&views, "view_name") {
             for r in pool
-                .query_strings(&format!(
-                    "with function prometeo_view_text(o varchar2, n varchar2) return clob is r clob; \
-                     begin dbms_lob.createtemporary(r, true); \
-                       for x in (select text from all_views where owner = o and view_name = n) loop \
-                         dbms_lob.writeappend(r, length(x.text), x.text); \
-                       end loop; \
-                       return r; \
-                     end; \
-                     select owner, view_name, \
-                            case when text_vc is null or length(text_vc) >= 4000 then prometeo_view_text(owner, view_name) else to_clob(text_vc) end \
-                     from all_views where {filter} and {user_owners}"
-                ))
+                .query_strings(&ora_view_texts_sql(&filter, &user_owners, with_vc))
                 .await?
             {
                 let key = (cell(&r, 0), cell(&r, 1), UsageKind::View);
@@ -605,6 +595,30 @@ async fn ora_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
         }
     }
     Ok(out)
+}
+
+/// The owner, name and full text of the views that match `filter` and `user_owners`. `TEXT_VC` (`with_vc`, 12.1+)
+/// is cut at 4000 characters: a longer view is read from `TEXT` (LONG) through a function that returns a CLOB (a
+/// VARCHAR2 result is limited to 4000 bytes in SQL here). Older servers have neither `TEXT_VC` nor `WITH FUNCTION`:
+/// the `LONG` column is read directly (the driver hands it over whole).
+fn ora_view_texts_sql(filter: &str, user_owners: &str, with_vc: bool) -> String {
+    if !with_vc {
+        return format!(
+            "select owner, view_name, text from all_views where {filter} and {user_owners}"
+        );
+    }
+    format!(
+        "with function prometeo_view_text(o varchar2, n varchar2) return clob is r clob; \
+         begin dbms_lob.createtemporary(r, true); \
+           for x in (select text from all_views where owner = o and view_name = n) loop \
+             dbms_lob.writeappend(r, length(x.text), x.text); \
+           end loop; \
+           return r; \
+         end; \
+         select owner, view_name, \
+                case when text_vc is null or length(text_vc) >= 4000 then prometeo_view_text(owner, view_name) else to_clob(text_vc) end \
+         from all_views where {filter} and {user_owners}"
+    )
 }
 
 // ============================================================ PostgreSQL
@@ -1147,6 +1161,21 @@ async fn lite_usages(pool: &Pool, o: &ObjectRef) -> Result<Vec<Usage>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oracle_view_texts_without_text_vc_read_the_long_column() {
+        let new = ora_view_texts_sql("(owner = 'A')", "owner <> 'SYS'", true);
+        assert!(
+            new.starts_with("with function prometeo_view_text("),
+            "{new}"
+        );
+        assert!(new.contains("length(text_vc) >= 4000"), "{new}");
+        let old = ora_view_texts_sql("(owner = 'A')", "owner <> 'SYS'", false);
+        assert_eq!(
+            old,
+            "select owner, view_name, text from all_views where (owner = 'A') and owner <> 'SYS'"
+        );
+    }
 
     #[test]
     fn whole_words_only() {

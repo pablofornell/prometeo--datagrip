@@ -37,8 +37,14 @@ ORACLE_CONTAINER ?= prometeo-oracle
 ORACLE_IMAGE     ?= gvenzl/oracle-free:23-slim-faststart
 ORACLE_PORT      ?= 15219
 ORACLE_PASSWORD  ?= prometeo
+# Optional old server (Oracle Database 10g XE 10.2.0.1) for the old-server tests (tests/oracle_legacy.rs):
+#   make db-up-oracle-legacy
+#   PROMETEO_ORACLE_10G_URL=oracle://demo:prometeo@127.0.0.1:15210/XE cargo test -p dbcore --test oracle_legacy -- --test-threads=1
+ORACLE_LEGACY_CONTAINER ?= prometeo-oracle10g
+ORACLE_LEGACY_IMAGE     ?= chameleon82/oracle-xe-10g:universal
+ORACLE_LEGACY_PORT      ?= 15210
 
-DB_ENV := PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
+DB_ENV :=PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
           PROMETEO_MYSQL_URL=mysql://root:$(MYSQL_PASSWORD)@127.0.0.1:$(MYSQL_PORT)/demo \
           PROMETEO_ORACLE_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_PORT)/FREEPDB1 \
           PROMETEO_NO_KEYRING=1
@@ -46,7 +52,7 @@ DB_ENV := PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT
 .PHONY: help install dev build bundle run \
         test test-ui test-rust test-rust-db test-all \
         lint typecheck clippy fmt fmt-check check ci \
-        db-up db-down db-reset db-status clean
+        db-up db-down db-reset db-status db-up-oracle-legacy db-down-oracle-legacy clean
 
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*## "; printf "Targets:\n"} /^[a-zA-Z_-]+:.*## / {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -153,6 +159,36 @@ db-reset: ## Remove the test containers and their data, then start new ones
 
 db-status: ## Show the state of the test containers
 	@docker ps -a --filter name=$(PG_CONTAINER) --filter name=$(MYSQL_CONTAINER) --filter name=$(ORACLE_CONTAINER) --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'
+
+# The image has SYS / SYSTEM password `oracle` and 40 processes, too few for the pooled test connections: the
+# target sets 150 (one restart) and creates the account `demo` (password $(ORACLE_PASSWORD)). The listener is
+# published on 127.0.0.1 only; the SSH server of the image is not published.
+db-up-oracle-legacy: ## Start the optional Oracle 10g XE test container (old-server tests)
+	@set -euo pipefail; \
+	name=$(ORACLE_LEGACY_CONTAINER); \
+	sys() { docker exec -i "$$name" sqlplus -s -L "sys/oracle as sysdba"; }; \
+	if docker ps --format '{{.Names}}' | grep -qx "$$name"; then echo "[db] $$name is running"; \
+	elif docker ps -a --format '{{.Names}}' | grep -qx "$$name"; then echo "[db] starting $$name"; docker start "$$name" >/dev/null; \
+	else echo "[db] creating $$name"; docker run -d --name "$$name" --shm-size=1g -p 127.0.0.1:$(ORACLE_LEGACY_PORT):1521 $(ORACLE_LEGACY_IMAGE) >/dev/null; fi; \
+	echo "[db] waiting for Oracle 10g"; \
+	for i in $$(seq 1 90); do printf 'select 42 from dual;\n' | sys 2>/dev/null | grep -qw 42 && break; sleep 2; done; \
+	printf 'select 42 from dual;\n' | sys | grep -qw 42 || { echo "[db] Oracle 10g is not ready"; exit 1; }; \
+	procs=$$(printf 'set heading off feedback off pagesize 0\nselect value from v$$parameter where name = '"'"'processes'"'"';\n' | sys | tr -d '[:space:]'); \
+	if [ "$$procs" -lt 150 ]; then \
+	  echo "[db] processes $$procs -> 150 (restart)"; \
+	  printf 'alter system set processes=150 scope=spfile;\nshutdown immediate\nstartup\n' | sys >/dev/null; \
+	fi; \
+	echo "[db] account demo"; \
+	printf '%s\n' \
+	  "whenever sqlerror exit failure" \
+	  "begin execute immediate 'create user demo identified by $(ORACLE_PASSWORD) default tablespace users quota unlimited on users'; exception when others then if sqlcode <> -1920 then raise; end if; end;" \
+	  "/" \
+	  "grant connect, resource, create view, create synonym, create materialized view, create type, create sequence, create trigger, create procedure, select_catalog_role to demo;" \
+	  | sys >/dev/null; \
+	echo "[db] ready: Oracle 10g 127.0.0.1:$(ORACLE_LEGACY_PORT)/XE (PROMETEO_ORACLE_10G_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_LEGACY_PORT)/XE)"
+
+db-down-oracle-legacy: ## Stop and remove the Oracle 10g XE test container
+	-docker rm -f $(ORACLE_LEGACY_CONTAINER)
 
 ## ---- Cleanup ----
 

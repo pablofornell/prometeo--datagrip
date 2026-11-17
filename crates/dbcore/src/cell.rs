@@ -390,6 +390,35 @@ fn text_from_pieces(total: u64, cap: usize, pieces: &[String]) -> Option<Read> {
     })
 }
 
+/// The statement of [`read_ora_lob`]: a row per piece up to the cap, with the length on each; at least one row, so
+/// that a NULL or an empty value comes back too. `cap_bind` is the number of the bind that holds the cap. Servers
+/// before 12.1 (`release`) have no `CROSS APPLY`: the piece numbers come from a fixed list as long as the cap allows,
+/// cut by a condition.
+fn ora_lob_pieces_sql(
+    piece: &str,
+    col: &str,
+    from: &str,
+    cap_bind: usize,
+    size: u64,
+    cap: usize,
+    release: u32,
+) -> String {
+    let x = format!("(select {col} v, dbms_lob.getlength({col}) len {from}) x");
+    let count = format!("greatest(1, ceil(least(nvl(x.len, 0), :{cap_bind}) / {size}))");
+    if release >= crate::oracle::ORA_12_1 {
+        return format!(
+            "select x.len, {piece} from {x} \
+             cross apply (select level lv from dual connect by level <= {count}) c \
+             order by c.lv"
+        );
+    }
+    let most = (cap as u64).div_ceil(size).max(1);
+    format!(
+        "select x.len, {piece} from {x}, (select level lv from dual connect by level <= {most}) c \
+         where c.lv <= {count} order by c.lv"
+    )
+}
+
 /// A CLOB / NCLOB / BLOB column: its length and the first `cap` of it, in pieces of one statement, so the rest of
 /// the LOB stays on the server (the thin driver would hand the whole value over). The pieces are cut by
 /// `DBMS_LOB.SUBSTR`. A text piece that starts inside a surrogate pair is refused by the server (ORA-22831): such a
@@ -415,14 +444,8 @@ async fn read_ora_lob(
             format!("dbms_lob.substr(x.v, {ORA_TEXT_PIECE}, (c.lv - 1) * {ORA_TEXT_PIECE} + 1)"),
         )
     };
-    // a row per piece up to the cap, with the length on each; at least one row, so that a NULL or an empty value
-    // comes back too
-    let sql = format!(
-        "select x.len, {piece} from (select {col} v, dbms_lob.getlength({col}) len {from}) x \
-         cross apply (select level lv from dual connect by level <= greatest(1, ceil(least(nvl(x.len, 0), :{}) / {size}))) c \
-         order by c.lv",
-        binds.len() + 1
-    );
+    let release = p.server_release().await?;
+    let sql = ora_lob_pieces_sql(&piece, col, from, binds.len() + 1, size, cap, release);
     let mut params = ora_binds(binds);
     params.push(OraBind::Int(cap as i64));
     let rows = match p.query_binds(&sql, &params).await {
@@ -631,6 +654,56 @@ pub fn base64_decode(text: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn oracle_lob_pieces_have_no_cross_apply_before_12_1() {
+        let piece = "dbms_lob.substr(x.v, 1000, (c.lv - 1) * 1000 + 1)";
+        let from = "from DEMO.T where ID = :1";
+        let modern = ora_lob_pieces_sql(
+            piece,
+            "C",
+            from,
+            2,
+            1000,
+            5000,
+            crate::oracle::release(19, 0),
+        );
+        assert_eq!(
+            modern,
+            "select x.len, dbms_lob.substr(x.v, 1000, (c.lv - 1) * 1000 + 1) \
+             from (select C v, dbms_lob.getlength(C) len from DEMO.T where ID = :1) x \
+             cross apply (select level lv from dual connect by level <= greatest(1, ceil(least(nvl(x.len, 0), :2) / 1000))) c \
+             order by c.lv"
+        );
+        let old = ora_lob_pieces_sql(
+            piece,
+            "C",
+            from,
+            2,
+            1000,
+            5000,
+            crate::oracle::release(10, 2),
+        );
+        assert!(!old.contains("apply"), "{old}");
+        assert!(
+            old.contains(
+                ", (select level lv from dual connect by level <= 5) c \
+                 where c.lv <= greatest(1, ceil(least(nvl(x.len, 0), :2) / 1000)) order by c.lv"
+            ),
+            "{old}"
+        );
+        // a cap that is not a whole number of pieces still gets its last piece
+        let old = ora_lob_pieces_sql(
+            piece,
+            "C",
+            from,
+            2,
+            1000,
+            5001,
+            crate::oracle::release(11, 2),
+        );
+        assert!(old.contains("connect by level <= 6) c"), "{old}");
+    }
 
     #[test]
     fn base64_matches_rfc4648() {
