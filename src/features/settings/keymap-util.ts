@@ -1,4 +1,5 @@
 /** Pure helpers of the Keymap page (no UI imports, unit tested): the grouped action tree, shortcut editing, conflicts. */
+import { eventKey } from "../../state/actions";
 
 export interface KeymapAction {
   id: string;
@@ -78,10 +79,13 @@ export function normalizeShortcut(s: string): string {
   const key = caps[caps.length - 1];
   const mods = new Set(caps.slice(0, -1).map((m) => m.toLowerCase()));
   const outMods = MOD_ORDER.filter((m) => mods.has(m.toLowerCase()) || (m === "Ctrl" && mods.has("control")) || (m === "Meta" && mods.has("cmd")));
-  const k = key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1);
+  // "ß".toUpperCase() is "SS": a key that has no single upper-case character stays as it is
+  const upper = key.toUpperCase();
+  const k = key.length === 1 ? (upper.length === 1 ? upper : key) : key[0].toUpperCase() + key.slice(1);
   return [...outMods, k].join("+");
 }
 
+/** How the registry spells the keys that are not a single plain character (`Ctrl+Plus`, `Ctrl+Comma`, `Ctrl+Left`). */
 const KEY_NAMES: Record<string, string> = {
   " ": "Space",
   ArrowUp: "Up",
@@ -89,8 +93,7 @@ const KEY_NAMES: Record<string, string> = {
   ArrowLeft: "Left",
   ArrowRight: "Right",
   "+": "Plus",
-  "-": "Minus",
-  "=": "Equals",
+  ",": "Comma",
 };
 
 export interface KeyEventLike {
@@ -102,19 +105,16 @@ export interface KeyEventLike {
   metaKey: boolean;
 }
 
-/** The shortcut a key event stands for, in the registry syntax; `null` for a lone modifier key. */
+/**
+ * The shortcut a key event stands for, in the registry syntax; `null` for a lone modifier key. The key is named by
+ * `eventKey`, the function the dispatcher matches with, so the recorded chord always fires on the event it came from.
+ */
 export function chordFromEvent(e: KeyEventLike): string | null {
   if (["Control", "Alt", "Shift", "Meta", "AltGraph", "CapsLock", "Dead"].includes(e.key)) return null;
+  const k = eventKey(e);
   let key: string;
-  if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
-  else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
-  else if (e.code === "Backslash") key = "\\";
-  else if (e.code === "Slash") key = "/";
-  else if (e.code === "Quote") key = "'";
-  else if (e.code === "Comma") key = "Comma";
-  else if (e.code === "Period") key = ".";
-  else if (e.code === "Backquote") key = "`";
-  else key = KEY_NAMES[e.key] ?? (e.key.length === 1 ? e.key.toUpperCase() : e.key);
+  if (k.length === 1) key = KEY_NAMES[k] ?? (/^[a-z]$/.test(k) ? k.toUpperCase() : k);
+  else key = KEY_NAMES[e.key] ?? e.key; // Enter, Tab, F4, PageUp ...: the name the browser gives it
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Meta"].filter(Boolean) as string[];
   return [...mods, key].join("+");
 }
