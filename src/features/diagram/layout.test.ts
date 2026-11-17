@@ -208,9 +208,17 @@ describe("reflowBoxes", () => {
     expect(reflowBoxes(h, sizes(h))).toBe(h);
   });
 
-  it("never moves a box above its home place: a box smaller than laid out leaves its room empty", () => {
+  it("moves the boxes below a table up when it is smaller than it was laid out (expanded, re-laid out, collapsed)", () => {
     const h = home();
-    expect(reflowBoxes(h, sizes(h, { 0: 40 })).map((b) => b.y)).toEqual([0, 140, 240, 0, 400]);
+    // the box below the whole column also stays clear of the box beside the column, which did not move
+    expect(reflowBoxes(h, sizes(h, { 0: 40 })).map((b) => b.y)).toEqual([0, 80, 180, 0, 400]);
+    expect(reflowBoxes(h, sizes(h, { 0: 40, 3: 100 })).map((b) => b.y)).toEqual([0, 80, 180, 0, 340]);
+  });
+
+  it("keeps pinned boxes where they are when the boxes above them shrink, and the boxes below them follow them", () => {
+    const h = home();
+    const out = reflowBoxes(h, sizes(h, { 0: 40 }), (i) => i === 1);
+    expect(out.map((b) => b.y)).toEqual([0, 140, 240, 0, 400]);
   });
 
   it("keeps a pinned box where the user put it unless a box now covers it", () => {
@@ -231,6 +239,13 @@ describe("reflowBoxes", () => {
       const out = reflowBoxes(h, h.map((b) => ({ width: b.w, height: rand() < 0.2 ? b.h + 20 * Math.ceil(rand() * 40) : b.h })));
       expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h })))).toBe("");
       out.forEach((b, i) => expect(b.y).toBeGreaterThanOrEqual(h[i].y));
+    }
+    // laid out with big boxes, then some of them shrink (and some grow), also with dragged boxes
+    for (let round = 0; round < 5; round++) {
+      const pinned = new Set([...h.keys()].filter(() => rand() < 0.1));
+      const out = reflowBoxes(h, h.map((b) => ({ width: b.w, height: rand() < 0.3 ? Math.max(40, b.h - 20 * Math.ceil(rand() * 20)) : rand() < 0.1 ? b.h + 200 : b.h })), (i) => pinned.has(i));
+      expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h })))).toBe("");
+      pinned.forEach((i) => expect(out[i].y).toBeGreaterThanOrEqual(h[i].y));
     }
   });
 });

@@ -53,6 +53,13 @@
 .dgd-stage.panning {
   cursor: grabbing;
 }
+/* A PNG export is being drawn (the status bar shows the task too). */
+.dgd-view.exporting,
+.dgd-view.exporting .dgd-stage,
+.dgd-view.exporting .dg-node,
+.dgd-view.exporting .dg-toggle {
+  cursor: progress;
+}
 .dgd-stage svg {
   display: block;
   position: absolute;

@@ -9,7 +9,7 @@
  */
 import type { NodeKind } from "../../api/types";
 import { LOOP_ROOM, reflowBoxes, type LayoutResult } from "./layout";
-import { DGM, clip, footerText, hasToggle, rowChars, rowTop, toggleText, type ColumnsMode, type DiagramEdge, type DiagramModel, type DiagramNode } from "./model";
+import { DGM, clip, footerText, hasToggle, moreText, rowChars, rowTop, toggleText, type ColumnsMode, type DiagramEdge, type DiagramModel, type DiagramNode } from "./model";
 import { inkOn, mix } from "./palette";
 import { placeLabels, routeEdges, rowsOf, type Pt, type Rect, type RoutedEdge } from "./route";
 import type { ColorAssignment } from "./groups";
@@ -52,6 +52,11 @@ export interface DiagramRenderOptions {
   colors?: ColorAssignment;
   /** Draw every foreign key name on its line (otherwise only a highlighted edge shows it). */
   edgeLabels?: boolean;
+  /**
+   * The SVG goes to a file (SVG / PNG export): no controls. The expand row of a cut table is a plain "+N more columns"
+   * note, and the collapse row of an expanded table stays empty.
+   */
+  exporting?: boolean;
 }
 
 const esc = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -215,14 +220,17 @@ function nodeSvg(node: DiagramNode, x: number, y: number, opts: DiagramRenderOpt
       const t = clip(c.typeName, DGM.maxTypeChars);
       rows += `<text x="${num(w - DGM.padX)}" y="${num(cy + 4)}" text-anchor="end" font-family="${esc(p.fontMono)}" font-size="11.5" fill="${p.typeText}">${esc(t)}${t !== c.typeName ? `<title>${esc(c.typeName)}</title>` : ""}</text>`;
     }
-    if (j < node.rows.length - 1 || node.hidden > 0 || node.expanded) rows += `<line x1="8" y1="${num(top + DGM.rowH)}" x2="${num(w - 8)}" y2="${num(top + DGM.rowH)}" stroke="${p.rowLine}" stroke-width="1"/>`;
+    if (j < node.rows.length - 1 || node.hidden > 0 || (node.expanded && !opts.exporting)) rows += `<line x1="8" y1="${num(top + DGM.rowH)}" x2="${num(w - 8)}" y2="${num(top + DGM.rowH)}" stroke="${p.rowLine}" stroke-width="1"/>`;
   });
   if (node.hidden > 0 || node.expanded) {
     const top = rowTop(node.rows.length);
     const cy = top + DGM.rowH / 2;
     if (usedRows.has(node.rows.length)) rows += `<rect class="dg-rowhl" data-row="${node.rows.length}" x="1" y="${num(top)}" width="${num(w - 2)}" height="${DGM.rowH}" fill="${hl}" fill-opacity="${p.isDark ? 0.28 : 0.2}"/>`;
-    if (hasToggle(node)) rows += toggleRow(node, top, w, p);
-    else rows += `<text x="${num(DGM.padX + DGM.iconW)}" y="${num(cy + 4)}" font-family="${esc(p.fontUi)}" font-size="11" font-style="italic" fill="${p.typeText}">${esc(footerText(node.hidden, node.rows.length))}</text>`;
+    if (hasToggle(node) && !opts.exporting) rows += toggleRow(node, top, w, p);
+    else if (node.hidden > 0) {
+      const note = node.capped > 0 ? moreText(node.capped) : footerText(node.hidden, node.rows.length);
+      rows += `<text x="${num(DGM.padX + DGM.iconW)}" y="${num(cy + 4)}" font-family="${esc(p.fontUi)}" font-size="11" font-style="italic" fill="${p.typeText}">${esc(note)}</text>`;
+    }
   }
 
   const schemaW = node.showSchema ? 14 + node.schema.length * 6.4 : 0;

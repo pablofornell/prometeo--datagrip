@@ -112,10 +112,22 @@ function probeColor(raw: string, under?: Rgb): Rgb | null {
   return d[3] === 0 ? null : [d[0], d[1], d[2]];
 }
 
+/** The alpha (0..1) of an `rgb()` / `rgba()` / `hsl()` / `hsla()` colour (comma, space or slash syntax); 1 when it has none. */
+export function alphaOf(input: string): number {
+  const m = /^(?:rgb|hsl)a?\((.*)\)$/i.exec(input.trim());
+  if (!m) return 1;
+  const parts = m[1].split(/[\s,/]+/).filter(Boolean);
+  if (parts.length < 4) return 1;
+  const v = parseFloat(parts[3]);
+  if (!Number.isFinite(v)) return 1;
+  return Math.min(1, Math.max(0, parts[3].endsWith("%") ? v / 100 : v));
+}
+
 /**
  * `raw` as an opaque `#rrggbb` painted over `under`, or null when it is not a colour. The theme gives hex, `rgb()`,
  * `hsl()` and translucent `color-mix(in srgb, ...)` washes; the exported SVG / PNG must hold plain sRGB values, because
- * an SVG viewer outside the app does not know `color-mix()`, `oklch()` or `var()`.
+ * an SVG viewer outside the app does not know `color-mix()`, `oklch()` or `var()`. A translucent colour (alpha in the
+ * hex, `rgba()`, `hsla()`, a wash) becomes what it looks like on `under`.
  */
 export function solidColor(raw: string, under: Rgb): string | null {
   const s = raw.trim();
@@ -125,8 +137,10 @@ export function solidColor(raw: string, under: Rgb): string | null {
   } catch {
     /* another syntax: below */
   }
-  const c = parseColor(s) ?? probeColor(s, under);
-  return c ? toHex(c) : null;
+  const c = parseColor(s);
+  if (c) return toHex([...flatten(under, { rgb: c, a: alphaOf(s) })] as Rgb);
+  const probed = probeColor(s, under);
+  return probed ? toHex(probed) : null;
 }
 
 // ---------------------------------------------------------------- resolution

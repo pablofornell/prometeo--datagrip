@@ -20,6 +20,7 @@
 import { For, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ObjectRef } from "../../api/types";
 import { ActionButton, ToolbarSeparator, type MenuItem, notify, openMenu } from "../../components/ui";
+import { startTask } from "../../state/status";
 import { theme } from "../../state/theme";
 import type { EditorTab } from "../../state/tabs";
 import { loadSchemaSnapshot, schemaSnapshotErrorFor, schemaSnapshotFor } from "../explorer";
@@ -28,9 +29,9 @@ import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus }
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
 import { DragSession } from "./drag";
 import { createSceneEngine } from "./engineClient";
-import { renderPng, saveExport, svgFileText } from "./export";
+import { diagramFontCss, embedFonts, exportFile, renderPng, svgFileText } from "./export";
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
-import { DGM, buildDiagram, prunePositions, subsetOf, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
+import { DGM, buildDiagram, hasToggle, prunePositions, subsetOf, toggleKey, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
 import type { RoutedEdge } from "./route";
 import { createScheduler } from "./scheduler";
@@ -176,7 +177,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const focus = createMemo<Focus | null>(() => hover() ?? selection(), null, { equals: sameFocus });
 
   /** The SVG of what is on screen (the scene is read untracked by the render effect: a drop patches the DOM instead). */
-  const svgString = (): string => renderDiagramSvg(model(), layout(), { columns: drawnOptions().columns, showTypes: drawnOptions().showTypes, colors: colors(), edgeLabels: edgeLabels() }, palette(), undefined, untrack(scene));
+  const svgString = (exporting = false): string =>
+    renderDiagramSvg(model(), layout(), { columns: drawnOptions().columns, showTypes: drawnOptions().showTypes, colors: colors(), edgeLabels: edgeLabels(), exporting }, palette(), undefined, untrack(scene));
 
   const reload = (): void => {
     setLoading(true);
@@ -376,16 +378,14 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   // ---------------------------------------------------------------- expanding tables past the row limit
 
-  /** Expands a table the row limit cuts, or collapses an expanded one. The layout stays: the boxes below make room. */
+  /**
+   * Expands a table the row limit cuts, or collapses an expanded one. The layout stays: the boxes below make room. The
+   * set decides, not the model on screen: that can be a job behind when the key is pressed again quickly.
+   */
   const toggleColumns = (index: number): void => {
     const node = model().nodes[index];
-    if (!node || !(node.capped > 0 || node.expanded)) return;
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (node.expanded) next.delete(node.key);
-      else next.add(node.key);
-      return next;
-    });
+    if (!node) return;
+    setExpanded((prev) => toggleKey(prev, node.key, hasToggle(node)));
   };
   const canExpandAll = createMemo(() => model().nodes.some((n) => n.capped > 0));
   const canCollapseAll = createMemo(() => model().nodes.some((n) => n.expanded));
@@ -713,18 +713,30 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const exported = (path: string | null): void => {
     if (path) notify({ kind: "success", title: "Diagram exported", body: path, timeout: 6000 });
   };
+  /** A PNG export is running (a status bar task and a busy cursor; a second one does not start). */
+  const [exporting, setExporting] = createSignal(false);
 
-  /** The diagram as it is on screen (current theme, options and table positions), without the hover / selection state. */
+  /** The diagram as it is on screen (current theme, options and table positions), without hover, selection or controls. */
   const exportSvg = (): void => {
-    const bytes = new TextEncoder().encode(svgFileText(svgString()));
-    saveExport(fileBase(), "svg", "image/svg+xml", bytes).then(exported, exportFailed);
+    const bytes = new TextEncoder().encode(svgFileText(svgString(true)));
+    exportFile(fileBase(), "svg", "image/svg+xml", async () => bytes).then(exported, exportFailed);
   };
 
+  /** The Save dialog first; then the PNG is drawn (with the bundled fonts) and written, with the busy state on. */
   const exportPng = (): void => {
+    if (exporting()) return;
+    const svg = svgString(true);
     const b = scene().bounds;
-    renderPng(svgString(), b.width, b.height, palette().background)
-      .then((bytes) => saveExport(fileBase(), "png", "image/png", bytes))
-      .then(exported, exportFailed);
+    const background = palette().background;
+    const busy = (): (() => void) => {
+      setExporting(true);
+      const task = startTask("Exporting the diagram as PNG…");
+      return () => {
+        task.done();
+        setExporting(false);
+      };
+    };
+    exportFile(fileBase(), "png", "image/png", async () => renderPng(embedFonts(svg, await diagramFontCss()), b.width, b.height, background), busy).then(exported, exportFailed);
   };
 
   const openExportMenu = (anchor: HTMLElement): void =>
@@ -819,7 +831,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const hasData = () => model().nodes.length > 0;
 
   return (
-    <div class="dgd-view">
+    <div class="dgd-view" classList={{ exporting: exporting() }}>
       <div class="dgd-toolbar" role="toolbar" aria-label="Diagram options">
         <button class="dgd-tbtn text" tabindex={-1} title="Which columns each table shows" onClick={(e) => openColumnsMenu(e.currentTarget)}>
           {COLUMN_LABEL[columnsMode()]}

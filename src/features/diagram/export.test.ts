@@ -5,7 +5,7 @@ import lightCss from "../../theme/light.css?raw";
 import extraCss from "../../styles/tokens-extra.css?raw";
 import diagramCss from "./diagram.css?raw";
 import { expandVars, type TokenMap } from "../../theme/contrast";
-import { PNG_MAX_AREA, PNG_MAX_SIDE, PNG_MIN_SCALE, XML_PROLOG, pngScale, pngSize, svgDataUrl, svgFileText } from "./export";
+import { DIAGRAM_FONTS, PNG_MAX_AREA, PNG_MAX_SIDE, PNG_MIN_SCALE, XML_PROLOG, embedFonts, exportFile, loadFontCss, pngScale, pngSize, svgDataUrl, svgFileText, type ExportTarget } from "./export";
 import { assignColors } from "./groups";
 import { layoutDiagram } from "./layout";
 import { buildDiagram } from "./model";
@@ -174,5 +174,85 @@ describe("PNG size", () => {
     expect(url.startsWith("data:image/svg+xml;charset=utf-8,")).toBe(true);
     expect(url.slice(url.indexOf(",") + 1)).not.toMatch(/[# <>"]/); // "#" would end the URL at the fragment
     expect(decodeURIComponent(url.slice(url.indexOf(",") + 1))).toContain("#1 & 100%");
+  });
+});
+
+describe("exportFile", () => {
+  const run = (choose: ExportTarget | null, make: () => Promise<Uint8Array>) => {
+    const log: string[] = [];
+    const result = exportFile(
+      "shop",
+      "png",
+      "image/png",
+      async () => {
+        log.push("make");
+        return make();
+      },
+      () => {
+        log.push("busy");
+        return () => log.push("done");
+      },
+      {
+        choose: async (name, ext) => {
+          log.push(`choose ${name}.${ext}`);
+          return choose;
+        },
+        write: async (t, mime, bytes) => {
+          log.push(`write ${t.path} ${mime} ${bytes.length}`);
+          return t.path ?? t.name;
+        },
+      },
+    );
+    return { log, result };
+  };
+
+  it("opens the Save dialog first, then makes and writes the file while busy", async () => {
+    const { log, result } = run({ name: "shop.png", path: "/tmp/shop.png" }, async () => new Uint8Array(3));
+    expect(await result).toBe("/tmp/shop.png");
+    expect(log).toEqual(["choose shop.png", "busy", "make", "write /tmp/shop.png image/png 3", "done"]);
+  });
+
+  it("makes nothing when the dialog is cancelled", async () => {
+    const { log, result } = run(null, async () => new Uint8Array(3));
+    expect(await result).toBeNull();
+    expect(log).toEqual(["choose shop.png"]);
+  });
+
+  it("ends the busy state when making the file fails", async () => {
+    const { log, result } = run({ name: "shop.png", path: "/tmp/shop.png" }, async () => {
+      throw new Error("too large");
+    });
+    await expect(result).rejects.toThrow("too large");
+    expect(log).toEqual(["choose shop.png", "busy", "make", "done"]);
+  });
+});
+
+describe("fonts of the PNG", () => {
+  it("are the bundled faces the diagram draws with", () => {
+    expect(DIAGRAM_FONTS.map((f) => `${f.family} ${f.weight} ${f.style}`)).toEqual(["Inter 400 normal", "Inter 400 italic", "Inter 600 normal", "JetBrains Mono 400 normal", "JetBrains Mono 700 normal"]);
+    for (const f of DIAGRAM_FONTS) expect(f.url).toMatch(/\.ttf/);
+  });
+
+  it("go into the SVG as @font-face rules with data: URLs, and the SVG stays well-formed", async () => {
+    const css = await loadFontCss(async (url) => `data:font/ttf;base64,${btoa(url)}`);
+    expect(css.match(/@font-face/g)).toHaveLength(DIAGRAM_FONTS.length);
+    expect(css).toContain('font-family:"JetBrains Mono"');
+    expect(css).toContain("src:url(data:font/ttf;base64,");
+    const model = buildDiagram(shopSchema(), { columns: "all", showTypes: true });
+    const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, exporting: true }, resolvePalette(computedStyle("dark")));
+    const withFonts = embedFonts(svg, css);
+    expect(withFonts.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
+    expect(withFonts).toContain(`<style>${css}`);
+    expect(checkXml(withFonts).root).toBe("svg");
+    expect(embedFonts('<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>', css)).toBe(`<svg xmlns="http://www.w3.org/2000/svg"><style>${css}</style><g/></svg>`);
+    expect(embedFonts(svg, "")).toBe(svg);
+  });
+
+  it("are left out when a font file cannot be read (the fallback fonts draw the PNG)", async () => {
+    expect(
+      await loadFontCss(async () => {
+        throw new Error("404");
+      }),
+    ).toBe("");
   });
 });

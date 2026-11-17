@@ -193,6 +193,24 @@ describe("renderDiagramSvg", () => {
   });
 });
 
+describe("exported SVG of a table past the row limit", () => {
+  const wide: DiagramInputObject = { schema: "s", name: "wide", kind: "table", columns: Array.from({ length: 60 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
+
+  it("has a plain note instead of the expand control", () => {
+    const model = buildDiagram([wide], opts);
+    const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, exporting: true }, palette);
+    expect(svg).toContain(`>+${60 - DGM.maxRows} more columns<`);
+    for (const control of ["data-toggle", 'role="button"', "Show ", "Expand the table"]) expect(svg).not.toContain(control);
+  });
+
+  it("draws nothing in the collapse row of an expanded table", () => {
+    const model = buildDiagram([wide], { ...opts, expanded: new Set([nodeKey("s", "wide")]) });
+    const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, exporting: true }, palette);
+    expect(svg).toContain(">c59<");
+    for (const control of ["data-toggle", 'role="button"', "Show fewer", "more column", "Collapse"]) expect(svg).not.toContain(control);
+  });
+});
+
 describe("buildScene after a table is expanded", () => {
   const wide = (name: string, fks: DiagramInputObject["foreignKeys"] = []): DiagramInputObject => ({
     schema: "s",
@@ -231,6 +249,24 @@ describe("buildScene after a table is expanded", () => {
     expect(after.routes.filter(Boolean)).toHaveLength(before.routes.filter(Boolean).length);
     expect(after.rects.filter((r, j) => r.y > before.rects[j].y).length).toBeGreaterThan(0);
     expect(after.bounds.height).toBeGreaterThanOrEqual(before.bounds.height);
+  });
+
+  it("Expand All, Re-layout, Collapse All: the boxes below the collapsed tables move up, nothing overlaps", () => {
+    const keys = new Set([nodeKey("s", "w_child"), nodeKey("s", "w_parent")]);
+    const open = buildDiagram(objects, { ...opts, expanded: keys });
+    const layout = layoutDiagram(open, { direction: "TB" }); // laid out with the tables expanded, the child below the parent
+    const closed = buildDiagram(objects, opts);
+    const after = buildScene(closed, layout);
+    const home = buildScene(open, layout);
+    expect(after.rects.some((r, j) => r.y < home.rects[j].y)).toBe(true);
+    after.rects.forEach((r, j) => expect(r.y).toBeLessThanOrEqual(home.rects[j].y));
+    for (let a = 0; a < after.rects.length; a++)
+      for (let b = a + 1; b < after.rects.length; b++) {
+        const p = after.rects[a];
+        const q = after.rects[b];
+        expect(p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h, `${a} and ${b} overlap`).toBe(false);
+      }
+    expect(after.bounds.height).toBeLessThan(home.bounds.height);
   });
 
   it("collapsing again gives back the same scene", () => {

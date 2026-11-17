@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FALLBACK_FONT_MONO, FALLBACK_FONT_UI, FALLBACK_RAINBOW_DARK, FALLBACK_RAINBOW_LIGHT, contrast, inkOn, luminance, mix, parseColor, resolvePalette } from "./palette";
+import { FALLBACK_FONT_MONO, FALLBACK_FONT_UI, FALLBACK_RAINBOW_DARK, FALLBACK_RAINBOW_LIGHT, alphaOf, contrast, inkOn, luminance, mix, parseColor, resolvePalette } from "./palette";
 
 const read = (vars: Record<string, string>) => (name: string): string => vars[name] ?? "";
 
@@ -32,6 +32,27 @@ describe("resolvePalette", () => {
     expect(p.selection).toBe("#ff0000");
     expect(p.headerFg).toBe("#abcdef");
     expect(p.nodeBorder).toBe("#33353b"); // not a colour: the fallback
+  });
+
+  it("keeps the alpha of rgba() and hsla() values: they are flattened onto the surface under them", () => {
+    const p = resolvePalette(
+      read({
+        "--dg-editor-bg": "#000000",
+        "--dg-island-bg": "#ffffff",
+        "--dg-layer-1-bg": "rgba(0, 0, 255, 0.5)",
+        "--dg-accent": "rgb(255 0 0 / 50%)",
+        "--dg-text": "hsla(0, 0%, 0%, 0.25)",
+        "--dg-grid-fg": "#0000ff80",
+      }),
+    );
+    expect(p.headerBg).toBe("#8080ff"); // on the white card
+    expect(p.selection).toBe("#800000"); // on the black canvas
+    expect(p.headerFg).toBe("#bfbfbf");
+    expect(p.text).toBe("#7f7fff");
+    expect(alphaOf("rgba(1, 2, 3, 0.4)")).toBe(0.4);
+    expect(alphaOf("hsl(120 100% 25% / 30%)")).toBe(0.3);
+    expect(alphaOf("rgb(1, 2, 3)")).toBe(1);
+    expect(alphaOf("#ffffff")).toBe(1);
   });
 
   it("falls back to concrete fonts when the variables are missing", () => {

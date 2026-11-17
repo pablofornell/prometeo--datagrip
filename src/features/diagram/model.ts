@@ -151,12 +151,27 @@ export function displayRows<T extends DiagramColumn>(columns: readonly T[], mode
 /** Text of the footer row that stands in for the columns the box does not draw. */
 export const footerText = (hidden: number, shown: number): string => (shown === 0 ? `${hidden} column${hidden === 1 ? "" : "s"}` : `+${hidden} more`);
 
+/** Text of the footer row of a box the row limit cut, in an exported file (where it is not a control). */
+export const moreText = (capped: number): string => `+${capped} more column${capped === 1 ? "" : "s"}`;
+
 /** Text of the footer row that expands a box the row limit cut (`capped` columns), or collapses it again. */
 export const toggleText = (capped: number, expanded: boolean): string =>
   expanded ? "Show fewer columns" : `Show ${capped} more column${capped === 1 ? "" : "s"}`;
 
 /** The box has a last row that expands or collapses it (the row limit cuts it, or it is expanded). */
 export const hasToggle = (node: Pick<DiagramNode, "capped" | "expanded">): boolean => node.capped > 0 || node.expanded;
+
+/**
+ * The expanded set with `key` toggled: removed when it is in the set, else added when the table can expand
+ * (`expandable`). Decided on the set itself, so two quick toggles always cancel out.
+ */
+export function toggleKey(expanded: ReadonlySet<string>, key: string, expandable: boolean): ReadonlySet<string> {
+  if (!expanded.has(key) && !expandable) return expanded;
+  const next = new Set(expanded);
+  if (expanded.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
+}
 
 /** Top of row `j` (0-based, the footer row is `rows.length`) relative to the box. */
 export const rowTop = (j: number): number => DGM.headerH + j * DGM.rowH;

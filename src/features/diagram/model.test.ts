@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DGM, buildDiagram, clip, displayRows, footerText, hasToggle, measureTable, nodeKey, prunePositions, subsetOf, toggleText, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
+import { DGM, buildDiagram, clip, displayRows, footerText, hasToggle, measureTable, nodeKey, prunePositions, subsetOf, toggleKey, toggleText, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -199,6 +199,18 @@ describe("expanding a table past the row limit", () => {
     expect(toggleText(32, false)).toBe("Show 32 more columns");
     expect(toggleText(1, false)).toBe("Show 1 more column");
     expect(toggleText(0, true)).toBe("Show fewer columns");
+  });
+});
+
+describe("toggleKey", () => {
+  it("decides on the set: two quick toggles cancel out, whatever the model on screen says", () => {
+    const none: ReadonlySet<string> = new Set();
+    const once = toggleKey(none, "s\u0000big", true);
+    expect([...once]).toEqual(["s\u0000big"]);
+    // the second toggle comes while the model on screen still shows the box collapsed (expandable)
+    expect([...toggleKey(once, "s\u0000big", true)]).toEqual([]);
+    expect(toggleKey(none, "s\u0000small", false)).toBe(none); // nothing to expand
+    expect([...toggleKey(once, "s\u0000big", false)]).toEqual([]); // an expanded key always collapses
   });
 });
 
