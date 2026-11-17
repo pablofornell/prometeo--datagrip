@@ -91,7 +91,7 @@ export const PAGES: PageNode[] = [
           {
             id: "editor.general.appearance",
             title: "Appearance",
-            keywords: ["Code Structure", "Show line numbers", "line numbers", "gutter", "Show indent guides"],
+            keywords: ["Code Structure", "Show line numbers", "line numbers", "gutter", "Show indent guides", "Mouse Control", "Change font size with Ctrl+Mouse Wheel", "zoom"],
           },
         ],
       },

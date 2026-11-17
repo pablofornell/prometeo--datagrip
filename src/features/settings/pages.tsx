@@ -194,6 +194,15 @@ export function EditorAppearancePage(props: { draft: Draft }) {
           />
         </Row>
       </Section>
+      <Section title="Mouse Control" q={d().query()}>
+        <Row>
+          <Checkbox
+            checked={d().values.editorWheelZoom}
+            onChange={(c) => d().set("editorWheelZoom", c)}
+            label={<L q={d().query()}>Change font size with Ctrl+Mouse Wheel</L>}
+          />
+        </Row>
+      </Section>
     </div>
   );
 }

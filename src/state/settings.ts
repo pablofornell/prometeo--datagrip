@@ -18,6 +18,8 @@ export interface Settings {
   gridPageSize: number;
   /** Editor font size in px (DataGrip default 13). */
   editorFontSize: number;
+  /** Ctrl (Cmd on macOS) + mouse wheel over a script editor changes `editorFontSize` (JetBrains: Change font size with Ctrl+Mouse Wheel). */
+  editorWheelZoom: boolean;
   /** Editor line height multiplier (DataGrip default 1.2). */
   editorLineHeight: number;
   /** Show line numbers in the SQL editor. */
@@ -67,6 +69,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   gridPageSize: 500,
   editorFontSize: 13,
+  editorWheelZoom: true,
   editorLineHeight: 1.2,
   editorLineNumbers: true,
   gridNullText: "<null>",
