@@ -48,8 +48,8 @@ impl ErrorInfo {
         client: &Client,
     ) -> Result<ErrorInfo, Error> {
         resp.deserialize_status()?;
-        let _current_row_num = resp.read_ub4()?;
-        let _error_num_short = resp.read_ub2()?;
+        let current_row_num = resp.read_ub4()?;
+        let error_num_short = resp.read_ub2()?;
         let _array_elem_error_1 = resp.read_ub2()?;
         let _array_elem_error_2 = resp.read_ub2()?;
         let cursor_id = resp.read_ub2()?;
@@ -68,6 +68,22 @@ impl ErrorInfo {
         let _success_iters = resp.read_ub4()?;
         if resp.read_ub4()? > 0 {
             let _logical_rowid = resp.read_bytes_with_length()?;
+        }
+        // before 12.1 (10g / 11g servers) three length-prefixed fields follow
+        // and the error number and row count are the short ones read above
+        if !client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_1)
+        {
+            for _ in 0..3 {
+                let _ = resp.read_bytes_with_double_length()?;
+            }
+            return Self::finish(
+                resp,
+                cursor_id,
+                flags,
+                current_row_num as u64,
+                error_num_short as u32,
+                error_pos,
+            );
         }
         if resp.read_ub2()? > 0 {
             // batch errors
@@ -88,6 +104,19 @@ impl ErrorInfo {
             let _sql_type = resp.read_ub4()?;
             let _server_checksum = resp.read_ub4()?;
         }
+        Self::finish(resp, cursor_id, flags, rowcount, error_num, error_pos)
+    }
+
+    /// Reads the error message (when there is an error) and builds the
+    /// structure.
+    fn finish(
+        resp: &mut Response,
+        cursor_id: u16,
+        flags: u8,
+        rowcount: u64,
+        error_num: u32,
+        error_pos: u16,
+    ) -> Result<ErrorInfo, Error> {
         let db_error = if error_num == 0 {
             None
         } else {

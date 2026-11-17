@@ -131,6 +131,7 @@ pub struct Capabilities {
     supports_request_boundaries: bool,
     supports_end_user_security_context: bool,
     supports_ha_readiness: bool,
+    supports_big_chunks: bool,
 }
 
 impl Capabilities {
@@ -149,10 +150,16 @@ impl Capabilities {
     }
 
     pub fn adjust_for_server_compile_caps(&mut self, caps: &[u8]) {
-        if caps[CCAP_IX_FIELD_VERSION] < self.ttc_field_version {
-            self.ttc_field_version = caps[CCAP_IX_FIELD_VERSION];
+        let field_version =
+            caps.get(CCAP_IX_FIELD_VERSION).copied().unwrap_or(0);
+        if field_version < self.ttc_field_version {
+            self.ttc_field_version = field_version;
             self.compile_caps[CCAP_IX_FIELD_VERSION] = self.ttc_field_version;
         }
+        // 10g / 11g servers do not have big chunks: the chunks of long
+        // values have one-byte lengths
+        self.supports_big_chunks = caps.len() > CCAP_IX_TTC3
+            && caps[CCAP_IX_TTC3] & CCAP_VAL_BIG_CHUNK_CLR != 0;
         if caps.len() > CCAP_IX_TTC4
             && caps[CCAP_IX_TTC4] & CCAP_VAL_EXPLICIT_BOUNDARY != 0
         {
@@ -173,12 +180,15 @@ impl Capabilities {
     }
 
     pub fn adjust_for_server_runtime_caps(&mut self, caps: &[u8]) {
-        if caps[RCAP_IX_TTC] & RCAP_VAL_TTC_32K != 0 {
+        // 10g sends 5 runtime capabilities only: no TTC byte, so no 32k
+        // strings and no session state operations
+        let ttc = caps.get(RCAP_IX_TTC).copied().unwrap_or(0);
+        if ttc & RCAP_VAL_TTC_32K != 0 {
             self.max_string_size = 32767;
         } else {
             self.max_string_size = 4000;
         }
-        if caps[RCAP_IX_TTC] & RCAP_VAL_TTC_SESSION_STATE_OPS == 0 {
+        if ttc & RCAP_VAL_TTC_SESSION_STATE_OPS == 0 {
             self.supports_request_boundaries = false;
         }
     }
@@ -264,6 +274,7 @@ impl Capabilities {
             supports_request_boundaries: false,
             supports_end_user_security_context: false,
             supports_ha_readiness: false,
+            supports_big_chunks: true,
         };
         caps.init_compile_caps();
         caps.init_runtime_caps();
@@ -302,6 +313,12 @@ impl Capabilities {
     /// Returns whether the connection supports setting request boundaries.
     pub fn supports_request_boundaries(&self) -> bool {
         self.supports_request_boundaries
+    }
+
+    /// Returns whether the chunks of long values have UB4 lengths (false for
+    /// 10g / 11g servers: one-byte lengths).
+    pub fn supports_big_chunks(&self) -> bool {
+        self.supports_big_chunks
     }
 
     pub fn supports_ttc_field_version(&self, version: u8) -> bool {

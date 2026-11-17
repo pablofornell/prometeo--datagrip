@@ -34,6 +34,9 @@ use crate::db_type::DbType;
 
 pub struct WriteBuffer {
     buf: Vec<u8>,
+    /// Write the chunks of long values with one-byte lengths (servers without
+    /// the big chunk capability, 10g / 11g).
+    small_chunks: bool,
 }
 
 impl WriteBuffer {
@@ -54,7 +57,12 @@ impl WriteBuffer {
 
     /// Creates a new instance.
     pub fn new() -> Self {
-        Self { buf: Vec::<u8>::new() }
+        Self { buf: Vec::<u8>::new(), small_chunks: false }
+    }
+
+    /// Sets whether the chunks of long values have one-byte lengths.
+    pub fn set_small_chunks(&mut self, value: bool) {
+        self.small_chunks = value;
     }
 
     /// Reserves the specified number of bytes in the buffer for later use. The
@@ -94,6 +102,17 @@ impl WriteBuffer {
             self.write_u8(constants::TTC_LONG_LENGTH_INDICATOR);
             let mut remaining_data = value;
             while num_bytes > 0 {
+                if self.small_chunks {
+                    let chunk_len = std::cmp::min(
+                        num_bytes,
+                        constants::TTC_SMALL_CHUNK_SIZE,
+                    );
+                    self.write_u8(chunk_len.try_into().unwrap());
+                    self.buf.extend(&remaining_data[..chunk_len]);
+                    remaining_data = &remaining_data[chunk_len..];
+                    num_bytes -= chunk_len;
+                    continue;
+                }
                 let chunk_len =
                     std::cmp::min(num_bytes, constants::TTC_CHUNK_SIZE);
                 self.write_ub4(chunk_len.try_into().unwrap());
@@ -101,7 +120,11 @@ impl WriteBuffer {
                 remaining_data = &remaining_data[chunk_len..];
                 num_bytes -= chunk_len;
             }
-            self.write_ub4(0);
+            if self.small_chunks {
+                self.write_u8(0);
+            } else {
+                self.write_ub4(0);
+            }
         }
     }
 

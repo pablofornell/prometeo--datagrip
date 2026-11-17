@@ -476,6 +476,14 @@ impl Transport {
         self.max_packet_size = size;
     }
 
+    /// Lowers the size of the packets that are sent to the SDU the server
+    /// accepted, if that is smaller. The receive buffer keeps its size.
+    pub(crate) fn limit_send_packet_size(&mut self, sdu: usize) {
+        if sdu >= 512 && sdu < self.max_packet_size {
+            self.max_packet_size = sdu;
+        }
+    }
+
     /// Sets the read timeout for the transport.
     pub(crate) fn set_read_timeout(
         &self,

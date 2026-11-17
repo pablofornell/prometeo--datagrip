@@ -67,6 +67,7 @@ pub(crate) struct Response {
     call_status: u32,
     end_of_fetch: bool,
     flush_out_binds: bool,
+    small_chunks: bool,
 }
 
 impl Response {
@@ -109,6 +110,7 @@ impl Response {
     pub(crate) fn add_packets(&mut self, packets: Vec<Packet>) {
         self.packets.extend(packets);
         self.buf = ReadBuffer::from_packets(&self.packets);
+        self.buf.set_small_chunks(self.small_chunks);
         self.error_info = None;
         self.edition = None;
         self.current_schema = None;
@@ -451,7 +453,15 @@ impl Response {
             call_status: 0,
             end_of_fetch: false,
             flush_out_binds: false,
+            small_chunks: false,
         }
+    }
+
+    /// Sets whether the chunks of long values have one-byte lengths (servers
+    /// without the big chunk capability). Call before packets are added.
+    pub(crate) fn set_small_chunks(&mut self, value: bool) {
+        self.small_chunks = value;
+        self.buf.set_small_chunks(value);
     }
 
     pub(crate) fn process_keyword_value_pairs(

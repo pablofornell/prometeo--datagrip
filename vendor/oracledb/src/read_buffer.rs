@@ -37,6 +37,9 @@ use crate::packet::Packet;
 pub(crate) struct ReadBuffer {
     buf: Vec<u8>,
     pos: usize,
+    /// The chunks of long values have one-byte lengths (servers without the
+    /// big chunk capability, 10g / 11g) instead of UB4 lengths.
+    small_chunks: bool,
 }
 
 impl ReadBuffer {
@@ -79,7 +82,7 @@ impl ReadBuffer {
     /// Creates and returns a new ReadBuffer struct given a slice. The slice is
     /// copied so that the original source need not be retained.
     pub(crate) fn from_bytes(bytes: &[u8]) -> ReadBuffer {
-        ReadBuffer { buf: bytes.to_vec(), pos: 0 }
+        ReadBuffer { buf: bytes.to_vec(), pos: 0, small_chunks: false }
     }
 
     /// Creates and returns a new ReadBuffer struct given a series of packets.
@@ -88,7 +91,12 @@ impl ReadBuffer {
         for packet in packets {
             buf.extend_from_slice(&packet.buf);
         }
-        ReadBuffer { buf, pos: 0 }
+        ReadBuffer { buf, pos: 0, small_chunks: false }
+    }
+
+    /// Sets whether the chunks of long values have one-byte lengths.
+    pub(crate) fn set_small_chunks(&mut self, value: bool) {
+        self.small_chunks = value;
     }
 
     /// Gets the current position in the buffer.
@@ -134,7 +142,11 @@ impl ReadBuffer {
         } else {
             let mut output = Vec::<u8>::new();
             loop {
-                let num_bytes = self.read_ub4()?;
+                let num_bytes = if self.small_chunks {
+                    self.read_u8()? as u32
+                } else {
+                    self.read_ub4()?
+                };
                 if num_bytes == 0 {
                     break;
                 }

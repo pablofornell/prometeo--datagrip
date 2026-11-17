@@ -91,8 +91,25 @@ impl ConnectMessage<'_> {
         resp: &mut Response,
     ) -> Result<(), Error> {
         self.protocol_version = resp.read_u16be()?;
-        if self.protocol_version < constants::PROTOCOL_VERSION_12 {
+        if self.protocol_version < constants::PROTOCOL_VERSION_MIN_ACCEPTED {
             return Err(Error::server_version_not_supported());
+        }
+        // 10g / 11g (protocol 313 / 314): the accept packet ends after the
+        // NSI flags and the SDU is the 16-bit value after the service options
+        if self.protocol_version < constants::PROTOCOL_VERSION_12 {
+            resp.advance(2)?;
+            self.sdu = resp.read_u16be()? as u32;
+            resp.advance(8)?;
+            let flags1: u8 = resp.read_u8()?;
+            if flags1 & NSI_NA_REQUIRED != 0 {
+                return Err(Error::not_implemented(
+                    "native network encryption or data integrity required \
+                     by the server"
+                        .to_string(),
+                ));
+            }
+            self.accepted = true;
+            return Ok(());
         }
         resp.advance(12)?;
         let flags1: u8 = resp.read_u8()?;
