@@ -3,7 +3,7 @@ import { For, Show, createSignal } from "solid-js";
 import { Checkbox, ComboBox, Icon, TextField } from "../../components/ui";
 import { SqlEditor } from "../../components/editor";
 import { UI_SCALE_VALUES } from "../../state/appearance";
-import { DEFAULT_SETTINGS } from "../../state/settings";
+import { DEFAULT_SETTINGS, EDITOR_FONT_MAX, EDITOR_FONT_MIN } from "../../state/settings";
 import { SCHEME_LABEL, type SchemeId } from "../../state/colorScheme";
 import type { ThemePref } from "../../state/theme";
 import type { PageNode } from "./model";
@@ -145,7 +145,7 @@ export function EditorFontPage(props: { draft: Draft }) {
           <span class="st-label st-label-narrow">
             <L q={q()}>Size:</L>
           </span>
-          <NumberField narrow value={d().values.editorFontSize} min={8} max={40} decimals={1} step={1} onChange={(n) => d().set("editorFontSize", n)} />
+          <NumberField narrow value={d().values.editorFontSize} min={EDITOR_FONT_MIN} max={EDITOR_FONT_MAX} decimals={1} step={1} onChange={(n) => d().set("editorFontSize", n)} />
           <span class="st-label st-label-inline">
             <L q={q()}>Line height:</L>
           </span>
@@ -164,6 +164,7 @@ export function EditorFontPage(props: { draft: Draft }) {
             gutter={false}
             stripe={false}
             statementFrame={false}
+            wheelZoom={false}
             fontSize={d().values.editorFontSize}
             lineHeight={d().values.editorLineHeight}
           />
@@ -191,6 +192,15 @@ export function EditorAppearancePage(props: { draft: Draft }) {
             checked={d().values.editorIndentGuides}
             onChange={(c) => d().set("editorIndentGuides", c)}
             label={<L q={d().query()}>Show indent guides</L>}
+          />
+        </Row>
+      </Section>
+      <Section title="Mouse Control" q={d().query()}>
+        <Row>
+          <Checkbox
+            checked={d().values.editorWheelZoom}
+            onChange={(c) => d().set("editorWheelZoom", c)}
+            label={<L q={d().query()}>Change font size with Ctrl+Mouse Wheel</L>}
           />
         </Row>
       </Section>

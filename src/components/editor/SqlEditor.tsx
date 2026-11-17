@@ -18,7 +18,7 @@ import {
 } from "@codemirror/view";
 import { type Component, createEffect, on, onCleanup, onMount } from "solid-js";
 import { getAction, isActionEnabled, runAction } from "../../state/actions";
-import { editorMetrics, settings } from "../../state/settings";
+import { editorMetrics, settings, updateSettings } from "../../state/settings";
 import "./editor.css";
 import { autoParameterInfo, clipRecorder, completeStatement, duplicate, extendSelection, goToLine, moveLine, moveStatement, parameterInfo, parameterInfoExtension, pasteFromHistory, shiftTab, shrinkSelection, tabIndent, toggleBlock } from "./commands";
 import { sqlCompletion } from "./complete";
@@ -41,6 +41,7 @@ import { sqlSearch } from "./search";
 import { configField, errorsField, execMarksField, problemsField, setConfig, setErrors, setExecMarks } from "./state";
 import { stripeExtension } from "./stripe";
 import type { ExecuteRequest, Range, SqlEditorHandle, SqlEditorProps } from "./types";
+import { wheelZoomExtension } from "./wheelZoom";
 
 /** Minimal replace of `a` by `b`: keeps unchanged prefix and suffix so the caret and undo stay sane. */
 function diffChange(a: string, b: string): { from: number; to: number; insert: string } | null {
@@ -309,6 +310,16 @@ export const SqlEditor: Component<SqlEditorProps> = (props) => {
             return true;
           },
         }),
+        // Ctrl+wheel changes the global editor font size; not in one-line fields, nor where `wheelZoom` is false (Settings previews)
+        ...(single
+          ? []
+          : [
+              wheelZoomExtension({
+                enabled: () => settings.editorWheelZoom && props.wheelZoom !== false,
+                size: () => settings.editorFontSize,
+                setSize: (n) => updateSettings({ editorFontSize: n }),
+              }),
+            ]),
         statementFrame,
         ...(props.stripe !== false && !single ? [stripeExtension()] : []),
         sqlCompletion(),

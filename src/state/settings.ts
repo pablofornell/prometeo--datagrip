@@ -13,11 +13,17 @@ import { EMPTY_OVERRIDES, type SchemeId, type SchemeOverrides, sanitizeOverrides
 import { loadLocal, saveUiState } from "./persist";
 import { theme } from "./theme";
 
+/** Allowed editor font size in px: the settings file import, the font size actions and the Ctrl+wheel zoom keep to this range. */
+export const EDITOR_FONT_MIN = 8;
+export const EDITOR_FONT_MAX = 48;
+
 export interface Settings {
   /** Rows fetched per page in result and table grids (DataGrip default 500). 0 = all. */
   gridPageSize: number;
   /** Editor font size in px (DataGrip default 13). */
   editorFontSize: number;
+  /** Ctrl (Cmd on macOS) + mouse wheel over a script editor changes `editorFontSize` (JetBrains: Change font size with Ctrl+Mouse Wheel). */
+  editorWheelZoom: boolean;
   /** Editor line height multiplier (DataGrip default 1.2). */
   editorLineHeight: number;
   /** Show line numbers in the SQL editor. */
@@ -67,6 +73,7 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   gridPageSize: 500,
   editorFontSize: 13,
+  editorWheelZoom: true,
   editorLineHeight: 1.2,
   editorLineNumbers: true,
   gridNullText: "<null>",

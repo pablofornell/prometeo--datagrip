@@ -7,7 +7,7 @@
 import { sanitizeUiScale } from "../../state/appearance";
 import { type SchemeOverrides, sanitizeOverrides } from "../../state/colorScheme";
 import type { LayoutState, ToolWindowAnchor } from "../../state/layout";
-import type { Settings } from "../../state/settings";
+import { EDITOR_FONT_MAX, EDITOR_FONT_MIN, type Settings } from "../../state/settings";
 import type { ThemePref } from "../../state/theme";
 
 export interface SettingsBundle {
@@ -51,7 +51,7 @@ const INTEGERS: readonly string[] = ["gridPageSize", "editorFontSize", "uiFontSi
 /** Allowed range of the settings that are a number. */
 const RANGES: Partial<Record<keyof Settings, [number, number]>> = {
   gridPageSize: [0, 1_000_000],
-  editorFontSize: [8, 48],
+  editorFontSize: [EDITOR_FONT_MIN, EDITOR_FONT_MAX],
   editorLineHeight: [1, 3],
   uiFontSize: [8, 32],
   dataSourceColorIntensity: [25, 200],
