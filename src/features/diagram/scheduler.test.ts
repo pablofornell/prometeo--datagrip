@@ -90,6 +90,14 @@ describe("planJob", () => {
     expect(planJob(shown, { ...shown, model: model() })).toEqual({ action: "run", reuseLayout: false });
   });
 
+  it("reuses the layout for a new model with the same layout key (a table was expanded)", () => {
+    const key = {};
+    const shown = inputs({ layoutKey: key });
+    expect(planJob(shown, { ...shown, model: model() })).toEqual({ action: "run", reuseLayout: true });
+    expect(planJob(shown, { ...shown, model: model(), layoutKey: {} })).toEqual({ action: "run", reuseLayout: false });
+    expect(planJob(shown, { ...shown, model: model(), direction: "TB" })).toEqual({ action: "run", reuseLayout: false });
+  });
+
   it("an emptied model still replaces a diagram that is on screen", () => {
     expect(planJob(inputs(), inputs({ model: empty() }))).toEqual({ action: "run", reuseLayout: false });
   });

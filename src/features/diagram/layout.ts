@@ -675,3 +675,70 @@ export function resolveDrop(
   }
   return { x: x0, y: y0 };
 }
+
+// ---------------------------------------------------------------- expanding / collapsing a box
+
+/** A box of the diagram (top-left corner and size), as the scene holds it. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Clear space kept between two boxes that `reflowBoxes` moves apart (the same as around a dropped box). */
+const REFLOW_GAP = G * 2;
+
+/**
+ * The boxes after some tables changed size without a new layout (a table was expanded or collapsed). `home` are the
+ * boxes as they were laid out (and dragged), with the sizes of the layout; `sizes` the new sizes, in the same order.
+ * Every box keeps its x. A box keeps its vertical gap to the box right above it in its column, so the boxes below a
+ * table move down by as much as it grew, and up by as much as it shrank below its laid-out height (Expand All,
+ * Re-layout, Collapse All leaves no holes). The result depends on `home` and `sizes` only, so going back to the old
+ * sizes gives back the old boxes. A `pinned` box (the user moved it) stays where it was put, unless a box now covers
+ * it. Afterwards no two boxes that share a column overlap. `home` itself when no size changed.
+ */
+export function reflowBoxes(home: Box[], sizes: readonly { width: number; height: number }[], pinned: (i: number) => boolean = () => false): Box[] {
+  if (home.every((r, i) => r.w === sizes[i].width && r.h === sizes[i].height)) return home;
+  const order = home.map((_, i) => i).sort((a, b) => home[a].y - home[b].y || home[a].x - home[b].x || a - b);
+  const out: Box[] = new Array(home.length);
+  const placed: number[] = [];
+  const across = (a: Box, b: Box): boolean => a.x < b.x + b.w && b.x < a.x + a.w;
+  /** `a` is fully above `b`, and they share a column. */
+  const above = (a: Box, b: Box): boolean => across(a, b) && a.y + a.h <= b.y;
+  for (const i of order) {
+    const h0 = home[i];
+    const box: Box = { x: h0.x, y: h0.y, w: sizes[i].width, h: sizes[i].height };
+    if (!pinned(i)) {
+      // It follows the box right above it in its column (also a pinned one; with ties, the lowest after the reflow),
+      // up or down, at the same gap. Boxes further up only keep it clear (below).
+      let nearest = -Infinity;
+      let follow = -Infinity;
+      for (const j of placed) {
+        if (!above(home[j], h0)) continue;
+        const bottom = home[j].y + home[j].h;
+        const y = out[j].y + out[j].h + (h0.y - bottom);
+        if (bottom > nearest) [nearest, follow] = [bottom, y];
+        else if (bottom === nearest) follow = Math.max(follow, y);
+      }
+      if (follow > -Infinity) box.y = follow;
+    }
+    // Then below every box it would cover (a box that grew, a pinned box in the way). A gap of the home layout that is
+    // smaller than the reflow gap stays as it is.
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const j of placed) {
+        const o = out[j];
+        if (!across(o, box)) continue;
+        const gap = above(home[j], h0) ? Math.min(REFLOW_GAP, h0.y - home[j].y - home[j].h) : REFLOW_GAP;
+        if (box.y < o.y + o.h + gap && o.y < box.y + box.h + gap) {
+          box.y = o.y + o.h + gap;
+          moved = true;
+        }
+      }
+    }
+    out[i] = box;
+    placed.push(i);
+  }
+  return out;
+}

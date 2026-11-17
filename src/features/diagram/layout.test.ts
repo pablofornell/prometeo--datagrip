@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDiagram, DGM, type ColumnsMode, type DiagramInputObject, type DiagramOptions } from "./model";
-import { LOOP_ROOM, layoutDiagram, packItems, resolveDrop, type Direction, type LayoutResult } from "./layout";
+import { LOOP_ROOM, layoutDiagram, packItems, reflowBoxes, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { randomSchema, rng, shopSchema } from "./sample";
 import { budget } from "./bench";
 
@@ -172,5 +172,80 @@ describe("resolveDrop", () => {
     expect(overlaps({ ...p, ...size }, others[0])).toBe(false);
     expect(p.x % DGM.grid).toBe(0);
     expect(p.y % DGM.grid).toBe(0);
+  });
+});
+
+describe("reflowBoxes", () => {
+  // a column of three boxes, a box beside the column, and a box below all of them
+  const home = () => [
+    { x: 0, y: 0, w: 100, h: 100 },
+    { x: 0, y: 140, w: 100, h: 60 },
+    { x: 0, y: 240, w: 100, h: 60 },
+    { x: 200, y: 0, w: 100, h: 300 },
+    { x: 50, y: 400, w: 200, h: 40 },
+  ];
+  const sizes = (boxes: { w: number; h: number }[], over: Record<number, number> = {}) => boxes.map((b, i) => ({ width: b.w, height: over[i] ?? b.h }));
+
+  it("gives back the same boxes when no size changed", () => {
+    const h = home();
+    expect(reflowBoxes(h, sizes(h))).toBe(h);
+  });
+
+  it("moves the boxes below a grown box down by as much as it grew, and nothing beside it", () => {
+    const h = home();
+    const out = reflowBoxes(h, sizes(h, { 0: 300 }));
+    expect(out.map((b) => b.y)).toEqual([0, 340, 440, 0, 600]);
+    expect(out.map((b) => b.x)).toEqual(h.map((b) => b.x));
+    expect(out[0].h).toBe(300);
+  });
+
+  it("depends on the home boxes and the sizes only: back at the home sizes, the boxes are home again", () => {
+    const h = home();
+    const snapshot = JSON.stringify(h);
+    expect(reflowBoxes(h, sizes(h, { 0: 300, 1: 200 })).map((b) => b.y)).toEqual([0, 340, 580, 0, 740]);
+    expect(JSON.stringify(h)).toBe(snapshot); // the home boxes are not touched
+    expect(reflowBoxes(h, sizes(h, { 1: 200 })).map((b) => b.y)).toEqual([0, 140, 380, 0, 540]);
+    expect(reflowBoxes(h, sizes(h))).toBe(h);
+  });
+
+  it("moves the boxes below a table up when it is smaller than it was laid out (expanded, re-laid out, collapsed)", () => {
+    const h = home();
+    // the box below the whole column also stays clear of the box beside the column, which did not move
+    expect(reflowBoxes(h, sizes(h, { 0: 40 })).map((b) => b.y)).toEqual([0, 80, 180, 0, 400]);
+    expect(reflowBoxes(h, sizes(h, { 0: 40, 3: 100 })).map((b) => b.y)).toEqual([0, 80, 180, 0, 340]);
+  });
+
+  it("keeps pinned boxes where they are when the boxes above them shrink, and the boxes below them follow them", () => {
+    const h = home();
+    const out = reflowBoxes(h, sizes(h, { 0: 40 }), (i) => i === 1);
+    expect(out.map((b) => b.y)).toEqual([0, 140, 240, 0, 400]);
+  });
+
+  it("keeps a pinned box where the user put it unless a box now covers it", () => {
+    const h = home();
+    const pinned = (i: number) => i === 2;
+    expect(reflowBoxes(h, sizes(h, { 0: 120 }), pinned)[2].y).toBe(240); // the column grew by 20: still clear
+    const out = reflowBoxes(h, sizes(h, { 0: 300 }), pinned);
+    expect(out[1].y).toBe(340);
+    expect(out[2].y).toBe(340 + 60 + 20); // covered: it goes below with the reflow gap
+  });
+
+  it("never makes two boxes overlap on a real layout, whichever tables grow", () => {
+    const m = buildDiagram(randomSchema(7, 120, { density: 1.2 }), opts);
+    const l = layoutDiagram(m);
+    const h = l.nodes.map((n) => ({ x: n.x, y: n.y, w: n.width, h: n.height }));
+    const rand = rng(3);
+    for (let round = 0; round < 5; round++) {
+      const out = reflowBoxes(h, h.map((b) => ({ width: b.w, height: rand() < 0.2 ? b.h + 20 * Math.ceil(rand() * 40) : b.h })));
+      expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h })))).toBe("");
+      out.forEach((b, i) => expect(b.y).toBeGreaterThanOrEqual(h[i].y));
+    }
+    // laid out with big boxes, then some of them shrink (and some grow), also with dragged boxes
+    for (let round = 0; round < 5; round++) {
+      const pinned = new Set([...h.keys()].filter(() => rand() < 0.1));
+      const out = reflowBoxes(h, h.map((b) => ({ width: b.w, height: rand() < 0.3 ? Math.max(40, b.h - 20 * Math.ceil(rand() * 20)) : rand() < 0.1 ? b.h + 200 : b.h })), (i) => pinned.has(i));
+      expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h })))).toBe("");
+      pinned.forEach((i) => expect(out[i].y).toBeGreaterThanOrEqual(h[i].y));
+    }
   });
 });
