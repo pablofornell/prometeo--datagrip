@@ -17,6 +17,23 @@ describe("resolvePalette", () => {
     expect(p.fontUi).toBe('"Test UI", sans-serif');
   });
 
+  it("flattens a translucent wash onto the surface it is drawn on (an exported file cannot resolve color-mix)", () => {
+    const p = resolvePalette(
+      read({
+        "--dg-editor-bg": "#000000",
+        "--dg-island-bg": "#ffffff",
+        "--dg-banner-info-bg": "color-mix(in srgb, #0000ff 50%, transparent)",
+        "--dg-accent": "rgb(255, 0, 0)",
+        "--dg-text": "#ABCDEF",
+        "--dg-separator": "var(--dg-unknown)",
+      }),
+    );
+    expect(p.viewHeaderBg).toBe("#8080ff"); // half blue over the white card
+    expect(p.selection).toBe("#ff0000");
+    expect(p.headerFg).toBe("#abcdef");
+    expect(p.nodeBorder).toBe("#33353b"); // not a colour: the fallback
+  });
+
   it("falls back to concrete fonts when the variables are missing", () => {
     const p = resolvePalette(() => "");
     expect(p.fontMono).toBe(FALLBACK_FONT_MONO);

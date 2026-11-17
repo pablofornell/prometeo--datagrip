@@ -26,6 +26,7 @@ import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus }
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
 import { DragSession } from "./drag";
 import { createSceneEngine } from "./engineClient";
+import { renderPng, saveExport, svgFileText } from "./export";
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { DGM, buildDiagram, prunePositions, subsetOf, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
@@ -636,44 +637,24 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   const fileBase = (): string => (props.schema || "diagram").replace(/[^A-Za-z0-9_-]+/g, "_") || "diagram";
 
-  const download = (blob: Blob, name: string): void => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-    URL.revokeObjectURL(url);
+  const exportFailed = (e: unknown): void => {
+    notify({ kind: "error", title: "Export failed", body: e instanceof Error ? e.message : String(e) });
+  };
+  const exported = (path: string | null): void => {
+    if (path) notify({ kind: "success", title: "Diagram exported", body: path, timeout: 6000 });
   };
 
-  const exportSvg = (): void => download(new Blob([svgString()], { type: "image/svg+xml" }), `${fileBase()}.svg`);
+  /** The diagram as it is on screen (current theme, options and table positions), without the hover / selection state. */
+  const exportSvg = (): void => {
+    const bytes = new TextEncoder().encode(svgFileText(svgString()));
+    saveExport(fileBase(), "svg", "image/svg+xml", bytes).then(exported, exportFailed);
+  };
 
   const exportPng = (): void => {
-    const url = URL.createObjectURL(new Blob([svgString()], { type: "image/svg+xml" }));
-    const img = new Image();
-    img.onload = () => {
-      const w = img.naturalWidth || Math.max(1, Math.round(scene().bounds.width));
-      const h = img.naturalHeight || Math.max(1, Math.round(scene().bounds.height));
-      // 2x for a crisp image, within what a canvas can hold
-      const scale = Math.max(0.1, Math.min(2, 16000 / Math.max(w, h), Math.sqrt(120_000_000 / (w * h))));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(w * scale));
-      canvas.height = Math.max(1, Math.round(h * scale));
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return URL.revokeObjectURL(url);
-      ctx.fillStyle = palette().background;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (blob) download(blob, `${fileBase()}.png`);
-        else notify({ kind: "error", title: "Export failed", body: "The browser could not render the diagram as an image." });
-      }, "image/png");
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      notify({ kind: "error", title: "Export failed", body: "The browser could not render the diagram as an image." });
-    };
-    img.src = url;
+    const b = scene().bounds;
+    renderPng(svgString(), b.width, b.height, palette().background)
+      .then((bytes) => saveExport(fileBase(), "png", "image/png", bytes))
+      .then(exported, exportFailed);
   };
 
   const openExportMenu = (anchor: HTMLElement): void =>

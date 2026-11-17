@@ -7,6 +7,7 @@
  * `--rainbow-N` tokens with its own fallbacks, so the diagram looks right whether or not those tokens exist. The
  * text drawn on a rainbow colour is picked for WCAG contrast (`inkOn`).
  */
+import { flatten, resolveColor as resolveToken } from "../../theme/contrast";
 import type { DiagramPalette } from "./svg";
 
 export const FALLBACK_FONT_MONO = '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", monospace';
@@ -86,8 +87,11 @@ export function mix(a: string, b: string, t: number): string {
   return toHex(ca.map((v, i) => v + (cb[i] - v) * t) as Rgb);
 }
 
-/** Any other CSS colour syntax (oklch, color-mix, named ...): paint one pixel and read it back as sRGB. */
-function probeColor(raw: string): Rgb | null {
+/**
+ * Any other CSS colour syntax (oklch, color-mix, named ...): paint one pixel and read it back as sRGB. With `under`,
+ * the pixel is first filled with that opaque colour, so a translucent colour comes back as what it looks like on it.
+ */
+function probeColor(raw: string, under?: Rgb): Rgb | null {
   if (typeof document === "undefined") return null;
   const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
@@ -98,19 +102,48 @@ function probeColor(raw: string): Rgb | null {
   ctx.fillStyle = raw;
   if (ctx.fillStyle !== first) return null; // the browser rejected it (it kept the previous style)
   ctx.clearRect(0, 0, 1, 1);
+  if (under) {
+    ctx.fillStyle = toHex(under);
+    ctx.fillRect(0, 0, 1, 1);
+    ctx.fillStyle = raw;
+  }
   ctx.fillRect(0, 0, 1, 1);
   const d = ctx.getImageData(0, 0, 1, 1).data;
   return d[3] === 0 ? null : [d[0], d[1], d[2]];
 }
 
+/**
+ * `raw` as an opaque `#rrggbb` painted over `under`, or null when it is not a colour. The theme gives hex, `rgb()`,
+ * `hsl()` and translucent `color-mix(in srgb, ...)` washes; the exported SVG / PNG must hold plain sRGB values, because
+ * an SVG viewer outside the app does not know `color-mix()`, `oklch()` or `var()`.
+ */
+export function solidColor(raw: string, under: Rgb): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  try {
+    return toHex([...flatten(under, resolveToken(s))] as Rgb); // hex (also with alpha), transparent, color-mix
+  } catch {
+    /* another syntax: below */
+  }
+  const c = parseColor(s) ?? probeColor(s, under);
+  return c ? toHex(c) : null;
+}
+
 // ---------------------------------------------------------------- resolution
 
-/** Concrete colours / fonts read from the theme CSS variables at render time (the export string is self-contained). */
+/**
+ * Concrete colours / fonts read from the theme CSS variables at render time (the export string is self-contained):
+ * every colour is an opaque `#rrggbb`, a translucent one is flattened onto the surface it is drawn on.
+ */
 export function resolvePalette(read: (name: string) => string = cssVar): DiagramPalette {
   const pick = (name: string, fallback: string): string => read(name) || fallback;
-  const background = pick("--dg-editor-bg", "#191a1c");
-  const bg = parseColor(background);
-  const isDark = bg ? luminance(bg) < 0.4 : true;
+  const background = solidColor(read("--dg-editor-bg"), [255, 255, 255]) ?? "#191a1c";
+  const bg = parseColor(background) ?? [25, 26, 28];
+  const isDark = luminance(bg) < 0.4;
+  const nodeBg = solidColor(read("--dg-island-bg"), bg) ?? "#1f2024";
+  const card = parseColor(nodeBg) ?? bg;
+  /** A colour drawn on the canvas (`on` = bg) or inside a table box (`on` = card). */
+  const color = (name: string, fallback: string, on: Rgb): string => solidColor(read(name), on) ?? fallback;
   const fallbackRainbow = isDark ? FALLBACK_RAINBOW_DARK : FALLBACK_RAINBOW_LIGHT;
   const rainbow = fallbackRainbow.map((fb, i) => {
     const raw = read(`--dgd-c${i + 1}`);
@@ -119,20 +152,20 @@ export function resolvePalette(read: (name: string) => string = cssVar): Diagram
   });
   return {
     background,
-    nodeBg: pick("--dg-island-bg", "#1f2024"),
-    nodeBorder: pick("--dg-separator", "#33353b"),
-    headerBg: pick("--dg-layer-1-bg", "#26282c"),
-    headerFg: pick("--dg-text", "#d1d3d9"),
-    viewHeaderBg: pick("--dg-banner-info-bg", "#233558"),
-    viewFg: pick("--dg-text", "#d1d3d9"),
-    text: pick("--dg-grid-fg", "#bcbec4"),
-    typeText: pick("--dg-text-secondary", "#73767c"),
-    pk: pick("--dg-editor-sql-synthetic", "#e0bb65"),
-    fk: pick("--dg-editor-function-declaration", "#56a8f5"),
-    edge: pick("--dg-text-secondary", "#73767c"),
-    edgeLabel: pick("--dg-text-muted", "#9fa2a8"),
-    selection: pick("--dg-accent", "#3871e1"),
-    rowLine: pick("--dg-editor-indent-guide", "#323438"),
+    nodeBg,
+    nodeBorder: color("--dg-separator", "#33353b", bg),
+    headerBg: color("--dg-layer-1-bg", "#26282c", card),
+    headerFg: color("--dg-text", "#d1d3d9", card),
+    viewHeaderBg: color("--dg-banner-info-bg", "#233558", card),
+    viewFg: color("--dg-text", "#d1d3d9", card),
+    text: color("--dg-grid-fg", "#bcbec4", card),
+    typeText: color("--dg-text-secondary", "#73767c", card),
+    pk: color("--dg-editor-sql-synthetic", "#e0bb65", card),
+    fk: color("--dg-editor-function-declaration", "#56a8f5", card),
+    edge: color("--dg-text-secondary", "#73767c", bg),
+    edgeLabel: color("--dg-text-muted", "#9fa2a8", bg),
+    selection: color("--dg-accent", "#3871e1", bg),
+    rowLine: color("--dg-editor-indent-guide", "#323438", card),
     fontMono: pick("--dg-font-mono", FALLBACK_FONT_MONO),
     fontUi: pick("--dg-font-ui", FALLBACK_FONT_UI),
     isDark,
