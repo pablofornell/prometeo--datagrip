@@ -99,7 +99,7 @@ where it helps, what to do instead. Update the list when an item is fixed.
 
 ## Security
 
-- On Windows the fallback password file is restricted with `icacls`; this is not tested with a domain account.
+- On Windows the fallback password file gets a protected ACL with a single entry for the user of the process token (Win32 security API, see `docs/SECURITY.md`). SYSTEM and administrators lose access too, so backup software that runs as SYSTEM skips the file. Not tested with a domain account.
   See [SECURITY.md](SECURITY.md).
 - The release build aborts on a panic (`panic = "abort"`): the panic and its backtrace are written to
   `<data dir>/logs/panic.log`, which is not rotated.
