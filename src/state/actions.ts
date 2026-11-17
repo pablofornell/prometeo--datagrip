@@ -160,10 +160,15 @@ const PUNCTUATION = /^[!-/:-@[-`{-~]$/;
 /** Punctuation keys that a chord names by the key cap, whatever Shift turned them into (`Ctrl+Shift+/`, `Alt+Shift+.`). */
 const SHIFTED_PUNCTUATION_CODES = new Set(["Backslash", "Slash", "Quote", "Comma", "Period", "Backquote"]);
 
-/** The key a chord is matched against: the letter or digit by position, punctuation by what the layout produces. */
+/**
+ * The key a chord is matched against, also what the Keymap recorder names (`chordFromEvent`, so a recorded chord is
+ * always one this function reads back). Letters and digits go by position (`KeyQ` is "q" whatever the layout types:
+ * Dvorak, Greek, AZERTY, macOS Option), punctuation by the character the layout produces.
+ */
 export function eventKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey">): string {
   const c = e.code;
   const key = e.key.toLowerCase();
+  if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase();
   if (PUNCTUATION.test(key)) {
     // A Shift-ed punctuation key keeps its physical name, which is how the chords are written (US: Shift+/ is "?").
     // A digit row that produces punctuation (AZERTY "&", "é") keeps its digit, except "-" and "+", the zoom keys.
@@ -171,7 +176,8 @@ export function eventKey(e: Pick<KeyboardEvent, "key" | "code" | "shiftKey">): s
     if (!byPosition) return key;
   }
   if (/^Digit\d$/.test(c)) return c.slice(5);
-  if (/^Key[A-Z]$/.test(c)) return c.slice(3).toLowerCase();
+  // A letter on a key that is not a letter key on US (Dvorak types "z" on the Slash key, "w" on Comma): the letter.
+  if (/^[a-z]$/.test(key)) return key;
   if (c === "Backslash") return "\\";
   if (c === "Slash") return "/";
   if (c === "Quote") return "'";
