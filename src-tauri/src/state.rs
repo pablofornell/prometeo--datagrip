@@ -59,6 +59,9 @@ const MAX_STRING_EXPORT: usize = 64 * 1024 * 1024;
 
 /// How long [`AppState::shutdown`] waits for the connections to close before the app exits anyway.
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// How long one data source gets to close on exit; a bit less than [`SHUTDOWN_GRACE`] so that the stuck ones are
+/// given up (and logged) by themselves and the overall cap is only a backstop.
+const SHUTDOWN_SOURCE_GRACE: Duration = Duration::from_millis(4500);
 
 /// A growing buffer that refuses to pass `limit` bytes.
 struct CappedBuf {
@@ -260,6 +263,46 @@ async fn blocking<T: Send + 'static>(
     tokio::task::spawn_blocking(f)
         .await
         .map_err(|e| format!("internal error: {e}"))?
+}
+
+/// Runs `close(id)` for every id at the same time, giving each `per_source` and all of them `total`; returns the
+/// ids that did not finish. One that hangs (a pool waiting for a connection that never comes back) is dropped,
+/// with a warning, instead of holding up the rest.
+async fn close_all<F, Fut>(
+    ids: Vec<String>,
+    total: Duration,
+    per_source: Duration,
+    close: F,
+) -> Vec<String>
+where
+    F: Fn(String) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    let mut tasks = tokio::task::JoinSet::new();
+    for id in &ids {
+        let fut = close(id.clone());
+        let id = id.clone();
+        tasks.spawn(async move {
+            let done = tokio::time::timeout(per_source, fut).await.is_ok();
+            if !done {
+                tracing::warn!(
+                    "data source {id} did not close within {per_source:?}; giving it up"
+                );
+            }
+            (id, done)
+        });
+    }
+    let mut pending: std::collections::HashSet<String> = ids.into_iter().collect();
+    let _ = tokio::time::timeout(total, async {
+        while let Some(r) = tasks.join_next().await {
+            if let Ok((id, true)) = r {
+                pending.remove(&id);
+            }
+        }
+    })
+    .await;
+    // dropping the set aborts whatever is still running
+    pending.into_iter().collect()
 }
 
 /// `options` keys that only the UI reads (the backend takes none of them into account when it connects), so
@@ -546,8 +589,9 @@ impl AppState {
 
     /// Called once when the app exits: stops what is running (exports, imports, dumps, scripts, statements) and
     /// closes every connection, so open transactions are rolled back by an orderly close instead of by the server
-    /// noticing a dead socket (or, on Oracle, never). Bounded by [`SHUTDOWN_GRACE`]; the process exits after it
-    /// whatever the servers answer.
+    /// noticing a dead socket (or, on Oracle, never). The data sources close at the same time, each bounded by
+    /// [`SHUTDOWN_SOURCE_GRACE`] (a pool waits for every checked-out connection, and introspection or page counts
+    /// cannot be cancelled), all of them by [`SHUTDOWN_GRACE`]; the process exits after it whatever the servers answer.
     pub async fn shutdown(&self) {
         let tokens: Vec<CancellationToken> =
             [&self.imports, &self.exports, &self.dumps, &self.scripts]
@@ -558,16 +602,31 @@ impl AppState {
             t.cancel();
         }
         let ids = self.connected_data_sources();
-        let closing = async {
-            for id in ids {
-                let _ = self.disconnect(&id).await;
-            }
-        };
-        if tokio::time::timeout(SHUTDOWN_GRACE, closing).await.is_err() {
+        let mgr = self.mgr.clone();
+        let stuck = close_all(
+            ids.clone(),
+            SHUTDOWN_GRACE,
+            SHUTDOWN_SOURCE_GRACE,
+            move |id| {
+                let mgr = mgr.clone();
+                async move { mgr.disconnect(&id).await }
+            },
+        )
+        .await;
+        if !stuck.is_empty() {
             tracing::warn!(
-                "some connections did not close within {SHUTDOWN_GRACE:?}; exiting anyway"
+                "{} data source(s) did not close within {SHUTDOWN_GRACE:?}; exiting anyway",
+                stuck.len()
             );
         }
+        self.sessions
+            .lock()
+            .unwrap()
+            .retain(|_, ds| !ids.contains(ds));
+        self.executions
+            .lock()
+            .unwrap()
+            .retain(|_, m| !ids.contains(&m.ds_id));
     }
 
     pub fn connected_data_sources(&self) -> Vec<String> {
@@ -1516,6 +1575,49 @@ mod tests {
         assert!(s.connected_data_sources().is_empty());
         assert!(s.session_in_transaction(&sid).await.is_err());
         s.shutdown().await; // idempotent
+    }
+
+    #[tokio::test]
+    async fn a_data_source_that_hangs_does_not_stop_the_others_from_closing() {
+        let closed = Arc::new(Mutex::new(Vec::<String>::new()));
+        let ids: Vec<String> = ["a", "stuck", "b", "c"].map(String::from).into();
+        let started = Instant::now();
+        let c = closed.clone();
+        let stuck = close_all(
+            ids,
+            Duration::from_secs(5),
+            Duration::from_millis(200),
+            move |id| {
+                let c = c.clone();
+                async move {
+                    if id == "stuck" {
+                        std::future::pending::<()>().await;
+                    }
+                    c.lock().unwrap().push(id);
+                }
+            },
+        )
+        .await;
+        assert_eq!(stuck, vec!["stuck".to_string()]);
+        let mut done = closed.lock().unwrap().clone();
+        done.sort();
+        assert_eq!(done, ["a", "b", "c"]);
+        // the others were not queued behind the hung one: all of it took about one per-source timeout
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[tokio::test]
+    async fn the_overall_budget_caps_sources_that_are_slower_than_it() {
+        let started = Instant::now();
+        let stuck = close_all(
+            vec!["x".into(), "y".into()],
+            Duration::from_millis(100),
+            Duration::from_secs(60),
+            |_| std::future::pending::<()>(),
+        )
+        .await;
+        assert_eq!(stuck.len(), 2);
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[test]
