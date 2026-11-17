@@ -5,6 +5,7 @@ import { assignColors } from "./groups";
 import { contrast } from "./palette";
 import { shopSchema } from "./sample";
 import { buildScene, diagramBounds, edgeAttrs, nodeColors, renderDiagramSvg, roundedPath, type DiagramPalette } from "./svg";
+import { budget } from "./bench";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -171,7 +172,7 @@ describe("renderDiagramSvg", () => {
     const start = performance.now();
     const model = buildDiagram(objects, opts);
     const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, colors: assignColors(model, "schema") }, palette);
-    expect(performance.now() - start).toBeLessThan(2000);
+    expect(performance.now() - start).toBeLessThan(budget(2000));
     expect(model.nodes).toHaveLength(96);
     expect(svg.length).toBeGreaterThan(1000);
   });

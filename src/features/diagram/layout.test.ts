@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDiagram, DGM, type ColumnsMode, type DiagramInputObject, type DiagramOptions } from "./model";
 import { LOOP_ROOM, layoutDiagram, packItems, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { randomSchema, rng, shopSchema } from "./sample";
+import { budget } from "./bench";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -103,7 +104,7 @@ describe("layoutDiagram", () => {
     }
   });
 
-  it("lays out 300 tables without overlap, and fast", () => {
+  it("lays out 300 tables without overlap (and within budget on a quiet machine)", () => {
     const objects = randomSchema(7, 300, { density: 1.2 });
     const m = buildDiagram(objects, opts);
     const start = performance.now();
@@ -111,7 +112,7 @@ describe("layoutDiagram", () => {
     const elapsed = performance.now() - start;
     expect(layout.nodes).toHaveLength(300);
     expect(firstOverlap(layout.nodes)).toBe("");
-    expect(elapsed).toBeLessThan(1500);
+    expect(elapsed).toBeLessThan(budget(1500));
   });
 
   it("copes with a table that has a long column list and long names", () => {

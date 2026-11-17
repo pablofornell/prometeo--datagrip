@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bestOf, budget } from "./bench";
 import { DragSession } from "./drag";
 import { layoutDiagram } from "./layout";
 import { buildDiagram, type DiagramModel } from "./model";
@@ -127,7 +128,7 @@ describe("Router.moveBox", () => {
   });
 });
 
-// ---------------------------------------------------------------- benchmark-style (generous bounds)
+// ---------------------------------------------------------------- benchmark-style (ratios always, absolute budgets under PROMETEO_BENCH=1)
 
 describe("drag performance", () => {
   it("routes a drag frame in a small fraction of a full routing at 300 tables", () => {
@@ -151,14 +152,18 @@ describe("drag performance", () => {
     const median = frames[Math.floor(frames.length / 2)];
     const p90 = frames[Math.floor(frames.length * 0.9)];
 
-    const full = performance.now();
-    routeEdges(model, scene.rects);
-    const fullMs = performance.now() - full;
+    const fullMs = bestOf(2, () => routeEdges(model, scene.rects));
+    const best = frames[0];
 
-    // target < 16 ms a frame; the bounds are generous so a loaded CI machine does not make this flaky
-    expect(median, `median ${median.toFixed(1)} ms (p90 ${p90.toFixed(1)} ms, build ${build.toFixed(1)} ms, full route ${fullMs.toFixed(0)} ms)`).toBeLessThan(40);
-    expect(p90).toBeLessThan(120);
-    expect(build).toBeLessThan(400);
+    // What holds on any machine: a frame routes one table's edges, a full routing all of them. The fastest frame is
+    // compared with the fastest full routing of the same run, so a busy machine slows both alike.
+    const note = `best frame ${best.toFixed(1)} ms, median ${median.toFixed(1)} ms (p90 ${p90.toFixed(1)} ms, build ${build.toFixed(1)} ms, full route ${fullMs.toFixed(0)} ms)`;
+    expect(best * 5, note).toBeLessThan(fullMs);
+    expect(median * 2, note).toBeLessThan(fullMs);
+    // target < 16 ms a frame: absolute budgets only on a quiet machine (PROMETEO_BENCH=1)
+    expect(median, note).toBeLessThan(budget(40));
+    expect(p90, note).toBeLessThan(budget(120));
+    expect(build, note).toBeLessThan(budget(400));
   });
 
   it("a frame of a diagram too big to search is as cheap as bookkeeping", () => {
@@ -167,11 +172,13 @@ describe("drag performance", () => {
     const index = busyTable(model);
     const session = new DragSession(model, scene, index);
     const rect = scene.rects[index];
-    const t = performance.now();
     let last: RoutedEdge[] = [];
+    const t = performance.now();
     for (let f = 0; f < 30; f++) last = session.move({ ...rect, x: rect.x + f * 10, y: rect.y + f * 10 });
     const per = (performance.now() - t) / 30;
+    const fullMs = bestOf(2, () => routeEdges(model, scene.rects));
     expect(last.filter(Boolean).length).toBeGreaterThan(0);
-    expect(per).toBeLessThan(20);
+    expect(per * 3, `frame ${per.toFixed(1)} ms, full route ${fullMs.toFixed(0)} ms`).toBeLessThan(fullMs);
+    expect(per).toBeLessThan(budget(20));
   });
 });

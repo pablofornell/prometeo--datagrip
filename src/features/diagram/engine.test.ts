@@ -4,6 +4,7 @@ import { Cancelled, createSceneEngine, type WorkerLike } from "./engineClient";
 import { layoutDiagram } from "./layout";
 import { buildDiagram } from "./model";
 import { randomSchema, shopSchema } from "./sample";
+import { bestOf, budget } from "./bench";
 
 const request = (n: number, over: Partial<SceneRequest> = {}): SceneRequest => ({
   model: buildDiagram(randomSchema(21, n, { density: 1.3 }), { columns: "keys", showTypes: true }),
@@ -155,6 +156,23 @@ describe("createSceneEngine", () => {
     engine.dispose();
   });
 
+  it("after dispose, a late run is refused and no worker is created", async () => {
+    const workers = fakeWorkers();
+    const engine = createSceneEngine(workers.factory);
+    engine.dispose();
+    await expect(engine.run(request(10))).rejects.toBeInstanceOf(Cancelled);
+    expect(workers.spawned()).toBe(0);
+  });
+
+  it("disposing during a job rejects it as cancelled and stops the worker", async () => {
+    const workers = fakeWorkers();
+    const engine = createSceneEngine(workers.factory);
+    const job = engine.run(request(30));
+    engine.dispose();
+    await expect(job).rejects.toBeInstanceOf(Cancelled);
+    expect(workers.terminated()).toBe(1);
+  });
+
   it("reports an error from the worker", async () => {
     const bad = (): WorkerLike => {
       const w: WorkerLike = {
@@ -180,11 +198,11 @@ describe("layout and routing cost (benchmark-style, generous bounds)", () => {
     const t0 = performance.now();
     const full = computeScene(req);
     const fullMs = performance.now() - t0;
-    const t1 = performance.now();
-    computeScene({ ...req, layout: full.layout });
-    const routeOnlyMs = performance.now() - t1;
-    // no tight bound: this is the work the worker keeps off the main thread
-    expect(fullMs, `full ${fullMs.toFixed(0)} ms, routing only ${routeOnlyMs.toFixed(0)} ms`).toBeLessThan(10_000);
-    expect(routeOnlyMs).toBeLessThan(fullMs + 50);
+    // the fastest of two, so a busy moment on the machine cannot make the cheaper path look dearer than the full one
+    const routeOnlyMs = bestOf(2, () => void computeScene({ ...req, layout: full.layout }));
+    const note = `full ${fullMs.toFixed(0)} ms, routing only ${routeOnlyMs.toFixed(0)} ms`;
+    // this is the work the worker keeps off the main thread; the absolute budget needs a quiet machine
+    expect(fullMs, note).toBeLessThan(budget(10_000));
+    expect(routeOnlyMs, note).toBeLessThan(fullMs);
   });
 });

@@ -47,6 +47,7 @@ export function createSceneEngine(factory: WorkerFactory | null = defaultWorkerF
   let broken = factory === null;
   let seq = 0;
   let job: Job | null = null;
+  let disposed = false;
 
   const stopWorker = (): void => {
     if (!worker) return;
@@ -109,6 +110,7 @@ export function createSceneEngine(factory: WorkerFactory | null = defaultWorkerF
   return {
     run(req) {
       cancel();
+      if (disposed) return Promise.reject(new Cancelled()); // a late request must not bring a worker back to life
       return new Promise<SceneResponse>((resolve, reject) => {
         const j: Job = { id: ++seq, req, resolve, reject };
         job = j;
@@ -119,6 +121,7 @@ export function createSceneEngine(factory: WorkerFactory | null = defaultWorkerF
     },
     cancel,
     dispose() {
+      disposed = true;
       cancel();
       stopWorker();
     },

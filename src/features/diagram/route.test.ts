@@ -3,6 +3,7 @@ import { layoutDiagram, type Direction } from "./layout";
 import { buildDiagram, DGM, rowTop, type DiagramInputObject, type DiagramModel, type DiagramOptions } from "./model";
 import { STUB, crossesRect, placeLabels, portOffset, routeEdges, type Rect, type RoutedEdge } from "./route";
 import { randomSchema, shopSchema } from "./sample";
+import { budget } from "./bench";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -147,7 +148,7 @@ describe("routeEdges", () => {
     const rects = layout.nodes.map((n) => ({ x: n.x, y: n.y, w: n.width, h: n.height }));
     const start = performance.now();
     const routes = routeEdges(m, rects);
-    expect(performance.now() - start).toBeLessThan(2000);
+    expect(performance.now() - start).toBeLessThan(budget(2000));
     expect(routes).toHaveLength(m.edges.length);
     for (const r of routes) for (const { a, b } of segments(r)) expect(a.x === b.x || a.y === b.y).toBe(true);
   });
@@ -158,7 +159,7 @@ describe("routeEdges", () => {
     const rects = layout.nodes.map((n) => ({ x: n.x, y: n.y, w: n.width, h: n.height }));
     const start = performance.now();
     const routes = routeEdges(m, rects);
-    expect(performance.now() - start).toBeLessThan(2000);
+    expect(performance.now() - start).toBeLessThan(budget(2000));
     expect(routes.every((r) => r.points.length >= 2)).toBe(true);
   });
 });

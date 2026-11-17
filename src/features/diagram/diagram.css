@@ -46,6 +46,10 @@
   outline: 2px solid var(--dg-accent, #3871e1);
   outline-offset: -2px;
 }
+/* A new layout is being computed: the boxes on screen cannot be picked up (they are about to move). */
+.dgd-stage.computing .dg-node {
+  cursor: progress;
+}
 .dgd-stage.panning {
   cursor: grabbing;
 }
