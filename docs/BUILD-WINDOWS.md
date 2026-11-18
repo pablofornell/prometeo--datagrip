@@ -41,8 +41,8 @@ Outputs (the workspace `target/` directory is at the repository root):
 | Path | What it is |
 |---|---|
 | `target\release\prometeo-datagrip.exe` | Standalone release binary |
-| `target\release\bundle\nsis\Prometeo DataGrip_0.3.1_x64-setup.exe` | NSIS installer (per user) |
-| `target\release\bundle\msi\Prometeo DataGrip_0.3.1_x64_en-US.msi` | MSI installer |
+| `target\release\bundle\nsis\Prometeo DataGrip_0.3.2_x64-setup.exe` | NSIS installer (per user) |
+| `target\release\bundle\msi\Prometeo DataGrip_0.3.2_x64_en-US.msi` | MSI installer |
 
 For a binary without installers:
 
