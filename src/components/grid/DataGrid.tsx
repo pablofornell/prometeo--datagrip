@@ -714,6 +714,13 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     if (!a || a.r >= total()) return null;
     return { k: "cur", ...rectOf(a.r, a.r, 0, Math.max(0, nCols() - 1)) };
   });
+  // The foreign key cell under the pointer while the link modifier is held (see the Ctrl+Click section below). It is
+  // declared here, before `linkRect`: a memo runs at once, and reading a signal declared later throws a
+  // ReferenceError that stops the whole grid from being created (an empty table and result tab).
+  type FkHover = { r: number; c: number; tip: string };
+  const [fkHover, setFkHover] = createSignal<FkHover | null>(null, {
+    equals: (a, b) => a === b || (!!a && !!b && a.r === b.r && a.c === b.c && a.tip === b.tip),
+  });
   /** Underline of the foreign key cell hovered with the link modifier held. */
   const linkRect = createMemo<Rect | null>(() => {
     const h = fkHover();
@@ -1610,10 +1617,6 @@ export function DataGrid(props: DataGridProps): JSX.Element {
   const mac = isMacPlatform();
   /** The link modifier (Ctrl / Cmd) is held. */
   let linkMod = false;
-  type FkHover = { r: number; c: number; tip: string };
-  const [fkHover, setFkHover] = createSignal<FkHover | null>(null, {
-    equals: (a, b) => a === b || (!!a && !!b && a.r === b.r && a.c === b.c && a.tip === b.tip),
-  });
   const [fkHint, setFkHint] = createSignal<{ x: number; y: number; text: string } | null>(null);
   type Pointer = { clientX: number; clientY: number; target: EventTarget | null };
   let lastMouse: Pointer | null = null;
