@@ -77,8 +77,8 @@ make test-all    # everything, including the Docker-backed database tests
 ```
 
 `.github/workflows/ci.yml` runs the format check, Clippy, type-check, unit tests and frontend
-build on Linux and Windows. Pushing a `v*` tag also builds installers on Linux, Windows and
-macOS and creates a draft release.
+build on Linux and Windows. Pushing a `v*` tag also builds the Linux and Windows installers and
+publishes the release. CI builds no macOS installers; build them locally with `npm run tauri build`.
 
 ## Logs and diagnostics
 
