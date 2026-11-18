@@ -39,6 +39,12 @@ Database 11g XE 11.2.0.2 (TNS 314, SDU 8192, field version 6, no big chunks) was
 `crates/dbcore/tests/oracle_legacy.rs` (`PROMETEO_ORACLE_10G_URL`, `make db-up-oracle-legacy`); the 12.1+ paths
 stay as upstream wrote them and are covered by the Oracle 23 Free tests.
 
+Oracle Database 19c 19.3 (TNS 318, SDU 8192, field version 12, big chunks, 32k strings, no fast authentication)
+with the single-byte database character sets WE8MSWIN1252 and WE8ISO8859P15 was checked the same way: it gets
+none of the 10g / 11g paths, the accepted SDU limits nothing, and text (also NCHAR text and names outside ASCII)
+comes back unchanged, because the client asks for UTF-8 and the server converts. No driver change was necessary
+for it. The live test is `crates/dbcore/tests/oracle_charset.rs` (`PROMETEO_ORACLE_19C_URL`).
+
 The 11G logon is tested by `logon_with_11g_password_verifier` in `crates/dbcore/tests/oracle.rs`
 (`PROMETEO_ORACLE_11G_URL`). It needs `SQLNET.ALLOWED_LOGON_VERSION_SERVER=11` in the server's `sqlnet.ora`
 and an account whose `dba_users.password_versions` is `11G` only.
