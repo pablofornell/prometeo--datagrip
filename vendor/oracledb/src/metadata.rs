@@ -179,7 +179,11 @@ impl Metadata {
             });
         }
         let _column_position = resp.read_ub2()?;
-        let _uds_flags = resp.read_ub4()?;
+        // 10g / 11.1 servers do not send the UDS flags
+        if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_11_2)
+        {
+            let _uds_flags = resp.read_ub4()?;
+        }
         if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_23_1)
         {
             let schema = resp.read_utf8_with_double_length()?.to_string();
@@ -358,11 +362,34 @@ impl Metadata {
             _ => {}
         };
 
-        buf.write_u8(self.db_type.ora_type_num.try_into().unwrap());
+        // a LOB column fetched as string / bytes: servers before 12.1 accept
+        // the define as LONG VARCHAR / LONG VARRAW only (the data comes back
+        // in the same chunked form as LONG / LONG RAW), with a smaller buffer
+        let mut ora_type_num = self.db_type.ora_type_num;
+        let mut buffer_size = self.buffer_size();
+        if self.declared_type.is_some_and(|t| t.ora_type_num != ora_type_num)
+            && !client
+                .supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_1)
+        {
+            let long_var = match ora_type_num {
+                constants::ORA_TYPE_NUM_LONG => {
+                    Some(constants::ORA_TYPE_NUM_LONG_VARCHAR)
+                }
+                constants::ORA_TYPE_NUM_LONG_RAW => {
+                    Some(constants::ORA_TYPE_NUM_LONG_VARRAW)
+                }
+                _ => None,
+            };
+            if let Some(n) = long_var {
+                ora_type_num = n;
+                buffer_size = constants::LONG_VAR_DEFINE_SIZE;
+            }
+        }
+        buf.write_u8(ora_type_num.try_into().unwrap());
         buf.write_u8(constants::TTC_BIND_FLAG_USE_INDICATORS);
         buf.write_u8(0); // precision must always be zero
         buf.write_u8(0); // scale must always be zero
-        buf.write_ub4(self.buffer_size());
+        buf.write_ub4(buffer_size);
         buf.write_ub4(0); // max number of elements
         buf.write_ub8(cont_flag);
         if let Some(MetadataObjectType::Resolved(typ)) = &self.object_type {

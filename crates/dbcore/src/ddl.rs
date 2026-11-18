@@ -942,25 +942,35 @@ fn oq(v: &str) -> String {
     quote_literal(Driver::Oracle, v)
 }
 
+/// The `DBMS_METADATA` transforms of the DDL (PL/SQL statements).
+const ORA_DDL_TRANSFORMS: &str = "dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'SQLTERMINATOR', true); \
+     dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'PRETTY', true); \
+     dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'STORAGE', false); \
+     dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'SEGMENT_ATTRIBUTES', false); \
+     dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'TABLESPACE', false);";
+
+/// The indexes of table `n` of owner `o` (SQL expressions or PL/SQL variables) that no constraint creates.
+fn ora_ddl_indexes(o: &str, n: &str) -> String {
+    format!(
+        "select x.owner, x.index_name from all_indexes x where x.table_owner = {o} and x.table_name = {n} \
+           and x.generated = 'N' and x.index_type <> 'LOB' \
+           and not exists (select 1 from all_constraints k where k.owner = x.owner and k.index_name = x.index_name) \
+         order by x.index_name"
+    )
+}
+
 /// One statement that sets the `DBMS_METADATA` transforms and fetches the DDL, so both run on the same session
 /// whatever connection of the pool serves it (`WITH FUNCTION`, 12c+). Tables also get their indexes (the ones no
-/// constraint creates) and comments; packages their body.
+/// constraint creates) and comments; packages their body. Older servers use [`ora_ddl_steps`].
 fn ora_ddl_sql(object_type: &str, name: &str, owner: &str) -> String {
     format!(
         "with function prometeo_ddl(t varchar2, n varchar2, o varchar2) return clob is \
            r clob; \
          begin \
-           dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'SQLTERMINATOR', true); \
-           dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'PRETTY', true); \
-           dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'STORAGE', false); \
-           dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'SEGMENT_ATTRIBUTES', false); \
-           dbms_metadata.set_transform_param(dbms_metadata.session_transform, 'TABLESPACE', false); \
+           {ORA_DDL_TRANSFORMS} \
            r := dbms_metadata.get_ddl(t, n, o); \
            if t = 'TABLE' then \
-             for i in (select x.owner, x.index_name from all_indexes x where x.table_owner = o and x.table_name = n \
-                         and x.generated = 'N' and x.index_type <> 'LOB' \
-                         and not exists (select 1 from all_constraints k where k.owner = x.owner and k.index_name = x.index_name) \
-                       order by x.index_name) loop \
+             for i in ({indexes}) loop \
                r := r || chr(10) || dbms_metadata.get_ddl('INDEX', i.index_name, i.owner); \
              end loop; \
            end if; \
@@ -974,8 +984,73 @@ fn ora_ddl_sql(object_type: &str, name: &str, owner: &str) -> String {
          select prometeo_ddl({}, {}, {}) from dual",
         oq(object_type),
         oq(name),
-        oq(owner)
+        oq(owner),
+        indexes = ora_ddl_indexes("o", "n"),
     )
+}
+
+/// The DDL of [`ora_ddl_sql`] for servers without `WITH FUNCTION` (before 12.1): a PL/SQL block that sets the
+/// transforms, then the queries that run on the same session. The first query is the object; the others (indexes,
+/// comments, package body) add their rows, and the ones that fail are left out, as in [`ora_ddl_sql`].
+fn ora_ddl_steps(object_type: &str, name: &str, owner: &str) -> (String, Vec<String>) {
+    let (t, n, o) = (oq(object_type), oq(name), oq(owner));
+    let mut queries = vec![format!(
+        "select dbms_metadata.get_ddl({t}, {n}, {o}) from dual"
+    )];
+    match object_type {
+        "TABLE" | "VIEW" | "MATERIALIZED_VIEW" => {
+            if object_type == "TABLE" {
+                queries.push(format!(
+                    "select dbms_metadata.get_ddl('INDEX', i.index_name, i.owner) from ({}) i",
+                    ora_ddl_indexes(&o, &n)
+                ));
+            }
+            queries.push(format!(
+                "select dbms_metadata.get_dependent_ddl('COMMENT', {n}, {o}) from dual"
+            ));
+        }
+        "PACKAGE" => queries.push(format!(
+            "select dbms_metadata.get_ddl('PACKAGE_BODY', {n}, {o}) from dual"
+        )),
+        _ => {}
+    }
+    (format!("begin {ORA_DDL_TRANSFORMS} end;"), queries)
+}
+
+/// Run [`ora_ddl_steps`]: the DDL text joined as [`ora_ddl_sql`] joins it, `None` when the object has none.
+async fn ora_ddl_by_steps(
+    pool: &crate::oracle::OraPool,
+    object_type: &str,
+    name: &str,
+    owner: &str,
+) -> Result<Option<String>> {
+    let (setup, queries) = ora_ddl_steps(object_type, name, owner);
+    let mut results = pool.queries_after(&setup, &queries).await?.into_iter();
+    let main = results.next().transpose()?.unwrap_or_default();
+    let Some(mut text) = main
+        .into_iter()
+        .next()
+        .and_then(|r| r.into_iter().next())
+        .flatten()
+    else {
+        return Ok(None);
+    };
+    // the index DDL fails like the main one would; a missing comment or body is no error
+    for (i, res) in results.enumerate() {
+        let rows = match res {
+            Ok(rows) => rows,
+            Err(e) if i == 0 && object_type == "TABLE" => return Err(e),
+            Err(_) => continue,
+        };
+        for cell in rows
+            .into_iter()
+            .filter_map(|r| r.into_iter().next().flatten())
+        {
+            text.push('\n');
+            text.push_str(&cell);
+        }
+    }
+    Ok(Some(text))
 }
 
 /// Blank lines in a row become one, and the two blanks `GET_DDL` indents a statement with go.
@@ -1060,9 +1135,13 @@ async fn ora_ddl(live: &Live, o: &ObjectRef) -> Result<String> {
         NodeKind::Schema | NodeKind::Database => return Ok(format!("-- schema {}", o.name)),
         k => return Err(DbError::Unsupported(format!("No DDL for {k:?}"))),
     };
-    let text = first_cell(pool, &ora_ddl_sql(ty, &name, &sc))
-        .await?
-        .ok_or_else(|| DbError::NotFound(format!("{} {sc}.{name} not found", ty.to_lowercase())))?;
+    let text = match pool {
+        Pool::Ora(p) if p.server_release().await? < crate::oracle::ORA_12_1 => {
+            ora_ddl_by_steps(p, ty, &name, &sc).await?
+        }
+        _ => first_cell(pool, &ora_ddl_sql(ty, &name, &sc)).await?,
+    }
+    .ok_or_else(|| DbError::NotFound(format!("{} {sc}.{name} not found", ty.to_lowercase())))?;
     Ok(ora_tidy(&text))
 }
 
@@ -1110,6 +1189,69 @@ async fn lite_ddl(live: &Live, o: &ObjectRef) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oracle_ddl_with_function_from_12_1_steps_before() {
+        let sql = ora_ddl_sql("TABLE", "T", "DEMO");
+        assert!(sql.starts_with("with function prometeo_ddl("), "{sql}");
+        assert!(
+            sql.contains("'TABLESPACE', false); r := dbms_metadata.get_ddl(t, n, o);"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("where x.table_owner = o and x.table_name = n and x.generated = 'N'"),
+            "{sql}"
+        );
+        assert!(
+            sql.ends_with("select prometeo_ddl('TABLE', 'T', 'DEMO') from dual"),
+            "{sql}"
+        );
+
+        let (setup, q) = ora_ddl_steps("TABLE", "T", "DEMO");
+        assert!(
+            setup.starts_with("begin dbms_metadata.set_transform_param"),
+            "{setup}"
+        );
+        assert!(setup.ends_with("'TABLESPACE', false); end;"), "{setup}");
+        assert!(!setup.contains("with function"));
+        assert_eq!(q.len(), 3, "{q:?}");
+        assert_eq!(
+            q[0],
+            "select dbms_metadata.get_ddl('TABLE', 'T', 'DEMO') from dual"
+        );
+        assert!(
+            q[1].starts_with(
+                "select dbms_metadata.get_ddl('INDEX', i.index_name, i.owner) from (select"
+            ),
+            "{}",
+            q[1]
+        );
+        assert!(
+            q[1].contains("x.table_owner = 'DEMO' and x.table_name = 'T'"),
+            "{}",
+            q[1]
+        );
+        assert_eq!(
+            q[2],
+            "select dbms_metadata.get_dependent_ddl('COMMENT', 'T', 'DEMO') from dual"
+        );
+
+        let (_, q) = ora_ddl_steps("PACKAGE", "P", "DEMO");
+        assert_eq!(
+            q,
+            [
+                "select dbms_metadata.get_ddl('PACKAGE', 'P', 'DEMO') from dual",
+                "select dbms_metadata.get_ddl('PACKAGE_BODY', 'P', 'DEMO') from dual"
+            ]
+        );
+        let (_, q) = ora_ddl_steps("VIEW", "V", "DEMO");
+        assert_eq!(q.len(), 2);
+        let (_, q) = ora_ddl_steps("SEQUENCE", "O'S", "DEMO");
+        assert_eq!(
+            q,
+            ["select dbms_metadata.get_ddl('SEQUENCE', 'O''S', 'DEMO') from dual"]
+        );
+    }
 
     #[test]
     fn keywords_go_lower_case_but_quoted_text_does_not() {

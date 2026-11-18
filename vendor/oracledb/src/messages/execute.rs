@@ -177,22 +177,33 @@ impl ExecuteMessage<'_, '_> {
             buf.write_u8(0); // pointer (al8doac)
             buf.write_u8(0); // number of defines
         }
-        buf.write_ub4(0); // registration id
-        buf.write_u8(0); // pointer (al8objlist)
-        buf.write_u8(1); // pointer (al8objlen)
-        buf.write_u8(0); // pointer (al8blv)
-        buf.write_ub4(0); // al8blvl
-        buf.write_u8(0); // pointer (al8dnam)
-        buf.write_ub4(0); // al8dnaml
-        buf.write_ub4(0); // al8regid_msb
-        if self.array_dml_row_counts {
-            buf.write_u8(1); // pointer (al8pidmlrc)
-            buf.write_ub4(self.num_execs);
-            buf.write_u8(1); // pointer (al8pidmlrcl)
-        } else {
-            buf.write_u8(0); // pointer (al8pidmlrc)
-            buf.write_ub4(0); // al8pidmlrcbl
-            buf.write_u8(0); // pointer (al8pidmlrcl)
+        // the fields that follow came with later server versions (what
+        // go-ora and JDBC thin send to 10g / 11g servers)
+        if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_10_2)
+        {
+            buf.write_ub4(0); // registration id
+            buf.write_u8(0); // pointer (al8objlist)
+            buf.write_u8(1); // pointer (al8objlen)
+        }
+        if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_11_1)
+        {
+            buf.write_u8(0); // pointer (al8blv)
+            buf.write_ub4(0); // al8blvl
+            buf.write_u8(0); // pointer (al8dnam)
+            buf.write_ub4(0); // al8dnaml
+            buf.write_ub4(0); // al8regid_msb
+        }
+        if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_1)
+        {
+            if self.array_dml_row_counts {
+                buf.write_u8(1); // pointer (al8pidmlrc)
+                buf.write_ub4(self.num_execs);
+                buf.write_u8(1); // pointer (al8pidmlrcl)
+            } else {
+                buf.write_u8(0); // pointer (al8pidmlrc)
+                buf.write_ub4(0); // al8pidmlrcbl
+                buf.write_u8(0); // pointer (al8pidmlrcl)
+            }
         }
         if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_12_2)
         {

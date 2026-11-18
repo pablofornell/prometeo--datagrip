@@ -231,8 +231,10 @@ fn password_hash(
 /// Builds the combo key (the key that encrypts the password) from both
 /// halves of the session key. 10G: MD5 of the XOR of bytes 16..32 of the
 /// halves (what JDBC thin and go-ora do); 48-byte session keys (11G) XOR
-/// bytes 16..40 of the halves; 32-byte ones (12C) run PBKDF2 over the hex of
-/// both halves.
+/// bytes 16..40 of the halves, and a 10g / 11g server (`md5_11g`, see
+/// `Capabilities::server_has_md5_combo_key`) takes MD5 of the first 16 bytes
+/// of that XOR and of the last 8, cut to 24 bytes (go-ora); 32-byte ones
+/// (12C) run PBKDF2 over the hex of both halves.
 fn combo_key(
     verifier_type: u32,
     part_a: &[u8],
@@ -240,6 +242,7 @@ fn combo_key(
     key_len: usize,
     csk_salt: Option<&[u8]>,
     sder_count: Option<u32>,
+    md5_11g: bool,
 ) -> Result<Vec<u8>, Error> {
     if verifier_type == constants::VERIFIER_TYPE_10G as u32
         && csk_salt.is_none()
@@ -251,11 +254,18 @@ fn combo_key(
             .collect();
         Ok(md5::Md5::digest(&xor).to_vec())
     } else if part_a.len() == 48 {
-        Ok(part_a[16..40]
+        let xor: Vec<u8> = part_a[16..40]
             .iter()
             .zip(&part_b[16..40])
             .map(|(a, b)| a ^ b)
-            .collect())
+            .collect();
+        if !md5_11g {
+            return Ok(xor);
+        }
+        let mut key = md5::Md5::digest(&xor[..16]).to_vec();
+        key.extend(md5::Md5::digest(&xor[16..]));
+        key.truncate(24);
+        Ok(key)
     } else {
         let salt = csk_salt
             .ok_or_else(|| bad_auth("AUTH_PBKDF2_CSK_SALT missing"))?;
@@ -414,6 +424,7 @@ impl AuthMessage {
             key_len,
             self.session_hex("AUTH_PBKDF2_CSK_SALT")?.as_deref(),
             self.session_u32("AUTH_PBKDF2_SDER_COUNT")?,
+            client.server_has_md5_combo_key(),
         )?;
 
         // generate speedy key (12C verifiers only)
@@ -764,8 +775,22 @@ mod tests {
             16,
             None,
             None,
+            true,
         )
         .unwrap();
         assert_eq!(key, md5::Md5::digest(&a[16..32]).to_vec());
+    }
+
+    #[test]
+    fn combo_key_11g_is_the_xor_or_its_md5_on_old_servers() {
+        let a: Vec<u8> = (0..48).collect();
+        let b = vec![0u8; 48];
+        let ty = constants::VERIFIER_TYPE_11G_1 as u32;
+        let key = combo_key(ty, &a, &b, 24, None, None, false).unwrap();
+        assert_eq!(key, a[16..40].to_vec());
+        let key = combo_key(ty, &a, &b, 24, None, None, true).unwrap();
+        let mut want = md5::Md5::digest(&a[16..32]).to_vec();
+        want.extend(&md5::Md5::digest(&a[32..40])[..8]);
+        assert_eq!(key, want);
     }
 }

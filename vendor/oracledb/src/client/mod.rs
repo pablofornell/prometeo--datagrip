@@ -285,6 +285,7 @@ impl Client {
         message: &mut impl Message,
         response: &mut Response,
     ) -> Result<(), Error> {
+        response.set_small_chunks(!self.caps.supports_big_chunks());
         response.add_packets(self.receive_packets()?);
         message.pre_deserialize(self, response);
         while let Err(e) = message.deserialize(self, response) {
@@ -347,6 +348,7 @@ impl Client {
         message: &mut impl Message,
     ) -> Result<(), Error> {
         let mut buf = WriteBuffer::new();
+        buf.set_small_chunks(!self.caps.supports_big_chunks());
         if message.get_packet_type() == constants::PACKET_TYPE_DATA {
             self.write_piggybacks(&mut buf);
         }
@@ -780,7 +782,13 @@ impl Client {
             connect_message.protocol_version,
             connect_message.protocol_flags,
         );
-        self.transport.set_full_packet_size();
+        // 10g / 11g keep 16-bit packet lengths after the accept
+        if connect_message.protocol_version >= constants::PROTOCOL_VERSION_12 {
+            self.transport.set_full_packet_size();
+        }
+        // packets sent must not be larger than the SDU the server accepted
+        // (10g gives 2048 when 8192 is asked for)
+        self.transport.limit_send_packet_size(connect_message.sdu as usize);
         Ok(())
     }
 
@@ -973,6 +981,11 @@ impl Client {
         let result = cache.get_type(self, client_ref, name);
         self.dbobject_type_cache = cache;
         result
+    }
+
+    /// See [`Capabilities::server_has_md5_combo_key`].
+    pub(crate) fn server_has_md5_combo_key(&self) -> bool {
+        self.caps.server_has_md5_combo_key()
     }
 
     /// Returns the maximum string size for the database.

@@ -396,7 +396,11 @@ impl CachedStatement {
         let _dcbmdbz = resp.read_ub4()?;
         let _dcbmnpr = resp.read_ub4()?;
         let _dcbmxpr = resp.read_ub4()?;
-        let _dcbqcky = resp.read_bytes_with_double_length()?;
+        // the query cache key came with 11.1: 10g servers do not send it
+        if client.supports_ttc_field_version(constants::TTC_FIELD_VERSION_11_1)
+        {
+            let _dcbqcky = resp.read_bytes_with_double_length()?;
+        }
         resp.set_num_columns(self.out_metadata.len());
         Ok(())
     }

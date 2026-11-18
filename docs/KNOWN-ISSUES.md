@@ -19,13 +19,44 @@ where it helps, what to do instead. Update the list when an item is fixed.
 
 ## Oracle 10g / 11g / 12.1
 
-- Login works (the 10G and 11G password verifiers are supported), and the schema list, the Database Explorer
-  schema level and Find Usages tell system users apart by a list of Oracle's own account names, because
-  `ALL_USERS.ORACLE_MAINTAINED` only exists from 12.2. A custom account that has the name of an Oracle-shipped one
-  (`WMSYS`, `XDB`, ...) or starts with `APEX_` / `FLOWS_` shows as a system user there.
-- Not adapted to these versions, and not tested on them: paging of table data (`OFFSET .. FETCH`, 12.1+),
-  DDL of Oracle objects and the text search of Find Usages in views (`WITH FUNCTION`, 12.1+), and the list of
-  check constraints in the explorer (`SEARCH_CONDITION_VC`, 12.2+). Those features can fail with an ORA error.
+- **Tested live** on Oracle Database 10g XE 10.2.0.1 and 11g XE 11.2.0.2 (`tests/oracle_legacy.rs`,
+  `make db-up-oracle-legacy`): logon, console (many rows, long values, CLOBs, `DBMS_OUTPUT`, errors with their
+  position, transaction state, Stop), Database Explorer (tables, columns with defaults, keys, foreign keys, indexes,
+  checks, triggers, routines, package members), table data paging, grid edits with CLOB / BLOB values, the value
+  viewer, DDL (also on a read-only data source), Find Usages, Explain Plan, the Compare Schemas model, and a SQL
+  dump that is restored on the same server.
+- **21c XE 21.3** was smoke-tested: the Oracle integration tests of 23 Free pass except the one that uses the
+  23ai `BOOLEAN` literals, the old-server tests that apply pass (dump and restore included), and an account with
+  only an 11G verifier logs on. The Stop test with a big result inside a transaction once took 13 to 17 s there
+  instead of the 10 s the test allows (a rerun passed). 12.1, 12.2, 18c and 19c were not tested: the SQL for them
+  is the one of 23 Free where the server has the feature, and the dictionary columns are asked of the server (when
+  that fails, the release decides; a dump or a schema compare stops with the error when neither is known).
+- The driver speaks the older protocol of these servers (see `vendor/oracledb/PATCHES.md`). A server that needs
+  native network encryption or data integrity is refused with a "not implemented" error.
+- What changes before 12.1: table data is paged with `ROWNUM`; DDL sets the `DBMS_METADATA` transforms in a PL/SQL
+  block on the same connection before `GET_DDL` (no `WITH FUNCTION`); Find Usages reads the `LONG` view text; check
+  conditions and defaults come from the `LONG` columns. Before 11.2 lists of columns and arguments are built with
+  `XMLAGG` instead of `LISTAGG`.
+- The schema list, the Database Explorer schema level and Find Usages tell system users apart by a list of Oracle's
+  own account names, because `ALL_USERS.ORACLE_MAINTAINED` only exists from 12.2. A custom account that has the name
+  of an Oracle-shipped one (`WMSYS`, `XDB`, ...) or starts with `APEX_` / `FLOWS_` shows as a system user there.
+- 10g: package members are sorted by name, not in the order of declaration (`ALL_PROCEDURES` has no
+  `SUBPROGRAM_ID` / `OVERLOAD` there).
+- A `DBMS_OUTPUT` line longer than 32511 bytes is cut to 32511 bytes (a PL/SQL bind holds 32512 bytes before 12.1;
+  12.1+ cuts at 32766 bytes). The other lines are shown in full.
+- **Server bug, 10.2.0.1 and 11.2.0.2:** a text over 4000 bytes that has characters outside the Basic Multilingual
+  Plane (emoji, U+10000 and up) together with other non-ASCII characters is converted wrongly when it is written to a
+  CLOB / NCLOB (grid edit, import): 10.2 refuses it with ORA-00600 [kpolcsc1], 11.2 stores a U+FFFD in place of one
+  character. Shorter texts, and texts without such characters, are written correctly. The `cell_db` Oracle test
+  fails on these servers for that reason.
+- Not available on these releases, so not offered: identity columns, `DEFAULT ON NULL`, invisible columns (12.1+),
+  virtual columns and interval partitioning (11.1+; Express Edition has no partitioning at all).
+
+## Oracle `LONG` columns
+
+- A SQL dump writes a `LONG` value over 4000 bytes through a PL/SQL `LONG` variable (tested with 6000 bytes on 10g
+  and 11g). Such a variable holds at most 32760 bytes, so a longer value fails on restore. `LONG RAW` values over
+  2000 bytes were not tested.
 
 ## SQL dump and restore
 

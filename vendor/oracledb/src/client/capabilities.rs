@@ -131,6 +131,8 @@ pub struct Capabilities {
     supports_request_boundaries: bool,
     supports_end_user_security_context: bool,
     supports_ha_readiness: bool,
+    supports_big_chunks: bool,
+    server_logon_types: u8,
 }
 
 impl Capabilities {
@@ -149,10 +151,19 @@ impl Capabilities {
     }
 
     pub fn adjust_for_server_compile_caps(&mut self, caps: &[u8]) {
-        if caps[CCAP_IX_FIELD_VERSION] < self.ttc_field_version {
-            self.ttc_field_version = caps[CCAP_IX_FIELD_VERSION];
+        let field_version =
+            caps.get(CCAP_IX_FIELD_VERSION).copied().unwrap_or(0);
+        if field_version < self.ttc_field_version {
+            self.ttc_field_version = field_version;
             self.compile_caps[CCAP_IX_FIELD_VERSION] = self.ttc_field_version;
         }
+        if let Some(logon_types) = caps.get(CCAP_IX_LOGON_TYPES) {
+            self.server_logon_types = *logon_types;
+        }
+        // 10g / 11g servers do not have big chunks: the chunks of long
+        // values have one-byte lengths
+        self.supports_big_chunks = caps.len() > CCAP_IX_TTC3
+            && caps[CCAP_IX_TTC3] & CCAP_VAL_BIG_CHUNK_CLR != 0;
         if caps.len() > CCAP_IX_TTC4
             && caps[CCAP_IX_TTC4] & CCAP_VAL_EXPLICIT_BOUNDARY != 0
         {
@@ -173,12 +184,15 @@ impl Capabilities {
     }
 
     pub fn adjust_for_server_runtime_caps(&mut self, caps: &[u8]) {
-        if caps[RCAP_IX_TTC] & RCAP_VAL_TTC_32K != 0 {
+        // 10g sends 5 runtime capabilities only: no TTC byte, so no 32k
+        // strings and no session state operations
+        let ttc = caps.get(RCAP_IX_TTC).copied().unwrap_or(0);
+        if ttc & RCAP_VAL_TTC_32K != 0 {
             self.max_string_size = 32767;
         } else {
             self.max_string_size = 4000;
         }
-        if caps[RCAP_IX_TTC] & RCAP_VAL_TTC_SESSION_STATE_OPS == 0 {
+        if ttc & RCAP_VAL_TTC_SESSION_STATE_OPS == 0 {
             self.supports_request_boundaries = false;
         }
     }
@@ -264,6 +278,8 @@ impl Capabilities {
             supports_request_boundaries: false,
             supports_end_user_security_context: false,
             supports_ha_readiness: false,
+            supports_big_chunks: true,
+            server_logon_types: 0xff,
         };
         caps.init_compile_caps();
         caps.init_runtime_caps();
@@ -304,7 +320,89 @@ impl Capabilities {
         self.supports_request_boundaries
     }
 
+    /// Returns whether the server is older than 12.1: TNS protocol before
+    /// 315 and TTC field version before 7. Only such a server gets the
+    /// changes for 10g / 11g; 12.1+ keeps the upstream behavior whatever its
+    /// capability bits say.
+    fn server_before_12_1(&self) -> bool {
+        self.protocol_version < constants::PROTOCOL_VERSION_12
+            && self.ttc_field_version < constants::TTC_FIELD_VERSION_12_1
+    }
+
+    /// Returns whether the server builds the combo key of an 11G verifier
+    /// the old way: MD5 of the XOR of the session key halves (10g / 11g
+    /// servers, whose logon types have no `0x20` bit; what go-ora checks).
+    /// Never for 12.1+.
+    pub fn server_has_md5_combo_key(&self) -> bool {
+        self.server_before_12_1()
+            && self.server_logon_types & CCAP_VAL_O7LOGON == 0
+    }
+
+    /// Returns whether the chunks of long values have UB4 lengths. Only a
+    /// server before 12.1 without the big chunk bit (10g / 11g) has one-byte
+    /// lengths; 12.1+ always has UB4 lengths.
+    pub fn supports_big_chunks(&self) -> bool {
+        !self.server_before_12_1() || self.supports_big_chunks
+    }
+
     pub fn supports_ttc_field_version(&self, version: u8) -> bool {
         self.ttc_field_version >= version
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Capabilities after the accept packet and the server's compile
+    /// capabilities (`ttc3` at index 37, logon types at index 4).
+    fn negotiated(
+        protocol: u16,
+        field: u8,
+        ttc3: u8,
+        logon: u8,
+    ) -> Capabilities {
+        let mut c = Capabilities::new();
+        c.adjust_for_protocol(protocol, 0);
+        let mut server = vec![0u8; 40];
+        server[CCAP_IX_LOGON_TYPES] = logon;
+        server[CCAP_IX_FIELD_VERSION] = field;
+        server[CCAP_IX_TTC3] = ttc3;
+        c.adjust_for_server_compile_caps(&server);
+        c
+    }
+
+    #[test]
+    fn old_server_gates_never_apply_from_12_1() {
+        // what 10.2 and 11.2 send: no big chunks, logon types without 0x20
+        let ten = negotiated(313, 4, 0, 0x0d);
+        assert!(!ten.supports_big_chunks() && ten.server_has_md5_combo_key());
+        let eleven = negotiated(314, 6, 0x03, 0x0f);
+        assert!(
+            !eleven.supports_big_chunks() && eleven.server_has_md5_combo_key()
+        );
+        // an old server with the bits set
+        let bits = negotiated(314, 6, CCAP_VAL_BIG_CHUNK_CLR, 0x2f);
+        assert!(
+            bits.supports_big_chunks() && !bits.server_has_md5_combo_key()
+        );
+        // 12.1+ (TNS 315+ or field version 7+): upstream behavior even when
+        // the bits are missing
+        for (protocol, field) in [(315, 7), (319, 24), (315, 6), (314, 7)] {
+            let c = negotiated(protocol, field, 0, 0);
+            assert!(c.supports_big_chunks(), "{protocol}/{field}");
+            assert!(!c.server_has_md5_combo_key(), "{protocol}/{field}");
+        }
+        // before any negotiation
+        let fresh = Capabilities::new();
+        assert!(fresh.supports_big_chunks());
+    }
+
+    #[test]
+    fn short_runtime_capabilities_of_10g() {
+        let mut c = Capabilities::new();
+        c.adjust_for_server_runtime_caps(&[2, 1, 0, 1, 0x18]);
+        assert_eq!(c.max_string_size(), 4000);
+        assert!(!c.supports_request_boundaries());
     }
 }

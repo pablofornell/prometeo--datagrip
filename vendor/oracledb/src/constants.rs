@@ -61,6 +61,13 @@ pub const ORA_TYPE_NUM_INTERVAL_YM: u16 = 182;
 pub const ORA_TYPE_NUM_JSON: u16 = 119;
 pub const ORA_TYPE_NUM_LONG: u16 = 8;
 pub const ORA_TYPE_NUM_LONG_RAW: u16 = 24;
+// LONG VARCHAR / LONG VARRAW: what a CLOB / BLOB column is defined as on 10g
+// and 11g servers, which refuse a define as LONG / LONG RAW (ORA-00932)
+pub const ORA_TYPE_NUM_LONG_VARCHAR: u16 = 94;
+pub const ORA_TYPE_NUM_LONG_VARRAW: u16 = 95;
+// the buffer size of such a define: 10.2 crashes (ORA-07445 in memcpy) on a
+// NULL value when it is 0x7FFFFFFF, the size of a LONG define
+pub const LONG_VAR_DEFINE_SIZE: u32 = 0x3FFF_FFFF;
 pub const ORA_TYPE_NUM_NUMBER: u16 = 2;
 pub const ORA_TYPE_NUM_OBJECT: u16 = 109;
 pub const ORA_TYPE_NUM_RAW: u16 = 23;
@@ -145,6 +152,11 @@ pub const MARKER_TYPE_INTERRUPT: u8 = 3;
 
 // protocol version constants
 pub const PROTOCOL_VERSION_MIN: u16 = 300;
+// lowest version the client accepts: 313 is what Oracle Database 10g sends
+// (11g sends 314); upstream accepted 315 (12.1) and later only
+pub const PROTOCOL_VERSION_MIN_ACCEPTED: u16 = 313;
+// from this version on, packet lengths take 4 bytes and the accept packet
+// gives the SDU in 4 bytes; older servers use 2 bytes for both
 pub const PROTOCOL_VERSION_12: u16 = 315;
 pub const PROTOCOL_VERSION_18: u16 = 318;
 pub const PROTOCOL_VERSION_23: u16 = 319;
@@ -164,8 +176,12 @@ pub const DB_ERR_NUM_UNIQUE_CONSTRAINT_VIOLATED: usize = 1;
 pub const DB_ERR_NUM_VALUE_LARGER_THAN_PRECISION: usize = 1438;
 
 // TTC field version constants
-pub const _TTC_FIELD_VERSION_11_2: u8 = 6;
-pub const _TTC_FIELD_VERSION_12_1: u8 = 7;
+// 10.2 servers send 4; the fields of execute messages and responses that
+// came with 11.1 (5) and 12.1 (7) are left out below those versions
+pub const TTC_FIELD_VERSION_10_2: u8 = 4;
+pub const TTC_FIELD_VERSION_11_1: u8 = 5;
+pub const TTC_FIELD_VERSION_11_2: u8 = 6;
+pub const TTC_FIELD_VERSION_12_1: u8 = 7;
 pub const TTC_FIELD_VERSION_12_2: u8 = 8;
 pub const TTC_FIELD_VERSION_12_2_EXT1: u8 = 9;
 pub const _TTC_FIELD_VERSION_18_1: u8 = 10;
@@ -375,6 +391,9 @@ pub const ORA_NUM_MAX_DIGITS: usize = 40;
 
 // other constants
 pub const TTC_CHUNK_SIZE: usize = 32767;
+// chunk size for servers without big chunks (10g / 11g): the chunk lengths
+// are one byte then (what go-ora and JDBC thin send)
+pub const TTC_SMALL_CHUNK_SIZE: usize = 64;
 pub const TTC_MAX_SHORT_LENGTH: u8 = 252;
 pub const TTC_LONG_LENGTH_INDICATOR: u8 = 254;
 pub const TTC_NULL_LENGTH_INDICATOR: u8 = 255;
