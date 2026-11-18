@@ -201,8 +201,12 @@ describe("layout and routing cost (benchmark-style, generous bounds)", () => {
     // the fastest of two, so a busy moment on the machine cannot make the cheaper path look dearer than the full one
     const routeOnlyMs = bestOf(2, () => void computeScene({ ...req, layout: full.layout }));
     const note = `full ${fullMs.toFixed(0)} ms, routing only ${routeOnlyMs.toFixed(0)} ms`;
+    // the reused layout comes back as it is: the layout step did not run again
+    expect(computeScene({ ...req, layout: full.layout }).layout).toBe(full.layout);
     // this is the work the worker keeps off the main thread; the absolute budget needs a quiet machine
     expect(fullMs, note).toBeLessThan(budget(10_000));
-    expect(routeOnlyMs, note).toBeLessThan(fullMs);
+    // routing is most of the cost (the layout is about 10 % of it), so a busy CI runner can make the two times
+    // nearly equal: allow some noise, but catch a reused layout that costs clearly more than a full computation
+    expect(routeOnlyMs, note).toBeLessThan(fullMs * 1.5);
   });
 });
