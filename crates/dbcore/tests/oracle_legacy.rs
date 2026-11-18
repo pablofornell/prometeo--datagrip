@@ -703,8 +703,11 @@ async fn zz_dump_and_restore() {
         dump.contains("CREATE OR REPLACE FORCE VIEW LG_EMP_V"),
         "{dump}"
     );
+    // 10g / 11g have neither (on a newer server the schema may hold such tables)
+    let v = mgr.server_version(&cfg.id).unwrap();
     assert!(
-        !dump.contains("IDENTITY") && !dump.contains("INVISIBLE"),
+        !(v.contains(" 10g ") || v.contains(" 11g "))
+            || (!dump.contains("IDENTITY") && !dump.contains("INVISIBLE")),
         "{dump}"
     );
 

@@ -23,10 +23,14 @@ where it helps, what to do instead. Update the list when an item is fixed.
   `make db-up-oracle-legacy`): logon, console (many rows, long values, CLOBs, `DBMS_OUTPUT`, errors with their
   position, transaction state, Stop), Database Explorer (tables, columns with defaults, keys, foreign keys, indexes,
   checks, triggers, routines, package members), table data paging, grid edits with CLOB / BLOB values, the value
-  viewer, DDL, Find Usages, Explain Plan, the Compare Schemas model, and a SQL dump that is restored on the same
-  server. 12.1 to 21c were not tested: the SQL for them is the one of 23 Free where
-  the server has the feature, and the dictionary columns are asked of the server instead of guessed from the
-  release.
+  viewer, DDL (also on a read-only data source), Find Usages, Explain Plan, the Compare Schemas model, and a SQL
+  dump that is restored on the same server.
+- **21c XE 21.3** was smoke-tested: the Oracle integration tests of 23 Free pass except the one that uses the
+  23ai `BOOLEAN` literals, the old-server tests that apply pass (dump and restore included), and an account with
+  only an 11G verifier logs on. The Stop test with a big result inside a transaction once took 13 to 17 s there
+  instead of the 10 s the test allows (a rerun passed). 12.1, 12.2, 18c and 19c were not tested: the SQL for them
+  is the one of 23 Free where the server has the feature, and the dictionary columns are asked of the server (when
+  that fails, the release decides; a dump or a schema compare stops with the error when neither is known).
 - The driver speaks the older protocol of these servers (see `vendor/oracledb/PATCHES.md`). A server that needs
   native network encryption or data integrity is refused with a "not implemented" error.
 - What changes before 12.1: table data is paged with `ROWNUM`; DDL sets the `DBMS_METADATA` transforms in a PL/SQL
