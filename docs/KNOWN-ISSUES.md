@@ -28,9 +28,10 @@ where it helps, what to do instead. Update the list when an item is fixed.
 - **21c XE 21.3** was smoke-tested: the Oracle integration tests of 23 Free pass except the one that uses the
   23ai `BOOLEAN` literals, the old-server tests that apply pass (dump and restore included), and an account with
   only an 11G verifier logs on. The Stop test with a big result inside a transaction once took 13 to 17 s there
-  instead of the 10 s the test allows (a rerun passed). 12.1, 12.2, 18c and 19c were not tested: the SQL for them
-  is the one of 23 Free where the server has the feature, and the dictionary columns are asked of the server (when
-  that fails, the release decides; a dump or a schema compare stops with the error when neither is known).
+  instead of the 10 s the test allows (a rerun passed). 12.1, 12.2 and 18c were not tested (19c: see below): the
+  SQL for them is the one of 23 Free where the server has the feature, and the dictionary columns are asked of the
+  server (when that fails, the release decides; a dump or a schema compare stops with the error when neither is
+  known).
 - The driver speaks the older protocol of these servers (see `vendor/oracledb/PATCHES.md`). A server that needs
   native network encryption or data integrity is refused with a "not implemented" error.
 - What changes before 12.1: table data is paged with `ROWNUM`; DDL sets the `DBMS_METADATA` transforms in a PL/SQL
@@ -51,6 +52,35 @@ where it helps, what to do instead. Update the list when an item is fixed.
   fails on these servers for that reason.
 - Not available on these releases, so not offered: identity columns, `DEFAULT ON NULL`, invisible columns (12.1+),
   virtual columns and interval partitioning (11.1+; Express Edition has no partitioning at all).
+
+## Oracle 19c and single-byte database character sets
+
+- **Open report (0.3.0):** with Oracle 19.25 (database character set WE8MSWIN1252) and 19.3 (WE8ISO8859P15), no
+  tables show in the Database Explorer or in the result grid of a query. **Not reproduced.** On 19.3 with each of
+  these two character sets, the Explorer (schemas, tables, columns with their defaults, keys, indexes, checks),
+  table data, the schema snapshot and console queries work, and the text comes back unchanged (`ñ`, `€`, names such
+  as `AÑO`, NCHAR text outside the database character set, CLOBs). To find the cause, these facts about the failing
+  servers are necessary: the error text (notification or output pane), the Explorer badge of the data source (for
+  example `0 of 5`: then every schema is hidden as a system schema), the connection type (SID or service name),
+  and the result of `select user, sys_context('USERENV', 'CON_NAME'), sys_context('USERENV', 'CURRENT_SCHEMA')
+  from dual` and of `select count(*) from user_tables` in a query console. A SID that names a container database
+  connects to its root (`CDB$ROOT`), where the tables of the pluggable databases are not visible.
+- **Tested live** on Oracle Database 19c EE 19.3, non-CDB, image `doctorkirk/oracle-19c:19.3` (built from
+  oracle/docker-images), database character sets WE8MSWIN1252 and WE8ISO8859P15 (national AL16UTF16):
+  `tests/oracle_charset.rs` (`PROMETEO_ORACLE_19C_URL`) passes. It also passes on 23 Free (AL32UTF8). The
+  old-server tests (`tests/oracle_legacy.rs`) pass on 19.3 with both character sets, except the check of a 10g /
+  11g banner. The Oracle integration tests (`tests/oracle.rs`, run with WE8ISO8859P15 only) pass on 19.3 except
+  four that depend on the test server: the 23ai `BOOLEAN`
+  literals, the connection test that names the service `FREEPDB1`, and two tests with a cartesian join of
+  `ALL_OBJECTS` that gives its first row after about 160 s on that server (the same in SQL*Plus).
+- These server settings did not change the result: `NLS_LANGUAGE=SPANISH` / `NLS_TERRITORY=SPAIN`,
+  `cursor_sharing=FORCE`, `SQLNET.ENCRYPTION_SERVER` and `SQLNET.CRYPTO_CHECKSUM_SERVER` set to `REQUESTED`, a
+  SID connection, an account that reads the tables of another schema only through a role.
+- Release 0.2.1 fails on 19.3: the column list of a table and table data stop with ORA-00904
+  `"C"."DATA_DEFAULT_VC"` (a 23ai column). 0.3.0 asks the dictionary for that column and reads `DATA_DEFAULT`.
+- **Not tested:** 19c with a release update such as 19.25 (19.3 sends TNS version 318 and TTC field version 12, and
+  its accept packet does not ask for fast authentication; a later release update can differ there), a 19c
+  container database with pluggable databases, and the Windows build against 19c.
 
 ## Oracle `LONG` columns
 
