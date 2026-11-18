@@ -2742,7 +2742,7 @@ async fn dump_ora<W: Write>(
 
     // ---- columns (tables and views) in one query. 10g / 11g: no `*_VC` text columns, identity columns or
     // `USER_GENERATED` (the identity part of the row is NULL there)
-    let oc = OraCols::of(pool).await;
+    let oc = OraCols::try_of(pool).await?;
     let (identity_cols, identity_join) = if oc.identity {
         (
             "i.generation_type, sq.last_number, sq.increment_by, sq.min_value, sq.max_value, sq.cycle_flag, \
@@ -3000,7 +3000,7 @@ async fn dump_ora<W: Write>(
             "select table_name, partitioning_type, subpartitioning_type, {interval}, def_subpartition_count \
              from all_part_tables where owner = {o}",
             // interval partitioning is 11.1+
-            interval = if pool.ora_has_column("ALL_PART_TABLES", "INTERVAL").await {
+            interval = if pool.ora_dict_column("ALL_PART_TABLES", "INTERVAL").await? {
                 "interval"
             } else {
                 "null"
@@ -3047,7 +3047,7 @@ async fn dump_ora<W: Write>(
             .query_strings(&format!(
                 "select table_name, partition_name, high_value, {interval} from all_tab_partitions \
                  where table_owner = {o} order by table_name, partition_position",
-                interval = if pool.ora_has_column("ALL_TAB_PARTITIONS", "INTERVAL").await {
+                interval = if pool.ora_dict_column("ALL_TAB_PARTITIONS", "INTERVAL").await? {
                     "interval"
                 } else {
                     "'NO'"

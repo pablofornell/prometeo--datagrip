@@ -423,12 +423,21 @@ impl Pool {
         }
     }
 
-    /// Oracle: whether the dictionary view `view` has `column` (one of [`crate::oracle::ORA_OPTIONAL_COLUMNS`]).
-    /// `false` for the other drivers.
+    /// Oracle: whether the dictionary view `view` has `column` (one of [`crate::oracle::ORA_OPTIONAL_COLUMNS`]),
+    /// `false` when that cannot be found out. `false` for the other drivers.
     pub(crate) async fn ora_has_column(&self, view: &str, column: &str) -> bool {
         match self {
             Pool::Ora(p) => p.has_dict_column(view, column).await,
             _ => false,
+        }
+    }
+
+    /// Like [`ora_has_column`](Self::ora_has_column), but an error when neither the dictionary nor the release of the
+    /// server tells: for the paths where a wrong guess would write wrong SQL (dump, compare).
+    pub(crate) async fn ora_dict_column(&self, view: &str, column: &str) -> Result<bool> {
+        match self {
+            Pool::Ora(p) => p.dict_column(view, column).await,
+            _ => Ok(false),
         }
     }
 

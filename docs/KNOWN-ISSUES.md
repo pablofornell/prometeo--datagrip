@@ -38,7 +38,8 @@ where it helps, what to do instead. Update the list when an item is fixed.
   of an Oracle-shipped one (`WMSYS`, `XDB`, ...) or starts with `APEX_` / `FLOWS_` shows as a system user there.
 - 10g: package members are sorted by name, not in the order of declaration (`ALL_PROCEDURES` has no
   `SUBPROGRAM_ID` / `OVERLOAD` there).
-- `DBMS_OUTPUT` lines longer than 32512 bytes are not shown: a PL/SQL bind is limited to 32512 bytes before 12.1.
+- A `DBMS_OUTPUT` line longer than 32511 bytes is cut to 32511 bytes (a PL/SQL bind holds 32512 bytes before 12.1;
+  12.1+ cuts at 32766 bytes). The other lines are shown in full.
 - **Server bug, 10.2.0.1 and 11.2.0.2:** a text over 4000 bytes that has characters outside the Basic Multilingual
   Plane (emoji, U+10000 and up) together with other non-ASCII characters is converted wrongly when it is written to a
   CLOB / NCLOB (grid edit, import): 10.2 refuses it with ORA-00600 [kpolcsc1], 11.2 stores a U+FFFD in place of one

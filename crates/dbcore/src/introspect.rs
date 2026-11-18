@@ -1344,7 +1344,30 @@ impl OraCols {
         check_vc: true,
     };
 
-    /// What the server of `pool` has (asked once per pool, see [`crate::oracle::OraPool::has_dict_column`]).
+    /// What the server of `pool` has, an error when that cannot be found out (see
+    /// [`crate::oracle::OraPool::dict_column`]): a dump or a compare must not leave columns out on a guess.
+    pub(crate) async fn try_of(pool: &Pool) -> Result<OraCols> {
+        Ok(OraCols {
+            default_vc: pool
+                .ora_dict_column("ALL_TAB_COLS", "DATA_DEFAULT_VC")
+                .await?,
+            identity: pool
+                .ora_dict_column("ALL_TAB_COLS", "IDENTITY_COLUMN")
+                .await?,
+            default_on_null: pool
+                .ora_dict_column("ALL_TAB_COLS", "DEFAULT_ON_NULL")
+                .await?,
+            user_generated: pool
+                .ora_dict_column("ALL_TAB_COLS", "USER_GENERATED")
+                .await?,
+            check_vc: pool
+                .ora_dict_column("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC")
+                .await?,
+        })
+    }
+
+    /// What the server of `pool` has (asked once per pool, see [`crate::oracle::OraPool::has_dict_column`]); what
+    /// cannot be found out counts as missing.
     pub(crate) async fn of(pool: &Pool) -> OraCols {
         OraCols {
             default_vc: pool.ora_has_column("ALL_TAB_COLS", "DATA_DEFAULT_VC").await,

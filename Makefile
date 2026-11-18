@@ -44,7 +44,7 @@ ORACLE_LEGACY_CONTAINER ?= prometeo-oracle10g
 ORACLE_LEGACY_IMAGE     ?= chameleon82/oracle-xe-10g:universal
 ORACLE_LEGACY_PORT      ?= 15210
 
-DB_ENV :=PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
+DB_ENV := PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
           PROMETEO_MYSQL_URL=mysql://root:$(MYSQL_PASSWORD)@127.0.0.1:$(MYSQL_PORT)/demo \
           PROMETEO_ORACLE_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_PORT)/FREEPDB1 \
           PROMETEO_NO_KEYRING=1

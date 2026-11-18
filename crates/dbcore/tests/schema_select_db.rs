@@ -134,6 +134,11 @@ async fn oracle_lists_all_users_and_switches_the_current_schema() {
         .set_session_schema(&s, "NO\"; DROP USER X; --")
         .await
         .unwrap_err();
-    assert!(err.to_string().contains("ORA-01435"), "{err}");
+    // ORA-01435 "user does not exist"; Oracle 23.26 and later refuse the quote in the identifier first (ORA-25716)
+    let msg = err.to_string();
+    assert!(
+        msg.contains("ORA-01435") || msg.contains("ORA-25716"),
+        "{err}"
+    );
     mgr.close_session(&s).await;
 }

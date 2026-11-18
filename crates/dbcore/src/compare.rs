@@ -731,7 +731,7 @@ async fn ora_model(live: &Live, schema: &str, prefix: Option<&str>) -> Result<Sc
         .await?;
     let mut tables = Tables::new(names.iter().map(|r| s(r, 0)).collect());
     // 10g / 11g: no `*_VC` text columns, identity columns or `USER_GENERATED`
-    let oc = OraCols::of(pool).await;
+    let oc = OraCols::try_of(pool).await?;
 
     // ---- columns
     let cols = pool

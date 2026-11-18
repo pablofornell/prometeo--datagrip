@@ -151,6 +151,83 @@ async fn version_console_and_transactions() {
     mgr.disconnect(&cfg.id).await;
 }
 
+/// A `DBMS_OUTPUT` line longer than a PL/SQL bind holds before 12.1 (32512 bytes) is cut, and the lines after it
+/// still come (the drain does not fail with ORA-06502).
+#[tokio::test]
+async fn long_dbms_output_line_is_cut() {
+    let (cfg, mgr) = setup!();
+    let s = mgr.open_session(&cfg.id).await.unwrap();
+    let ev = run(
+        &mgr,
+        &s,
+        "declare v varchar2(32767) := rpad('x', 32767, 'y'); \
+         begin dbms_output.put_line('before'); dbms_output.put_line(v); dbms_output.put_line('after'); end;\n/",
+    )
+    .await;
+    assert_ok(&ev);
+    let lines: Vec<&str> = ev
+        .iter()
+        .filter_map(|e| match e {
+            ExecEvent::Message { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .flat_map(|t| t.split('\n'))
+        .collect();
+    let long = lines
+        .iter()
+        .find(|l| l.starts_with("xyy"))
+        .unwrap_or_else(|| panic!("{:?}", lines.iter().map(|l| l.len()).collect::<Vec<_>>()));
+    // 32512-byte binds before 12.1, 32767 from 12.1 (a line keeps one byte less: the line feed)
+    let v = mgr.server_version(&cfg.id).unwrap();
+    let old = v.contains(" 10g ") || v.contains(" 11g ");
+    assert_eq!(long.len(), if old { 32511 } else { 32766 }, "{v}");
+    let at = |w: &str| lines.iter().position(|l| *l == w);
+    assert!(at("before") < lines.iter().position(|l| l.starts_with("xyy")));
+    assert!(
+        at("after").is_some(),
+        "{:?}",
+        lines.iter().map(|l| l.len()).collect::<Vec<_>>()
+    );
+    mgr.close_session(&s).await;
+    mgr.disconnect(&cfg.id).await;
+}
+
+/// DDL on a read-only data source: the `DBMS_METADATA` setup block is ours and no write, so it opens no read-only
+/// transaction (the pooled connection stays in the pool) and `GET_DDL` works.
+#[tokio::test]
+async fn ddl_on_a_read_only_data_source() {
+    let (cfg, mgr) = setup!();
+    mgr.disconnect(&cfg.id).await;
+    let mut ro = cfg.clone();
+    ro.id = "ora-old-ro".into();
+    ro.read_only = true;
+    // logons of the instance, read on a session of the normal data source
+    let watch = connected(&cfg).await;
+    let ws = watch.open_session(&cfg.id).await.unwrap();
+    let logons_sql = "select value from v$sysstat where name = 'logons cumulative'";
+    let mgr = connected(&ro).await;
+    let mut logons = Vec::new();
+    for _ in 0..3 {
+        let ddl = mgr
+            .ddl(&ro.id, &obj("LG_EMP", NodeKind::Table, None))
+            .await
+            .unwrap();
+        assert!(ddl.contains("CREATE TABLE \"DEMO\".\"LG_EMP\""), "{ddl}");
+        assert!(!ddl.contains("TABLESPACE"), "{ddl}");
+        logons.push(txt(&scalar(&run(&watch, &ws, logons_sql).await)));
+    }
+    // the first DDL opened the pooled connection; the next ones used it again
+    assert_eq!(logons[0], logons[2], "{logons:?}");
+    watch.close_session(&ws).await;
+    watch.disconnect(&cfg.id).await;
+    // the read-only gate still refuses writes on the same data source
+    let s = mgr.open_session(&ro.id).await.unwrap();
+    let ev = run(&mgr, &s, "create table lg_ro_x (a number)").await;
+    assert_eq!(errors(&ev).len(), 1, "{ev:?}");
+    mgr.close_session(&s).await;
+    mgr.disconnect(&ro.id).await;
+}
+
 /// The Stop button: the break marker goes out with the 16-bit packet length of these servers.
 #[tokio::test]
 async fn cancel_running_statements() {

@@ -58,29 +58,40 @@ pub(crate) const ORA_12_1: u32 = release(12, 1);
 /// First release with `LISTAGG`.
 pub(crate) const ORA_11_2: u32 = release(11, 2);
 
-/// Dictionary columns that only newer releases have (`view`, `column`). Whether the server has them is asked once
-/// per pool ([`OraPool::has_dict_column`]), instead of trusting a release number: the SQL then reads the column where
-/// it exists and an older equivalent (a `LONG`, a constant) where it does not.
-pub(crate) const ORA_OPTIONAL_COLUMNS: &[(&str, &str)] = &[
-    ("ALL_USERS", "ORACLE_MAINTAINED"),
-    ("ALL_TAB_COLS", "DATA_DEFAULT_VC"),
-    ("ALL_TAB_COLS", "IDENTITY_COLUMN"),
-    ("ALL_TAB_COLS", "DEFAULT_ON_NULL"),
-    ("ALL_TAB_COLS", "USER_GENERATED"),
-    ("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC"),
-    ("ALL_VIEWS", "TEXT_VC"),
-    ("ALL_PART_TABLES", "INTERVAL"),
-    ("ALL_TAB_PARTITIONS", "INTERVAL"),
-    ("ALL_PROCEDURES", "SUBPROGRAM_ID"),
-    ("ALL_PROCEDURES", "OVERLOAD"),
-    ("ALL_ARGUMENTS", "SUBPROGRAM_ID"),
+/// Dictionary columns that only newer releases have (`view`, `column`, a release that surely has it). Whether the
+/// server has them is asked once per pool ([`OraPool::dict_column`]): the SQL then reads the column where it exists
+/// and an older equivalent (a `LONG`, a constant) where it does not. The release is only used when that question
+/// fails; it is the first release where the column was seen (10.2, 11.2, 21c, 23 Free) or is documented, the later
+/// one when in doubt, so that a column is never read where it may be missing.
+pub(crate) const ORA_OPTIONAL_COLUMNS: &[(&str, &str, u32)] = &[
+    ("ALL_USERS", "ORACLE_MAINTAINED", release(12, 2)),
+    ("ALL_TAB_COLS", "DATA_DEFAULT_VC", release(23, 0)),
+    ("ALL_TAB_COLS", "IDENTITY_COLUMN", release(12, 1)),
+    ("ALL_TAB_COLS", "DEFAULT_ON_NULL", release(12, 1)),
+    ("ALL_TAB_COLS", "USER_GENERATED", release(11, 2)),
+    ("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC", release(12, 2)),
+    ("ALL_VIEWS", "TEXT_VC", release(12, 2)),
+    ("ALL_PART_TABLES", "INTERVAL", release(11, 2)),
+    ("ALL_TAB_PARTITIONS", "INTERVAL", release(11, 2)),
+    ("ALL_PROCEDURES", "SUBPROGRAM_ID", release(11, 2)),
+    ("ALL_PROCEDURES", "OVERLOAD", release(11, 2)),
 ];
+
+/// Whether `view`.`column` (one of [`ORA_OPTIONAL_COLUMNS`]) exists on a server of `server_release`, when the
+/// dictionary cannot tell. `None`: the release is not known (0) or the column is not in the list.
+fn dict_column_by_release(view: &str, column: &str, server_release: u32) -> Option<bool> {
+    let added = ORA_OPTIONAL_COLUMNS
+        .iter()
+        .find(|(v, c, _)| *v == view && *c == column)?
+        .2;
+    (server_release > 0).then_some(server_release >= added)
+}
 
 /// The statement that tells which of [`ORA_OPTIONAL_COLUMNS`] the server has (`VIEW.COLUMN` per row).
 fn optional_columns_sql() -> String {
     let pairs: Vec<String> = ORA_OPTIONAL_COLUMNS
         .iter()
-        .map(|(v, c)| format!("(table_name = '{v}' and column_name = '{c}')"))
+        .map(|(v, c, _)| format!("(table_name = '{v}' and column_name = '{c}')"))
         .collect();
     format!(
         "select table_name || '.' || column_name from all_tab_columns where owner = 'SYS' and ({})",
@@ -674,6 +685,12 @@ enum Cmd {
     Ping {
         reply: oneshot::Sender<Result<()>>,
     },
+    /// A statement of our own that only sets session state (`DBMS_METADATA` transforms): it does not go through the
+    /// read-only gate (which would open a read-only transaction for a PL/SQL block) and opens no transaction.
+    Setup {
+        sql: String,
+        reply: oneshot::Sender<Result<()>>,
+    },
     /// Test hook: the worker panics.
     #[cfg(test)]
     Die,
@@ -864,11 +881,20 @@ fn may_write(sql: &str) -> bool {
     ) || sql.to_ascii_uppercase().contains("FOR UPDATE")
 }
 
-const DRAIN_OUTPUT: &str =
-    "declare l varchar2(32767); s integer; begin :1 := null; :2 := null; loop \
-dbms_output.get_line(l, s); exit when s <> 0; \
-if :1 is not null and lengthb(:1) + lengthb(l) + 1 > 30000 then :2 := l; exit; end if; \
-:1 := :1 || l || chr(10); end loop; end;";
+/// The PL/SQL block that drains `DBMS_OUTPUT` into two string binds of `bind_len` bytes ([`output_bind_len`]): `:1`
+/// the lines read (each followed by a line feed, at most 30000 bytes in total unless one line alone is longer), `:2`
+/// the line that did not fit any more (NULL when all were read). A line is cut to `bind_len - 1` bytes, so no bind
+/// can overflow (ORA-06502 would lose the whole drain).
+fn drain_output_sql(bind_len: usize) -> String {
+    format!(
+        "declare l varchar2(32767); s integer; begin :1 := null; :2 := null; loop \
+         dbms_output.get_line(l, s); exit when s <> 0; \
+         l := substrb(l, 1, {}); \
+         if :1 is not null and lengthb(:1) + lengthb(l) + 1 > 30000 then :2 := l; exit; end if; \
+         :1 := :1 || l || chr(10); end loop; end;",
+        bind_len - 1
+    )
+}
 
 impl Worker {
     /// Publish whether the server says a transaction is open (the read-only transaction of a read-only data source
@@ -1018,7 +1044,7 @@ impl Worker {
             let tail = " ".repeat(self.output_bind_len);
             let mut res = self
                 .conn
-                .execute(DRAIN_OUTPUT, &[&buf, &tail])
+                .execute(&drain_output_sql(self.output_bind_len), &[&buf, &tail])
                 .map_err(|e| self.map(e, None))?;
             let data = res.out_bind_data();
             let text = data
@@ -1183,6 +1209,14 @@ fn worker_main(
                 let r = w.conn.ping().map_err(|e| w.map(e, None));
                 let _ = reply.send(r);
             }
+            Cmd::Setup { sql, reply } => {
+                let r = w
+                    .conn
+                    .execute(&sql, &[])
+                    .map(|_| ())
+                    .map_err(|e| w.map(e, Some(&sql)));
+                let _ = reply.send(r);
+            }
             #[cfg(test)]
             Cmd::Die => panic!("test: the Oracle worker dies"),
         }
@@ -1321,6 +1355,12 @@ impl OraConn {
             reply,
         })
         .await?
+    }
+
+    /// Run a session setup statement of ours ([`Cmd::Setup`]).
+    async fn setup(&self, sql: &str) -> Result<()> {
+        let sql = sql.to_string();
+        self.call(|reply| Cmd::Setup { sql, reply }).await?
     }
 
     pub async fn query_strings(&mut self, sql: &str) -> Result<Vec<Vec<Option<String>>>> {
@@ -1615,11 +1655,13 @@ impl OraPool {
     }
 
     /// Whether the dictionary view `view` has `column` (one of [`ORA_OPTIONAL_COLUMNS`]). Asked of the server once
-    /// per pool; when even that fails the answer is `false`, so the SQL for old servers is used (it works on every
-    /// release, only with less detail).
-    pub(crate) async fn has_dict_column(&self, view: &str, column: &str) -> bool {
+    /// per pool (a failed question is not kept: the next call asks again); when it fails, the release of the server
+    /// decides. An error only when neither is known.
+    pub(crate) async fn dict_column(&self, view: &str, column: &str) -> Result<bool> {
         debug_assert!(
-            ORA_OPTIONAL_COLUMNS.contains(&(view, column)),
+            ORA_OPTIONAL_COLUMNS
+                .iter()
+                .any(|(v, c, _)| *v == view && *c == column),
             "{view}.{column} is not in ORA_OPTIONAL_COLUMNS"
         );
         let found = self
@@ -1634,7 +1676,21 @@ impl OraPool {
                 )
             })
             .await;
-        found.is_ok_and(|set| set.contains(&format!("{view}.{column}")))
+        let err = match found {
+            Ok(set) => return Ok(set.contains(&format!("{view}.{column}"))),
+            Err(e) => e,
+        };
+        let known = match self.inner.server_release.load(Ordering::Relaxed) {
+            0 => self.server_release().await.unwrap_or(0),
+            r => r,
+        };
+        dict_column_by_release(view, column, known).ok_or(err)
+    }
+
+    /// [`dict_column`](Self::dict_column) where a wrong answer only costs detail: when nothing is known, `false`
+    /// (the SQL for old servers works on every release).
+    pub(crate) async fn has_dict_column(&self, view: &str, column: &str) -> bool {
+        self.dict_column(view, column).await.unwrap_or(false)
     }
 
     /// [`release`] of the server (10.2 is 1002). Known after the first connection; before that one is opened.
@@ -1812,16 +1868,16 @@ impl OraPool {
             .await
     }
 
-    /// Run the PL/SQL block `setup` (it sets session state such as `DBMS_METADATA` transforms; no commit) and then
-    /// each of `queries` on the same pooled connection. Each query has its own result. Servers without
-    /// `WITH FUNCTION` (before 12.1) need this to read with session settings in effect.
+    /// Run the PL/SQL block `setup` (it only sets session state such as `DBMS_METADATA` transforms: it is not a write,
+    /// also on a read-only data source) and then each of `queries` on the same pooled connection. Each query has its
+    /// own result. Servers without `WITH FUNCTION` (before 12.1) need this to read with session settings in effect.
     pub(crate) async fn queries_after(
         &self,
         setup: &str,
         queries: &[String],
     ) -> Result<Vec<Result<Vec<Vec<Option<String>>>>>> {
         self.with_conn(|p| async move {
-            p.conn().exec_with(setup, &[], false).await?;
+            p.conn().setup(setup).await?;
             let mut out = Vec::with_capacity(queries.len());
             for q in queries {
                 out.push(p.conn().strings(q).await);
@@ -1918,12 +1974,66 @@ mod tests {
         assert!(sql.starts_with(
             "select table_name || '.' || column_name from all_tab_columns where owner = 'SYS' and ("
         ));
-        for (v, c) in ORA_OPTIONAL_COLUMNS {
+        for (v, c, _) in ORA_OPTIONAL_COLUMNS {
             assert!(
                 sql.contains(&format!("(table_name = '{v}' and column_name = '{c}')")),
                 "{v}.{c}: {sql}"
             );
         }
+    }
+
+    #[test]
+    fn a_failed_dictionary_question_is_answered_by_the_release() {
+        let by = |v: &str, c: &str, r: u32| dict_column_by_release(v, c, r);
+        // 19c: every 12c column, but not the 23 one
+        let r19 = release(19, 0);
+        for (v, c) in [
+            ("ALL_USERS", "ORACLE_MAINTAINED"),
+            ("ALL_TAB_COLS", "IDENTITY_COLUMN"),
+            ("ALL_TAB_COLS", "DEFAULT_ON_NULL"),
+            ("ALL_TAB_COLS", "USER_GENERATED"),
+            ("ALL_CONSTRAINTS", "SEARCH_CONDITION_VC"),
+            ("ALL_VIEWS", "TEXT_VC"),
+            ("ALL_PART_TABLES", "INTERVAL"),
+            ("ALL_PROCEDURES", "OVERLOAD"),
+        ] {
+            assert_eq!(by(v, c, r19), Some(true), "{v}.{c}");
+        }
+        assert_eq!(by("ALL_TAB_COLS", "DATA_DEFAULT_VC", r19), Some(false));
+        assert_eq!(
+            by("ALL_TAB_COLS", "DATA_DEFAULT_VC", release(23, 26)),
+            Some(true)
+        );
+        // 12.1: identity yes, the 12.2 columns not
+        assert_eq!(
+            by("ALL_TAB_COLS", "IDENTITY_COLUMN", release(12, 1)),
+            Some(true)
+        );
+        assert_eq!(
+            by("ALL_USERS", "ORACLE_MAINTAINED", release(12, 1)),
+            Some(false)
+        );
+        // 10.2: none
+        assert!(ORA_OPTIONAL_COLUMNS
+            .iter()
+            .all(|(v, c, _)| by(v, c, release(10, 2)) == Some(false)));
+        // nothing known, or not a listed column: no answer (the dump stops with the error)
+        assert_eq!(by("ALL_TAB_COLS", "IDENTITY_COLUMN", 0), None);
+        assert_eq!(by("ALL_TAB_COLS", "NO_SUCH", r19), None);
+    }
+
+    #[test]
+    fn output_lines_are_cut_to_the_bind() {
+        let old = drain_output_sql(output_bind_len(release(10, 2)));
+        assert!(old.contains("l := substrb(l, 1, 32511);"), "{old}");
+        let new = drain_output_sql(output_bind_len(release(19, 0)));
+        assert!(new.contains("l := substrb(l, 1, 32766);"), "{new}");
+        // the cut comes before the line is put in a bind
+        assert!(new.find("substrb").unwrap() < new.find(":2 := l").unwrap());
+        assert!(
+            new.contains("lengthb(:1) + lengthb(l) + 1 > 30000"),
+            "{new}"
+        );
     }
 
     #[test]
