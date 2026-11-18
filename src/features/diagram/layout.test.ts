@@ -248,4 +248,26 @@ describe("reflowBoxes", () => {
       pinned.forEach((i) => expect(out[i].y).toBeGreaterThanOrEqual(h[i].y));
     }
   });
+  it.each(["keys", "none"] as ColumnsMode[])("expands tables in %s mode on a real layout of 80 tables: same widths, no overlap, back home on collapse", (columns) => {
+    const objects = randomSchema(11, 80, { density: 1.2 });
+    const o: DiagramOptions = { columns, showTypes: true };
+    const closed = buildDiagram(objects, o);
+    const l = layoutDiagram(closed);
+    const h = l.nodes.map((n) => ({ x: n.x, y: n.y, w: n.width, h: n.height }));
+    const rand = rng(5);
+    const some = new Set(closed.nodes.filter((n) => n.hidden > 0 && rand() < 0.3).map((n) => n.key));
+    const every = new Set(closed.nodes.filter((n) => n.hidden > 0).map((n) => n.key));
+    expect(some.size).toBeGreaterThan(0);
+    for (const expanded of [some, every]) {
+      const open = buildDiagram(objects, { ...o, expanded });
+      expect(open.nodes.map((n) => n.width)).toEqual(closed.nodes.map((n) => n.width));
+      const out = reflowBoxes(h, open.nodes);
+      expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h }))), `${columns} ${expanded.size}`).toBe("");
+      out.forEach((b, i) => {
+        expect(b.x).toBe(h[i].x);
+        expect(b.y).toBeGreaterThanOrEqual(h[i].y);
+      });
+    }
+    expect(reflowBoxes(h, closed.nodes)).toBe(h);
+  });
 });

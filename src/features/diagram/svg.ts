@@ -9,7 +9,7 @@
  */
 import type { NodeKind } from "../../api/types";
 import { LOOP_ROOM, reflowBoxes, type LayoutResult } from "./layout";
-import { DGM, clip, footerText, hasToggle, moreText, rowChars, rowTop, toggleText, type ColumnsMode, type DiagramEdge, type DiagramModel, type DiagramNode } from "./model";
+import { DGM, clip, hasToggle, moreText, rowChars, rowTop, toggleText, type ColumnsMode, type DiagramEdge, type DiagramModel, type DiagramNode } from "./model";
 import { inkOn, mix } from "./palette";
 import { placeLabels, routeEdges, rowsOf, type Pt, type Rect, type RoutedEdge } from "./route";
 import type { ColorAssignment } from "./groups";
@@ -53,8 +53,8 @@ export interface DiagramRenderOptions {
   /** Draw every foreign key name on its line (otherwise only a highlighted edge shows it). */
   edgeLabels?: boolean;
   /**
-   * The SVG goes to a file (SVG / PNG export): no controls. The expand row of a cut table is a plain "+N more columns"
-   * note, and the collapse row of an expanded table stays empty.
+   * The SVG goes to a file (SVG / PNG export): no controls. The expand row of a table that leaves out columns is a
+   * plain "+N more columns" note ("N columns" in compact mode), and the collapse row of an expanded table stays empty.
    */
   exporting?: boolean;
 }
@@ -178,8 +178,9 @@ function keyGlyph(cx: number, cy: number, color: string): string {
 }
 
 /**
- * The last row of a box the row limit cut (or that is expanded): a chevron and "Show N more columns" ("Show fewer
- * columns"). `data-toggle` makes the view expand or collapse the table on a click; the hover tint is in the style.
+ * The last row of a box that leaves out columns (or that is expanded), in every column mode: a chevron and "Show N
+ * more columns" ("Show fewer columns"). `data-toggle` makes the view expand or collapse the table on a click; the
+ * hover tint is in the style.
  */
 function toggleRow(node: DiagramNode, top: number, w: number, p: DiagramPalette): string {
   const cx = DGM.padX + 4;
@@ -187,10 +188,10 @@ function toggleRow(node: DiagramNode, top: number, w: number, p: DiagramPalette)
   // a chevron down (more rows below) or up (back to fewer)
   const d = node.expanded ? 1 : -1;
   const chevron = `M${num(cx - 3.5)} ${num(cy + d * 1.75)} L${num(cx)} ${num(cy - d * 1.75)} L${num(cx + 3.5)} ${num(cy + d * 1.75)}`;
-  const label = toggleText(node.capped, node.expanded);
+  const label = toggleText(node.hidden, node.expanded, node.rows.length);
   return (
     `<g class="dg-toggle" data-toggle="${node.index}" role="button" aria-label="${esc(label)}">` +
-    `<title>${node.expanded ? "Collapse the table to the first columns" : `Expand the table: ${node.columns.length} columns`}</title>` +
+    `<title>${node.expanded ? "Collapse the table to fewer columns" : `Expand the table: ${node.columns.length} columns`}</title>` +
     `<rect class="dg-toggle-bg" x="1" y="${num(top)}" width="${num(w - 2)}" height="${DGM.rowH}" fill="${p.selection}" fill-opacity="0"/>` +
     `<path d="${chevron}" stroke="${p.selection}" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` +
     `<text x="${num(DGM.padX + DGM.iconW)}" y="${num(cy + 4)}" font-family="${esc(p.fontUi)}" font-size="11" fill="${p.selection}">${esc(label)}</text>` +
@@ -228,7 +229,7 @@ function nodeSvg(node: DiagramNode, x: number, y: number, opts: DiagramRenderOpt
     if (usedRows.has(node.rows.length)) rows += `<rect class="dg-rowhl" data-row="${node.rows.length}" x="1" y="${num(top)}" width="${num(w - 2)}" height="${DGM.rowH}" fill="${hl}" fill-opacity="${p.isDark ? 0.28 : 0.2}"/>`;
     if (hasToggle(node) && !opts.exporting) rows += toggleRow(node, top, w, p);
     else if (node.hidden > 0) {
-      const note = node.capped > 0 ? moreText(node.capped) : footerText(node.hidden, node.rows.length);
+      const note = moreText(node.hidden, node.rows.length);
       rows += `<text x="${num(DGM.padX + DGM.iconW)}" y="${num(cy + 4)}" font-family="${esc(p.fontUi)}" font-size="11" font-style="italic" fill="${p.typeText}">${esc(note)}</text>`;
     }
   }

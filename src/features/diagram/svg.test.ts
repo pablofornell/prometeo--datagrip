@@ -4,7 +4,7 @@ import { layoutDiagram } from "./layout";
 import { assignColors } from "./groups";
 import { contrast } from "./palette";
 import { shopSchema } from "./sample";
-import { buildScene, diagramBounds, edgeAttrs, nodeColors, renderDiagramSvg, roundedPath, type DiagramPalette } from "./svg";
+import { buildScene, diagramBounds, edgeAttrs, edgeRows, nodeColors, renderDiagramSvg, roundedPath, type DiagramPalette } from "./svg";
 import { budget } from "./bench";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
@@ -156,8 +156,36 @@ describe("renderDiagramSvg", () => {
     expect(render([wide])).toContain(`Show ${60 - DGM.maxRows} more columns`);
     const model = buildDiagram([wide], { columns: "none", showTypes: false });
     const compact = renderDiagramSvg(model, layoutDiagram(model), { columns: "none", showTypes: false }, palette);
-    expect(compact).toContain("60 columns");
-    expect(compact).not.toContain("data-toggle"); // the column mode hides them: nothing to expand
+    expect(compact).toContain(">Show 60 columns<");
+    expect(compact).toContain('class="dg-toggle" data-toggle="0"'); // the column mode hides them: they can expand
+  });
+
+  it("draws an expand row in keys-only and compact mode, and every column in the original order once expanded", () => {
+    const t: DiagramInputObject = { schema: "s", name: "t", kind: "table", columns: Array.from({ length: 6 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
+    for (const [columns, label] of [["keys", "Show 5 more columns"], ["none", "Show 6 columns"]] as const) {
+      const o = { columns, showTypes: true };
+      const closedModel = buildDiagram([t], o);
+      const closed = renderDiagramSvg(closedModel, layoutDiagram(closedModel), o, palette);
+      expect(closed, columns).toContain('class="dg-toggle" data-toggle="0"');
+      expect(closed).toContain(`>${label}<`);
+      expect(closed).not.toContain(">c5<");
+      const model = buildDiagram([t], { ...o, expanded: new Set([nodeKey("s", "t")]) });
+      const open = renderDiagramSvg(model, layoutDiagram(model), o, palette);
+      expect(open).toContain('class="dg-toggle" data-toggle="0"');
+      expect(open).toContain("Show fewer columns");
+      const at = [0, 1, 2, 3, 4, 5].map((i) => open.indexOf(`>c${i}<`));
+      expect(at.every((x) => x > 0)).toBe(true);
+      expect(at).toEqual([...at].sort((a, b) => a - b));
+    }
+  });
+
+  it("lights up the key rows of an expanded compact table, and its footer row when collapsed", () => {
+    const objects = [obj("s", "a"), obj("s", "b", [{ name: "fk", columns: ["ref_id"], refSchema: "s", refTable: "a", refColumns: ["id"] }])];
+    const o = { columns: "none" as const, showTypes: true };
+    const closed = buildDiagram(objects, o);
+    expect(edgeRows(closed.edges[0], closed)).toEqual({ from: [0], to: [0] });
+    const open = buildDiagram(objects, { ...o, expanded: new Set([nodeKey("s", "a"), nodeKey("s", "b")]) });
+    expect(edgeRows(open.edges[0], open)).toEqual({ from: [1], to: [0] });
   });
 
   it("draws an expand row for a table the row limit cuts, and a collapse row once it is expanded", () => {
@@ -196,18 +224,22 @@ describe("renderDiagramSvg", () => {
 describe("exported SVG of a table past the row limit", () => {
   const wide: DiagramInputObject = { schema: "s", name: "wide", kind: "table", columns: Array.from({ length: 60 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
 
-  it("has a plain note instead of the expand control", () => {
-    const model = buildDiagram([wide], opts);
-    const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, exporting: true }, palette);
-    expect(svg).toContain(`>+${60 - DGM.maxRows} more columns<`);
-    for (const control of ["data-toggle", 'role="button"', "Show ", "Expand the table"]) expect(svg).not.toContain(control);
+  it("has a plain note instead of the expand control, in every column mode", () => {
+    for (const [columns, note] of [["all", `+${60 - DGM.maxRows} more columns`], ["keys", "+59 more columns"], ["none", "60 columns"]] as const) {
+      const model = buildDiagram([wide], { ...opts, columns });
+      const svg = renderDiagramSvg(model, layoutDiagram(model), { columns, showTypes: true, exporting: true }, palette);
+      expect(svg, columns).toContain(`>${note}<`);
+      for (const control of ["data-toggle", 'role="button"', "Show ", "Expand the table"]) expect(svg).not.toContain(control);
+    }
   });
 
-  it("draws nothing in the collapse row of an expanded table", () => {
-    const model = buildDiagram([wide], { ...opts, expanded: new Set([nodeKey("s", "wide")]) });
-    const svg = renderDiagramSvg(model, layoutDiagram(model), { columns: "all", showTypes: true, exporting: true }, palette);
-    expect(svg).toContain(">c59<");
-    for (const control of ["data-toggle", 'role="button"', "Show fewer", "more column", "Collapse"]) expect(svg).not.toContain(control);
+  it("draws nothing in the collapse row of an expanded table, in every column mode", () => {
+    for (const columns of ["all", "keys", "none"] as const) {
+      const model = buildDiagram([wide], { ...opts, columns, expanded: new Set([nodeKey("s", "wide")]) });
+      const svg = renderDiagramSvg(model, layoutDiagram(model), { columns, showTypes: true, exporting: true }, palette);
+      expect(svg, columns).toContain(">c59<");
+      for (const control of ["data-toggle", 'role="button"', "Show fewer", "more column", "Collapse"]) expect(svg).not.toContain(control);
+    }
   });
 });
 
@@ -222,24 +254,29 @@ describe("buildScene after a table is expanded", () => {
   const objects = [...shopSchema(), wide("w_parent"), wide("w_child", [{ name: "w_fk", columns: ["ref_id"], refSchema: "s", refTable: "w_parent", refColumns: ["c0"] }])].map((o) => ({ ...o, schema: "s", foreignKeys: (o.foreignKeys ?? []).map((f) => ({ ...f, refSchema: "s" })) }));
   const across = (a: { x: number; w: number }, b: { x: number; w: number }) => a.x < b.x + b.w && b.x < a.x + a.w;
 
-  it("keeps the layout: the table stays, the boxes below it move down, no box overlaps, every edge is routed", () => {
-    const closed = buildDiagram(objects, opts);
+  it.each(["all", "keys", "none"] as const)("keeps the layout: the table stays, the boxes below it move down, no box overlaps, every edge is routed (%s)", (columns) => {
+    const o = { ...opts, columns };
+    const closed = buildDiagram(objects, o);
     const layout = layoutDiagram(closed);
     const before = buildScene(closed, layout);
-    const key = nodeKey("s", "w_parent");
-    const open = buildDiagram(objects, { ...opts, expanded: new Set([key]) });
+    const key = nodeKey("s", columns === "all" ? "w_parent" : "users");
+    const open = buildDiagram(objects, { ...o, expanded: new Set([key]) });
     const after = buildScene(open, layout);
     const i = open.nodes.findIndex((n) => n.key === key);
     const grew = open.nodes[i].height - closed.nodes[i].height;
     expect(grew).toBeGreaterThan(0);
+    expect(open.nodes.map((n) => n.width)).toEqual(closed.nodes.map((n) => n.width));
     expect(after.rects[i]).toEqual({ ...before.rects[i], h: open.nodes[i].height });
     after.rects.forEach((r, j) => {
       const b = before.rects[j];
       expect(r.x).toBe(b.x);
       const below = across(b, before.rects[i]) && b.y >= before.rects[i].y + before.rects[i].h;
-      expect(r.y - b.y).toBe(below ? grew : r.y - b.y);
-      if (!below && j !== i) expect(r.y).toBeGreaterThanOrEqual(b.y);
+      // a box follows the box right above it in its column: in the "all" layout of this schema that is the table
+      // for every box below it; the smaller boxes of the other modes can follow another box, which keeps them clear
+      if (below && columns === "all") expect(r.y - b.y).toBe(grew);
+      if (j !== i) expect(r.y).toBeGreaterThanOrEqual(b.y);
     });
+    expect(after.rects.some((r, j) => across(before.rects[j], before.rects[i]) && r.y - before.rects[j].y === grew)).toBe(true);
     for (let a = 0; a < after.rects.length; a++)
       for (let b = a + 1; b < after.rects.length; b++) {
         const p = after.rects[a];
@@ -269,12 +306,18 @@ describe("buildScene after a table is expanded", () => {
     expect(after.bounds.height).toBeLessThan(home.bounds.height);
   });
 
-  it("collapsing again gives back the same scene", () => {
-    const closed = buildDiagram(objects, opts);
+  it.each(["all", "keys", "none"] as const)("collapsing again gives back the same scene (%s)", (columns) => {
+    const o = { ...opts, columns };
+    const closed = buildDiagram(objects, o);
     const layout = layoutDiagram(closed);
     const before = buildScene(closed, layout);
-    buildScene(buildDiagram(objects, { ...opts, expanded: new Set([nodeKey("s", "w_child"), nodeKey("s", "w_parent")]) }), layout);
-    const again = buildScene(buildDiagram(objects, opts), layout);
+    // Expand All: every table that leaves out columns
+    const all = new Set(closed.nodes.filter((n) => n.hidden > 0).map((n) => n.key));
+    expect(all.size).toBeGreaterThan(columns === "all" ? 1 : 20);
+    const open = buildDiagram(objects, { ...o, expanded: all });
+    expect(open.nodes.every((n) => n.hidden === 0)).toBe(true);
+    buildScene(open, layout);
+    const again = buildScene(buildDiagram(objects, o), layout);
     expect(again.rects).toEqual(before.rects);
     expect(again.bounds).toEqual(before.bounds);
   });

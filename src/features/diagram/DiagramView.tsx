@@ -5,9 +5,10 @@
  * detail, live edge re-routing while a box is dragged and when it is dropped) only toggles classes and patches the
  * edges of the moved table, so it never re-renders the whole diagram. Node positions moved by the user live in a
  * per-tab map keyed by `schema.name` (stale keys are pruned on reload) and are dropped on re-layout or when the
- * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox. A table that has
- * more columns than the row limit can be expanded (its last row, its context menu, the E key) and collapsed again; the
- * set of expanded tables is per tab, and expanding keeps the layout: only the boxes below the table move.
+ * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox. A table that does
+ * not show all its columns (the column mode or the row limit leaves some out) can be expanded to show every column
+ * (its last row, its context menu, the E key, Expand All) and collapsed again, in every column mode; the set of
+ * expanded tables is per tab, and expanding keeps the layout: only the boxes below the table move.
  *
  * Layout and routing are the expensive part (hundreds of milliseconds for hundreds of tables), so they never run in a
  * reactive update on the main thread: `engineClient` runs them in a web worker (and cancels a stale job when the
@@ -121,7 +122,9 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   const [selection, setSelection] = createSignal<Focus | null>(null);
   const [hover, setHover] = createSignal<Focus | null>(null);
   const [positions, setPositions] = createSignal<Map<string, { x: number; y: number }>>(new Map());
-  // Tables (by `nodeKey`) that show every column past the row limit, and a counter that Re-layout bumps.
+  // Tables (by `nodeKey`) that show every column, and a counter that Re-layout bumps. A new column mode keeps the set:
+  // the tables the user opened stay open in the new mode (a key has no effect where the table hides no column, and
+  // takes effect again in a mode that hides some). Collapse All clears it.
   const [expanded, setExpanded] = createSignal<ReadonlySet<string>>(new Set());
   const [layoutGen, setLayoutGen] = createSignal(0);
   const [view, setView] = createSignal<View>({ zoom: 1, tx: 24, ty: 24 });
@@ -376,10 +379,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     scheduler.fitWhenLanded();
   };
 
-  // ---------------------------------------------------------------- expanding tables past the row limit
+  // ---------------------------------------------------------------- expanding tables that leave out columns
 
   /**
-   * Expands a table the row limit cuts, or collapses an expanded one. The layout stays: the boxes below make room. The
+   * Expands a table that leaves out columns (in any column mode), or collapses an expanded one. The layout stays: the boxes below make room. The
    * set decides, not the model on screen: that can be a job behind when the key is pressed again quickly.
    */
   const toggleColumns = (index: number): void => {
@@ -387,10 +390,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     if (!node) return;
     setExpanded((prev) => toggleKey(prev, node.key, hasToggle(node)));
   };
-  const canExpandAll = createMemo(() => model().nodes.some((n) => n.capped > 0));
+  const canExpandAll = createMemo(() => model().nodes.some((n) => n.hidden > 0));
   const canCollapseAll = createMemo(() => model().nodes.some((n) => n.expanded));
   const expandAll = (): void => {
-    setExpanded((prev) => new Set([...prev, ...model().nodes.filter((n) => n.capped > 0).map((n) => n.key)]));
+    setExpanded((prev) => new Set([...prev, ...model().nodes.filter((n) => n.hidden > 0).map((n) => n.key)]));
   };
   const collapseAll = (): void => {
     setExpanded(new Set<string>());
@@ -619,7 +622,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
         { label: "Open Data", icon: "dg/edit-data", run: () => openNode(index) },
         { label: "Go to DDL", icon: "dg/table", run: () => void openDdlTab(props.dsId, ref) },
         { type: "separator" } as MenuItem,
-        ...(node.capped > 0 ? [{ label: "Show All Columns", shortcut: "E", run: () => toggleColumns(index) } as MenuItem] : []),
+        ...(node.hidden > 0 ? [{ label: "Show All Columns", shortcut: "E", run: () => toggleColumns(index) } as MenuItem] : []),
         ...(node.expanded ? [{ label: "Show Fewer Columns", shortcut: "E", run: () => toggleColumns(index) } as MenuItem] : []),
         ...(moved ? [{ label: "Reset Position", run: () => setPositions((p) => { const m = new Map(p); m.delete(node.key); return m; }) } as MenuItem] : []),
         { label: "Copy Name", run: () => void navigator.clipboard?.writeText(node.name).catch(() => {}) },

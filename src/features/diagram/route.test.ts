@@ -81,6 +81,29 @@ describe("routeEdges", () => {
     expect(r.points[0].y).toBe(rects[e.from].y + rowTop(child.rows.length) + DGM.rowH / 2);
   });
 
+  it("attaches to the rows of the key columns once a compact or keys-only table is expanded", () => {
+    const label = "orders_customer_id_fkey";
+    for (const columns of ["none", "keys"] as const) {
+      const closed = buildDiagram(shopSchema(), { columns, showTypes: false });
+      const e = closed.edges.find((x) => x.label === label)!;
+      const keys = new Set([closed.nodes[e.from].key, closed.nodes[e.to].key]);
+      const { model, rects, routes } = scene(shopSchema(), "LR", { columns, showTypes: false, expanded: keys });
+      const i = model.edges.findIndex((x) => x.label === label);
+      const edge = model.edges[i];
+      const child = model.nodes[edge.from];
+      const parent = model.nodes[edge.to];
+      expect(child.expanded && parent.expanded, columns).toBe(true);
+      const cy = rowTop(child.rows.findIndex((c) => c.name === "customer_id")) + DGM.rowH / 2;
+      const py = rowTop(parent.rows.findIndex((c) => c.name === "id")) + DGM.rowH / 2;
+      expect(portOffset(child, edge.columns)).toBe(cy);
+      expect(routes[i].points[0].y).toBe(rects[edge.from].y + cy);
+      expect(routes[i].points[routes[i].points.length - 1].y).toBe(rects[edge.to].y + py);
+      // collapsed: the footer row in compact mode, the key row in keys-only mode
+      const c = closed.nodes[e.from];
+      expect(portOffset(c, e.columns)).toBe(columns === "none" ? rowTop(0) + DGM.rowH / 2 : rowTop(c.rows.findIndex((x) => x.name === "customer_id")) + DGM.rowH / 2);
+    }
+  });
+
   it("keeps parallel edges between the same two tables on separate tracks", () => {
     // five children of one parent, stacked on the right: their vertical runs must not share a line
     const parent: DiagramInputObject = { schema: "s", name: "hub", kind: "table", columns: [{ name: "id", typeName: "int", isPk: true }], foreignKeys: [] };
