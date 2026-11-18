@@ -162,12 +162,14 @@ describe("renderDiagramSvg", () => {
 
   it("draws an expand row in keys-only and compact mode, and every column in the original order once expanded", () => {
     const t: DiagramInputObject = { schema: "s", name: "t", kind: "table", columns: Array.from({ length: 6 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
-    for (const [columns, label] of [["keys", "Show 5 more columns"], ["none", "Show 6 columns"]] as const) {
+    // the keys-only box is narrow: its row draws the short text, the full one is the accessible name
+    for (const [columns, label, aria] of [["keys", "+5 more", "Show 5 more columns"], ["none", "Show 6 columns", "Show 6 columns"]] as const) {
       const o = { columns, showTypes: true };
       const closedModel = buildDiagram([t], o);
       const closed = renderDiagramSvg(closedModel, layoutDiagram(closedModel), o, palette);
       expect(closed, columns).toContain('class="dg-toggle" data-toggle="0"');
       expect(closed).toContain(`>${label}<`);
+      expect(closed).toContain(`aria-label="${aria}"`);
       expect(closed).not.toContain(">c5<");
       const model = buildDiagram([t], { ...o, expanded: new Set([nodeKey("s", "t")]) });
       const open = renderDiagramSvg(model, layoutDiagram(model), o, palette);
@@ -188,7 +190,7 @@ describe("renderDiagramSvg", () => {
     expect(edgeRows(open.edges[0], open)).toEqual({ from: [1], to: [0] });
   });
 
-  it("draws an expand row for a table the row limit cuts, and a collapse row once it is expanded", () => {
+  it("draws an expand row for a table that leaves out columns (all columns mode), and a collapse row once it is expanded", () => {
     const wide: DiagramInputObject = { schema: "s", name: "wide", kind: "table", columns: Array.from({ length: 60 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
     const closed = render([wide]);
     expect(closed).toContain('class="dg-toggle" data-toggle="0"');
@@ -221,11 +223,11 @@ describe("renderDiagramSvg", () => {
   });
 });
 
-describe("exported SVG of a table past the row limit", () => {
+describe("exported SVG of a table that leaves out columns", () => {
   const wide: DiagramInputObject = { schema: "s", name: "wide", kind: "table", columns: Array.from({ length: 60 }, (_, i) => ({ name: `c${i}`, typeName: "int", isPk: i === 0 })) };
 
   it("has a plain note instead of the expand control, in every column mode", () => {
-    for (const [columns, note] of [["all", `+${60 - DGM.maxRows} more columns`], ["keys", "+59 more columns"], ["none", "60 columns"]] as const) {
+    for (const [columns, note] of [["all", `+${60 - DGM.maxRows} more columns`], ["keys", "+59 more"], ["none", "60 columns"]] as const) {
       const model = buildDiagram([wide], { ...opts, columns });
       const svg = renderDiagramSvg(model, layoutDiagram(model), { columns, showTypes: true, exporting: true }, palette);
       expect(svg, columns).toContain(`>${note}<`);
@@ -265,7 +267,26 @@ describe("buildScene after a table is expanded", () => {
     const i = open.nodes.findIndex((n) => n.key === key);
     const grew = open.nodes[i].height - closed.nodes[i].height;
     expect(grew).toBeGreaterThan(0);
-    expect(open.nodes.map((n) => n.width)).toEqual(closed.nodes.map((n) => n.width));
+    // only the expanded box changes width: wider in keys-only and compact mode (its content), the same in "all" mode
+    open.nodes.forEach((n, j) => {
+      if (j !== i || columns === "all") expect(n.width).toBe(closed.nodes[j].width);
+    });
+    if (columns !== "all") {
+      expect(open.nodes[i].width).toBeGreaterThan(closed.nodes[i].width);
+      expect(after.rects[i]).toEqual({ ...before.rects[i], w: open.nodes[i].width, h: open.nodes[i].height });
+      after.rects.forEach((r, j) => {
+        expect(r.x).toBeGreaterThanOrEqual(before.rects[j].x);
+        expect(r.y).toBeGreaterThanOrEqual(before.rects[j].y);
+      });
+      for (let a = 0; a < after.rects.length; a++)
+        for (let b = a + 1; b < after.rects.length; b++) {
+          const p = after.rects[a];
+          const q = after.rects[b];
+          expect(p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h, `${a} and ${b} overlap`).toBe(false);
+        }
+      expect(after.routes.filter(Boolean)).toHaveLength(before.routes.filter(Boolean).length);
+      return;
+    }
     expect(after.rects[i]).toEqual({ ...before.rects[i], h: open.nodes[i].height });
     after.rects.forEach((r, j) => {
       const b = before.rects[j];

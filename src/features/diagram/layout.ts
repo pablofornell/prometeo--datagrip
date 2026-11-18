@@ -690,16 +690,75 @@ export interface Box {
 const REFLOW_GAP = G * 2;
 
 /**
+ * The x of every box after some boxes changed width (the first pass of `reflowBoxes`): the mirror image of its vertical
+ * pass, with rows instead of columns. A box follows the box before it in its row, where two boxes share a row when
+ * their home y ranges, with the new heights, overlap (so the boxes beside the new rows of an expanded box make room
+ * too). It only keeps clear of the boxes that share a row with it at their home heights: a box that is now covered
+ * because a box above it grew taller goes down in the vertical pass, not right.
+ */
+function reflowX(home: Box[], sizes: readonly { width: number; height: number }[], pinned: (i: number) => boolean): number[] {
+  const order = home.map((_, i) => i).sort((a, b) => home[a].x - home[b].x || home[a].y - home[b].y || a - b);
+  const xs: number[] = new Array(home.length);
+  const placed: number[] = [];
+  const row = (a: number, b: number): boolean => home[a].y < home[b].y + sizes[b].height && home[b].y < home[a].y + sizes[a].height;
+  const homeRow = (a: number, b: number): boolean => home[a].y < home[b].y + home[b].h && home[b].y < home[a].y + home[a].h;
+  /** `a` is fully before `b` (home boxes), and they share a row. */
+  const before = (a: number, b: number): boolean => row(a, b) && home[a].x + home[a].w <= home[b].x;
+  for (const i of order) {
+    const h0 = home[i];
+    let x = h0.x;
+    if (!pinned(i)) {
+      // It follows the box right before it in its row (with ties, the rightmost after the reflow), at the same gap.
+      let nearest = -Infinity;
+      let follow = -Infinity;
+      for (const j of placed) {
+        if (!before(j, i)) continue;
+        const right = home[j].x + home[j].w;
+        const at = xs[j] + sizes[j].width + (h0.x - right);
+        if (right > nearest) [nearest, follow] = [right, at];
+        else if (right === nearest) follow = Math.max(follow, at);
+      }
+      if (follow > -Infinity) x = follow;
+    }
+    // Then after every box of its home row it would cover. A gap of the home layout smaller than the reflow gap stays.
+    for (let moved = true; moved; ) {
+      moved = false;
+      for (const j of placed) {
+        if (!homeRow(j, i)) continue;
+        const gap = before(j, i) ? Math.min(REFLOW_GAP, h0.x - home[j].x - home[j].w) : REFLOW_GAP;
+        if (x < xs[j] + sizes[j].width + gap && xs[j] < x + sizes[i].width + gap) {
+          x = xs[j] + sizes[j].width + gap;
+          moved = true;
+        }
+      }
+    }
+    xs[i] = x;
+    placed.push(i);
+  }
+  return xs;
+}
+
+/**
  * The boxes after some tables changed size without a new layout (a table was expanded or collapsed). `home` are the
  * boxes as they were laid out (and dragged), with the sizes of the layout; `sizes` the new sizes, in the same order.
- * Every box keeps its x. A box keeps its vertical gap to the box right above it in its column, so the boxes below a
- * table move down by as much as it grew, and up by as much as it shrank below its laid-out height (Expand All,
- * Re-layout, Collapse All leaves no holes). The result depends on `home` and `sizes` only, so going back to the old
- * sizes gives back the old boxes. A `pinned` box (the user moved it) stays where it was put, unless a box now covers
- * it. Afterwards no two boxes that share a column overlap. `home` itself when no size changed.
+ *
+ * Widths first (only when a width changed: an expanded box of the keys-only or compact mode can be wider). A box keeps
+ * its horizontal gap to the box right before it in its row (the boxes whose band, with the new heights, shares some
+ * height with it), so the boxes after a table that grew wider move right by as much as it grew, and back when it
+ * shrinks. This is the same in both layout directions: a box grows to the right, so in "LR" the next ranks make room,
+ * and in "TB" the boxes after it in its rank do (they stay in their rank, they do not drop below it).
+ *
+ * Then heights: a box keeps its vertical gap to the box right above it in its column, so the boxes below a table move
+ * down by as much as it grew, and up by as much as it shrank below its laid-out height (Expand All, Re-layout,
+ * Collapse All leaves no holes). A box also goes below every box it would still cover.
+ *
+ * The result depends on `home` and `sizes` only, so going back to the old sizes gives back the old boxes. A `pinned`
+ * box (the user moved it) stays where it was put, unless a box now covers it. Afterwards no two boxes overlap.
+ * `home` itself when no size changed.
  */
 export function reflowBoxes(home: Box[], sizes: readonly { width: number; height: number }[], pinned: (i: number) => boolean = () => false): Box[] {
   if (home.every((r, i) => r.w === sizes[i].width && r.h === sizes[i].height)) return home;
+  const xs = home.every((r, i) => r.w === sizes[i].width) ? home.map((r) => r.x) : reflowX(home, sizes, pinned);
   const order = home.map((_, i) => i).sort((a, b) => home[a].y - home[b].y || home[a].x - home[b].x || a - b);
   const out: Box[] = new Array(home.length);
   const placed: number[] = [];
@@ -708,7 +767,7 @@ export function reflowBoxes(home: Box[], sizes: readonly { width: number; height
   const above = (a: Box, b: Box): boolean => across(a, b) && a.y + a.h <= b.y;
   for (const i of order) {
     const h0 = home[i];
-    const box: Box = { x: h0.x, y: h0.y, w: sizes[i].width, h: sizes[i].height };
+    const box: Box = { x: xs[i], y: h0.y, w: sizes[i].width, h: sizes[i].height };
     if (!pinned(i)) {
       // It follows the box right above it in its column (also a pinned one; with ties, the lowest after the reflow),
       // up or down, at the same gap. Boxes further up only keep it clear (below).

@@ -96,6 +96,8 @@ export interface DiagramOptions {
 export const DGM = {
   /** Approximate width of one character of the column/table name (12px monospace). */
   charW: 7.2,
+  /** Approximate width of one character of the footer row text (11px UI face), to decide if its long text fits. */
+  uiCharW: 6.6,
   /** Every box edge and row centre sits on this lattice, which is the grid the edge router runs on. */
   grid: 10,
   rowH: 20,
@@ -155,6 +157,12 @@ export function displayRows<T extends DiagramColumn>(columns: readonly T[], mode
 const plural = (n: number): string => `${n} column${n === 1 ? "" : "s"}`;
 
 /**
+ * Short text of the footer row ("+N more", or "N columns" when the box draws no column). A collapsed box is always
+ * wide enough for it; the footer row falls back to it when the long text does not fit (see `footerLabel`).
+ */
+export const footerText = (hidden: number, shown: number): string => (shown === 0 ? plural(hidden) : `+${hidden} more`);
+
+/**
  * Text of the footer row of a box that leaves out `hidden` columns and draws `shown` rows, in an exported file (where
  * it is not a control): "+N more columns", or "N columns" when the box draws no column (compact mode).
  */
@@ -169,6 +177,19 @@ export const toggleText = (hidden: number, expanded: boolean, shown = 1): string
 
 /** The box has a last row that expands or collapses it (it leaves out columns, or it is expanded). */
 export const hasToggle = (node: Pick<DiagramNode, "hidden" | "expanded">): boolean => node.hidden > 0 || node.expanded;
+
+/**
+ * The text the footer row of `node` draws: `toggleText` on screen, `moreText` in an exported file (where an expanded
+ * box draws nothing in it). A collapsed box keeps the width of its column mode, which does not always make room for
+ * the long text: then the row draws the short `footerText`, which always fits. "" when the box has no footer row.
+ */
+export function footerLabel(node: Pick<DiagramNode, "hidden" | "expanded" | "rows" | "width">, exporting = false): string {
+  if (node.expanded) return exporting ? "" : toggleText(0, true);
+  if (node.hidden === 0) return "";
+  const long = exporting ? moreText(node.hidden, node.rows.length) : toggleText(node.hidden, false, node.rows.length);
+  const room = node.width - DGM.padX * 2 - DGM.iconW;
+  return long.length * DGM.uiCharW <= room ? long : footerText(node.hidden, node.rows.length);
+}
 
 /**
  * The expanded set with `key` toggled: removed when it is in the set, else added when the table can expand
@@ -200,13 +221,21 @@ export function rowChars(width: number, rows: readonly { name: string; typeName:
 /** `text` cut to `max` characters with a trailing ellipsis. */
 export const clip = (text: string, max: number): string => (text.length <= max ? text : max <= 1 ? "…" : text.slice(0, max - 1) + "…");
 
+/** Width of a box whose rows need `nameW` / `typeW` characters, and whose header holds `name` (and `schema`). */
+function boxWidth(nameW: number, typeW: number, showTypes: boolean, name: string, schema: string | undefined): number {
+  const rowsW = DGM.padX * 2 + DGM.iconW + nameW * DGM.charW + (showTypes && typeW ? DGM.colGap + typeW * DGM.charW : 0);
+  // The header holds the glyph, the (semi-bold) name and, across schemas, the schema in a smaller muted face.
+  const headW = DGM.padX * 2 + 18 + name.length * 7.6 + (schema ? 14 + schema.length * 6.4 : 0);
+  return Math.min(DGM.maxW, Math.max(DGM.minW, up(Math.max(rowsW, headW))));
+}
+
 /**
  * Width / height of a table box for the given columns and options (the layout uses these, so they must be
- * deterministic). A box that has a toggle row (it leaves out columns, so it can expand) is as wide as its expanded
- * view: the width counts every column of the table, and both texts of the toggle row. Thus expanding a box (`expand`)
- * or collapsing it only changes its height, the boxes beside it keep their place and the layout stays valid. In the
- * keys-only and compact modes this makes the boxes as wide as in the "all" mode (at most `DGM.maxW`). A box without
- * a toggle counts only the columns it draws.
+ * deterministic). A collapsed box has the width of its column mode: it counts every column of the mode, also those
+ * the row limit leaves out, and the footer row (both toggle texts when the row limit cuts the box, else the short
+ * `footerText`). So in the "all" mode expanding a box (`expand`) only makes it taller. In the keys-only and compact
+ * modes an expanded box can also be wider: as wide as its expanded content (every column and the collapse row),
+ * never narrower than collapsed, at most `DGM.maxW`. `reflowBoxes` moves the boxes around it out of the way.
  */
 export function measureTable(
   name: string,
@@ -216,19 +245,24 @@ export function measureTable(
   expand = false,
 ): { width: number; height: number } {
   const { rows, hidden, expanded } = displayRows(columns, opts.columns, expand);
-  const toggle = hidden > 0 || expanded;
-  // the collapsed view of the box (the same as `rows` / `hidden` unless the box is expanded)
   const closed = expanded ? displayRows(columns, opts.columns) : { rows, hidden };
-  const counted = toggle ? columns : rows;
+  const vis = visibleColumns(columns, opts.columns);
   let nameW = 0;
   let typeW = 0;
-  for (const c of counted) nameW = Math.max(nameW, c.name.length);
-  if (toggle) nameW = Math.max(nameW, toggleText(closed.hidden, false, closed.rows.length).length, toggleText(0, true).length);
-  if (opts.showTypes) for (const c of counted) typeW = Math.max(typeW, Math.min(c.typeName.length, DGM.maxTypeChars));
-  const rowsW = DGM.padX * 2 + DGM.iconW + nameW * DGM.charW + (opts.showTypes && typeW ? DGM.colGap + typeW * DGM.charW : 0);
-  // The header holds the glyph, the (semi-bold) name and, across schemas, the schema in a smaller muted face.
-  const headW = DGM.padX * 2 + 18 + name.length * 7.6 + (schema ? 14 + schema.length * 6.4 : 0);
-  const width = Math.min(DGM.maxW, Math.max(DGM.minW, up(Math.max(rowsW, headW))));
+  for (const c of vis) nameW = Math.max(nameW, c.name.length);
+  if (vis.length > closed.rows.length) nameW = Math.max(nameW, toggleText(vis.length - DGM.maxRows, false).length, toggleText(0, true).length);
+  else if (closed.hidden > 0) nameW = Math.max(nameW, footerText(closed.hidden, closed.rows.length).length);
+  if (opts.showTypes) for (const c of vis) typeW = Math.max(typeW, Math.min(c.typeName.length, DGM.maxTypeChars));
+  let width = boxWidth(nameW, typeW, opts.showTypes, name, schema);
+  if (expanded) {
+    let openName = toggleText(0, true).length;
+    let openType = 0;
+    for (const c of columns) {
+      openName = Math.max(openName, c.name.length);
+      if (opts.showTypes) openType = Math.max(openType, Math.min(c.typeName.length, DGM.maxTypeChars));
+    }
+    width = Math.max(width, boxWidth(openName, openType, opts.showTypes, name, schema));
+  }
   const nrows = rows.length + (hidden > 0 || expanded ? 1 : 0);
   const height = DGM.headerH + nrows * DGM.rowH + DGM.padBottom;
   return { width, height: up(height) };

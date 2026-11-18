@@ -248,7 +248,42 @@ describe("reflowBoxes", () => {
       pinned.forEach((i) => expect(out[i].y).toBeGreaterThanOrEqual(h[i].y));
     }
   });
-  it.each(["keys", "none"] as ColumnsMode[])("expands tables in %s mode on a real layout of 80 tables: same widths, no overlap, back home on collapse", (columns) => {
+  it("moves the boxes after a box that grew wider to the right by as much as it grew, and back when it shrinks", () => {
+    // a row of three boxes (three ranks of "LR", or one rank of "TB"), and a box below the first one
+    const row = [
+      { x: 0, y: 0, w: 100, h: 60 },
+      { x: 160, y: 0, w: 100, h: 60 },
+      { x: 320, y: 20, w: 100, h: 60 },
+      { x: 0, y: 120, w: 100, h: 60 },
+    ];
+    const wider = (over: Record<number, { width: number; height: number }>) => row.map((b, i) => over[i] ?? { width: b.w, height: b.h });
+    const out = reflowBoxes(row, wider({ 0: { width: 200, height: 60 } }));
+    expect(out.map((b) => b.x)).toEqual([0, 260, 420, 0]);
+    expect(out.map((b) => b.y)).toEqual(row.map((b) => b.y)); // they stay in their rank
+    // wider and taller (an expanded box): the boxes beside its new rows move right, the box below it moves down
+    const open = reflowBoxes(row, wider({ 0: { width: 200, height: 160 } }));
+    expect(open.map((b) => b.x)).toEqual([0, 260, 420, 0]);
+    expect(open.map((b) => b.y)).toEqual([0, 0, 20, 220]);
+    // back at the home sizes: the home boxes
+    expect(reflowBoxes(row, wider({}))).toBe(row);
+    // laid out wide, then narrower: the boxes after it move left again, and keep their home gap
+    const narrow = reflowBoxes(row, wider({ 0: { width: 60, height: 60 } }));
+    expect(narrow.map((b) => b.x)).toEqual([0, 120, 280, 0]);
+  });
+
+  it("keeps a pinned box where the user put it when a box beside it grows wider, unless the box now covers it", () => {
+    const row = [
+      { x: 0, y: 0, w: 100, h: 60 },
+      { x: 160, y: 0, w: 100, h: 60 },
+      { x: 320, y: 0, w: 100, h: 60 },
+    ];
+    const pinned = (i: number) => i === 1;
+    expect(reflowBoxes(row, [{ width: 140, height: 60 }, ...row.slice(1).map((b) => ({ width: b.w, height: b.h }))], pinned).map((b) => b.x)).toEqual([0, 160, 320]);
+    const covered = reflowBoxes(row, [{ width: 250, height: 60 }, ...row.slice(1).map((b) => ({ width: b.w, height: b.h }))], pinned);
+    expect(covered.map((b) => b.x)).toEqual([0, 270, 430]); // after the box with the reflow gap; the next box follows it
+  });
+
+  it.each(["keys", "none"] as ColumnsMode[])("keeps the collapsed widths of %s mode on a real layout, and reflows wider expanded boxes without overlap", (columns) => {
     const objects = randomSchema(11, 80, { density: 1.2 });
     const o: DiagramOptions = { columns, showTypes: true };
     const closed = buildDiagram(objects, o);
@@ -260,14 +295,52 @@ describe("reflowBoxes", () => {
     expect(some.size).toBeGreaterThan(0);
     for (const expanded of [some, every]) {
       const open = buildDiagram(objects, { ...o, expanded });
-      expect(open.nodes.map((n) => n.width)).toEqual(closed.nodes.map((n) => n.width));
+      // only the expanded boxes change width, and none gets narrower
+      open.nodes.forEach((n, i) => (expanded.has(n.key) ? expect(n.width).toBeGreaterThanOrEqual(closed.nodes[i].width) : expect(n.width).toBe(closed.nodes[i].width)));
+      expect(open.nodes.some((n, i) => n.width > closed.nodes[i].width)).toBe(true);
       const out = reflowBoxes(h, open.nodes);
       expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h }))), `${columns} ${expanded.size}`).toBe("");
       out.forEach((b, i) => {
-        expect(b.x).toBe(h[i].x);
+        expect(b.x).toBeGreaterThanOrEqual(h[i].x);
         expect(b.y).toBeGreaterThanOrEqual(h[i].y);
       });
     }
     expect(reflowBoxes(h, closed.nodes)).toBe(h);
+  });
+
+  it.each([
+    ["keys", "LR"],
+    ["keys", "TB"],
+    ["none", "LR"],
+    ["none", "TB"],
+  ] as [ColumnsMode, Direction][])("never makes two boxes overlap when random tables expand and collapse (%s, %s), and restores the boxes exactly", (columns, direction) => {
+    const objects = randomSchema(23, 120, { density: 1.2 });
+    const o: DiagramOptions = { columns, showTypes: true };
+    const rand = rng(columns === "keys" ? 41 : 43);
+    const pick = (nodes: { key: string; hidden: number }[], p: number) => new Set(nodes.filter((n) => n.hidden > 0 && rand() < p).map((n) => n.key));
+    const closed = buildDiagram(objects, o);
+    // laid out collapsed, and laid out with some tables expanded (Re-layout while they were open)
+    const homes: { model: ReturnType<typeof buildDiagram> }[] = [{ model: closed }, { model: buildDiagram(objects, { ...o, expanded: pick(closed.nodes, 0.3) }) }];
+    for (const { model } of homes) {
+      const l = layoutDiagram(model, { direction });
+      const h = l.nodes.map((n) => ({ x: n.x, y: n.y, w: n.width, h: n.height }));
+      const pinnedSet = new Set([...h.keys()].filter(() => rand() < 0.1));
+      const pinned = (i: number) => pinnedSet.has(i);
+      const first = reflowBoxes(h, closed.nodes, pinned);
+      for (let round = 0; round < 6; round++) {
+        const open = buildDiagram(objects, { ...o, expanded: pick(closed.nodes, round % 2 ? 0.6 : 0.15) });
+        const out = reflowBoxes(h, open.nodes, pinned);
+        expect(firstOverlap(out.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h }))), `${columns} ${direction} round ${round}`).toBe("");
+        out.forEach((b, i) => expect([b.w, b.h]).toEqual([open.nodes[i].width, open.nodes[i].height]));
+        // a pinned box moves only away from a box that covers it (right or down)
+        pinnedSet.forEach((i) => {
+          expect(out[i].x).toBeGreaterThanOrEqual(h[i].x);
+          expect(out[i].y).toBeGreaterThanOrEqual(h[i].y);
+        });
+      }
+      // Collapse All: exactly the boxes of the first collapse, whatever happened in between
+      expect(reflowBoxes(h, closed.nodes, pinned)).toEqual(first);
+      expect(firstOverlap(first.map((b) => ({ x: b.x, y: b.y, width: b.w, height: b.h })))).toBe("");
+    }
   });
 });

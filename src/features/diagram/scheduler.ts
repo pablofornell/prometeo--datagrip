@@ -30,8 +30,8 @@ export interface Inputs {
   direction: Direction;
   positions: Positions;
   /**
-   * Two models with the same key (and direction) share a layout: they have the same tables, edges and box widths,
-   * only box heights differ. Absent: the model itself is the key.
+   * Two models with the same key (and direction) share a layout: they have the same tables and edges, and only the
+   * sizes of expanded or collapsed boxes differ (`reflowBoxes` makes room). Absent: the model itself is the key.
    */
   layoutKey?: object;
 }

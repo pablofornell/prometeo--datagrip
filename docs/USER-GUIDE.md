@@ -99,8 +99,15 @@ with their columns; lines are foreign keys.
   for contrast, so the colours work in both the dark and the light theme.
 - **Detail:** **All Columns**, **Keys Only** (primary / foreign keys and the columns other tables point at)
   or **Compact** (just the names). Schemas of 60 tables or more open as keys only. A table with many
-  columns shows its keys plus the first columns and a `+N more` row. **Types** toggles the column types and
-  **Labels** draws the foreign key names on the lines.
+  columns shows its keys plus the first columns. **Types** toggles the column types and **Labels** draws the
+  foreign key names on the lines.
+- **Expanding a table:** in every column mode, a table that does not show all its columns has a last row
+  **Show N more columns** (`+N more` in a narrow box). Click it to show all the columns of the table, in their
+  order; click **Show fewer columns** to go back. The **E** key and the table's right-click menu (**Show All
+  Columns** / **Show Fewer Columns**) do the same, and the right-click menu of the background and the column
+  mode menu have **Expand All Tables** / **Collapse All Tables**. The layout stays: the tables below (and
+  after, when the table gets wider) move to make room. Expanded tables stay expanded when you change the
+  column mode. You can also drag a table by this row, and double-click it to open the table.
 - **Layout:** **Left to Right** or **Top to Bottom**. Unrelated tables are packed together and no two boxes
   ever overlap. **Re-layout** (L) drops the positions you dragged; **Fit** (0) and **Actual Size** (1) reset
   the view.
@@ -110,7 +117,8 @@ with their columns; lines are foreign keys.
   Drag a table to move it: its lines are re-routed live and it never lands on another table. Double-click a
   table to open its data; right-click for more.
 - **Keyboard:** focus the diagram, then the arrow keys move between tables (Shift+arrows pan), Tab / Shift+Tab
-  walk through them, Enter opens the table, `+` / `-` zoom, Esc clears the selection.
+  walk through them, Enter opens the table, E expands or collapses it, `+` / `-` zoom, Esc clears the
+  selection.
 - **Export:** **Export** writes the diagram as SVG or PNG, in the current colours and with the current labels.
 
 ## Data source colors

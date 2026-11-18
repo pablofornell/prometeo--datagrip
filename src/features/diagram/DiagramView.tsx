@@ -8,7 +8,8 @@
  * options that change box sizes change. Fit zooms to the same padded box the SVG emits as its viewBox. A table that does
  * not show all its columns (the column mode or the row limit leaves some out) can be expanded to show every column
  * (its last row, its context menu, the E key, Expand All) and collapsed again, in every column mode; the set of
- * expanded tables is per tab, and expanding keeps the layout: only the boxes below the table move.
+ * expanded tables is per tab, and expanding keeps the layout: only the boxes below the table (and after it, when it
+ * grows wider) move.
  *
  * Layout and routing are the expensive part (hundreds of milliseconds for hundreds of tables), so they never run in a
  * reactive update on the main thread: `engineClient` runs them in a web worker (and cancels a stale job when the
@@ -28,7 +29,7 @@ import { loadSchemaSnapshot, schemaSnapshotErrorFor, schemaSnapshotFor } from ".
 import { openDdlTab, openTableTab } from "../table/commands";
 import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus } from "./focus";
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
-import { DragSession } from "./drag";
+import { DRAG_START, DragSession, clickToggles, type TogglePress } from "./drag";
 import { createSceneEngine } from "./engineClient";
 import { diagramFontCss, embedFonts, exportFile, renderPng, svgFileText } from "./export";
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
@@ -149,8 +150,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   let nodeEls: Element[] = [];
   let edgeEls: Element[] = [];
   let fitFrame = 0;
-  /** The table whose expand / collapse row the button went down on (the click on the same row toggles it). */
-  let pressedToggle: number | null = null;
+  /** Where the button went down on an expand / collapse row (a click there that did not move toggles the table). */
+  let pressedToggle: TogglePress | null = null;
 
   const objects = () => subsetOf(schemaSnapshotFor(props.dsId, props.schema), props.tables);
   const loadError = () => schemaSnapshotErrorFor(props.dsId, props.schema);
@@ -382,8 +383,9 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   // ---------------------------------------------------------------- expanding tables that leave out columns
 
   /**
-   * Expands a table that leaves out columns (in any column mode), or collapses an expanded one. The layout stays: the boxes below make room. The
-   * set decides, not the model on screen: that can be a job behind when the key is pressed again quickly.
+   * Expands a table that leaves out columns (in any column mode), or collapses an expanded one. The layout stays: the
+   * boxes below (and after it) make room. The set decides, not the model on screen: that can be a job behind when the
+   * key is pressed again quickly.
    */
   const toggleColumns = (index: number): void => {
     const node = model().nodes[index];
@@ -441,13 +443,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     pressedToggle = null;
     if (e.button !== 0) return;
     stage.focus({ preventScroll: true });
+    // The expand / collapse row is also a handle: the table is picked up as from any other row, and the click toggles
+    // it only when the pointer did not move (`clickToggles`).
     const toggle = toggleAt(e);
-    if (toggle !== null) {
-      // a button, not a handle: the table is selected but not picked up
-      setSelection({ kind: "node", index: toggle });
-      pressedToggle = toggle;
-      return;
-    }
+    if (toggle !== null) pressedToggle = { index: toggle, x: e.clientX, y: e.clientY };
     const index = nodeAt(e);
     if (index === null) {
       const edge = edgeAt(e);
@@ -505,7 +504,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     const z = view().zoom;
     const dx = clientX - d.sx;
     const dy = clientY - d.sy;
-    if (!d.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    if (!d.moved && Math.abs(dx) < DRAG_START && Math.abs(dy) < DRAG_START) return;
     const x = snap(d.ox + dx / z);
     const y = snap(d.oy + dy / z);
     if (d.moved && x === d.x && y === d.y) return;
@@ -527,6 +526,8 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     const d = drag;
     drag = null;
     stage.classList.remove("panning");
+    // a table that was dragged from its toggle row (and maybe back to where it was) is not toggled by the click
+    if (d.mode === "node" && d.moved) pressedToggle = null;
     if (frame) {
       cancelAnimationFrame(frame);
       frame = 0;
@@ -580,13 +581,13 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   }
 
   function onClick(e: MouseEvent): void {
-    const toggle = toggleAt(e);
-    if (toggle !== null && toggle === pressedToggle) toggleColumns(toggle);
+    const toggle = clickToggles(pressedToggle, { index: toggleAt(e), x: e.clientX, y: e.clientY, detail: e.detail });
     pressedToggle = null;
+    if (toggle !== null) toggleColumns(toggle);
   }
 
+  /** Opens the table, also from its expand / collapse row (whose first click already toggled it, see `clickToggles`). */
   function onDblClick(e: MouseEvent): void {
-    if (toggleAt(e) !== null) return;
     const index = nodeAt(e);
     if (index === null) return;
     openNode(index);

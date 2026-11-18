@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DGM, buildDiagram, clip, displayRows, hasToggle, measureTable, moreText, nodeKey, prunePositions, subsetOf, toggleKey, toggleText, visibleColumns, type DiagramInputObject, type DiagramOptions } from "./model";
+import { DGM, buildDiagram, clip, displayRows, footerLabel, footerText, hasToggle, measureTable, moreText, nodeKey, prunePositions, subsetOf, toggleKey, toggleText, visibleColumns, type DiagramColumn, type DiagramInputObject, type DiagramOptions } from "./model";
+import { randomSchema, shopSchema } from "./sample";
 
 const opts: DiagramOptions = { columns: "all", showTypes: true };
 
@@ -156,6 +157,8 @@ describe("displayRows", () => {
     expect(moreText(1, 0)).toBe("1 column");
     expect(moreText(7, 3)).toBe("+7 more columns");
     expect(moreText(1, 3)).toBe("+1 more column");
+    expect(footerText(7, 0)).toBe("7 columns");
+    expect(footerText(7, 3)).toBe("+7 more");
   });
 });
 
@@ -204,32 +207,79 @@ describe("expanding a table that leaves out columns", () => {
     expect(closed.width).toBeGreaterThan(measureTable("t", many(80), opts).width);
   });
 
-  it("keeps the box width in keys-only and compact mode too: the width counts every column of the table", () => {
+  it("keeps the mode width while collapsed, and widens an expanded box to its content (keys-only, compact)", () => {
     const cols = many(12).map((c, i) => (i === 7 ? { ...c, name: "a_long_column_name_that_is_no_key", typeName: "character varying(255)" } : c));
     for (const mode of ["keys", "none"] as const) {
       for (const showTypes of [true, false]) {
         const o: DiagramOptions = { columns: mode, showTypes };
         const closed = measureTable("t", cols, o);
         const open = measureTable("t", cols, o, undefined, true);
-        expect(open.width, `${mode} ${showTypes}`).toBe(closed.width);
-        expect(closed.width, `${mode} ${showTypes}`).toBe(measureTable("t", cols, { ...o, columns: "all" }).width);
+        expect(closed.width, `${mode} ${showTypes}`).toBe(DGM.minW);
+        // the expanded content: every column (and its type) and the collapse row, as the "all" mode measures it
+        expect(open.width, `${mode} ${showTypes}`).toBe(measureTable("t", cols, { ...o, columns: "all" }).width);
+        expect(open.width).toBeGreaterThan(closed.width);
         // the header, the drawn rows and the toggle row
         const rows = mode === "keys" ? 1 : 0;
         expect(closed.height).toBe(Math.ceil((DGM.headerH + (rows + 1) * DGM.rowH + DGM.padBottom) / DGM.grid) * DGM.grid);
         expect(open.height).toBe(Math.ceil((DGM.headerH + (12 + 1) * DGM.rowH + DGM.padBottom) / DGM.grid) * DGM.grid);
       }
     }
+    // never narrower than collapsed (a long table name), never wider than the cap
+    const named = measureTable("a_very_long_table_name_for_a_box", many(3), { columns: "none", showTypes: false });
+    expect(measureTable("a_very_long_table_name_for_a_box", many(3), { columns: "none", showTypes: false }, undefined, true).width).toBe(named.width);
+    const huge = many(3).map((c) => ({ ...c, name: "c".repeat(200) }));
+    expect(measureTable("t", huge, { columns: "keys", showTypes: true }, undefined, true).width).toBe(DGM.maxW);
     // a box with no toggle (every column is a key) counts only what it draws
     const keysOnly = many(3, () => true);
     expect(measureTable("t", keysOnly, { columns: "keys", showTypes: true })).toEqual(measureTable("t", keysOnly, opts));
     expect(measureTable("t", [], { columns: "none", showTypes: true }).width).toBe(DGM.minW);
   });
 
-  it("makes room for the toggle texts in a narrow box", () => {
-    const cols = many(3).map((c) => ({ ...c, name: "a" }));
-    const w = measureTable("t", cols, { columns: "none", showTypes: false }).width;
-    expect(w).toBeGreaterThanOrEqual(DGM.padX * 2 + DGM.iconW + toggleText(0, true).length * DGM.charW);
-    expect(w).toBeGreaterThanOrEqual(DGM.padX * 2 + DGM.iconW + toggleText(3, false, 0).length * DGM.charW);
+  it("measures every collapsed box as 0.3.0 did, in every column mode", () => {
+    // the width rule of 0.3.0 (main before this change), kept here as the reference
+    const up = (v: number) => Math.ceil(v / DGM.grid) * DGM.grid;
+    const reference = (name: string, columns: DiagramColumn[], o: DiagramOptions, schema?: string): number => {
+      const { rows, hidden } = displayRows(columns, o.columns);
+      const vis = visibleColumns(columns, o.columns);
+      let nameW = 0;
+      let typeW = 0;
+      for (const c of vis) nameW = Math.max(nameW, c.name.length);
+      if (vis.length - rows.length > 0) nameW = Math.max(nameW, `Show ${vis.length - DGM.maxRows} more columns`.length, "Show fewer columns".length);
+      else if (hidden > 0) nameW = Math.max(nameW, (rows.length === 0 ? `${hidden} column${hidden === 1 ? "" : "s"}` : `+${hidden} more`).length);
+      if (o.showTypes) for (const c of vis) typeW = Math.max(typeW, Math.min(c.typeName.length, DGM.maxTypeChars));
+      const rowsW = DGM.padX * 2 + DGM.iconW + nameW * DGM.charW + (o.showTypes && typeW ? DGM.colGap + typeW * DGM.charW : 0);
+      const headW = DGM.padX * 2 + 18 + name.length * 7.6 + (schema ? 14 + schema.length * 6.4 : 0);
+      return Math.min(DGM.maxW, Math.max(DGM.minW, up(Math.max(rowsW, headW))));
+    };
+    const objects = [...randomSchema(3, 150, { density: 1.2 }), ...shopSchema("other")];
+    for (const columns of ["all", "keys", "none"] as const)
+      for (const showTypes of [true, false]) {
+        const o: DiagramOptions = { columns, showTypes };
+        const m = buildDiagram(objects, o);
+        for (const n of m.nodes) expect(n.width, `${columns} ${showTypes} ${n.name}`).toBe(reference(n.name, n.columns, o, n.showSchema ? n.schema : undefined));
+      }
+  });
+
+  it("draws the long footer text when it fits the box, else the short one", () => {
+    const narrow = buildDiagram([{ schema: "s", name: "t", kind: "table", columns: many(57).map((c) => ({ ...c, name: "a" })) }], { columns: "keys", showTypes: false }).nodes[0];
+    expect(narrow.width).toBe(DGM.minW);
+    expect(footerLabel(narrow)).toBe("+56 more");
+    expect(footerLabel(narrow, true)).toBe("+56 more");
+    const compact = buildDiagram([{ schema: "s", name: "t", kind: "table", columns: many(7) }], { columns: "none", showTypes: false }).nodes[0];
+    expect(footerLabel(compact)).toBe("Show 7 columns");
+    expect(footerLabel(compact, true)).toBe("7 columns");
+    const longKey = many(5).map((c, i) => (i === 0 ? { ...c, name: "customer_reference_identifier" } : c));
+    const wide = buildDiagram([{ schema: "s", name: "t", kind: "table", columns: longKey }], { columns: "keys", showTypes: true }).nodes[0];
+    expect(wide.width).toBeGreaterThanOrEqual(DGM.padX * 2 + DGM.iconW + "Show 4 more columns".length * DGM.uiCharW);
+    expect(footerLabel(wide)).toBe("Show 4 more columns");
+    expect(footerLabel(wide, true)).toBe("+4 more columns");
+    const open = buildDiagram([{ schema: "s", name: "t", kind: "table", columns: many(5) }], { columns: "none", showTypes: false, expanded: new Set([nodeKey("s", "t")]) }).nodes[0];
+    expect(footerLabel(open)).toBe("Show fewer columns");
+    expect(footerLabel(open, true)).toBe("");
+    expect(footerLabel(buildDiagram([{ schema: "s", name: "t", kind: "table", columns: many(5) }], opts).nodes[0])).toBe("");
+    // the short text always fits a collapsed box: its width counts it
+    for (const n of buildDiagram(randomSchema(9, 80), { columns: "keys", showTypes: false }).nodes)
+      if (n.hidden > 0) expect(DGM.padX * 2 + DGM.iconW + footerLabel(n).length * DGM.uiCharW, n.name).toBeLessThanOrEqual(n.width);
   });
 
   it("expands the tables of the option set only, and words the toggle row", () => {
@@ -260,7 +310,7 @@ describe("expanding a table that leaves out columns", () => {
       expect(hasToggle(b)).toBe(true);
       const closed = buildDiagram([big, keys], { columns: mode, showTypes: true }).nodes[0];
       expect(hasToggle(closed)).toBe(true);
-      expect(closed.width).toBe(b.width);
+      expect(b.width).toBeGreaterThanOrEqual(closed.width);
       // the keys-only table: nothing hidden in keys-only mode, everything hidden in compact mode
       expect(k).toMatchObject(mode === "keys" ? { expanded: false, hidden: 0 } : { expanded: true, hidden: 0 });
     }
