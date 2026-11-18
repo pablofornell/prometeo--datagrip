@@ -8,6 +8,29 @@ import type { DiagramModel } from "./model";
 import { placeLabels, Router, type LabelBox, type Rect, type RoutedEdge } from "./route";
 import { boundsOf, type Scene } from "./svg";
 
+/** A pointer that moves less than this (client px, on both axes) since the button went down clicks; more drags. */
+export const DRAG_START = 3;
+
+/** The button went down on the expand / collapse row of table `index`, at client point `x`, `y`. */
+export interface TogglePress {
+  index: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * The table a click on an expand / collapse row toggles, or null. The toggle row is also a handle: a press on it picks
+ * up the table like any other row, and only a click that did not move (less than `DRAG_START` from where the button
+ * went down, on the row of the same table) toggles it. `detail` is the click count of the click: only the first click
+ * toggles, so a double-click on the row toggles the table once (its first click) and then opens it (the dblclick), as
+ * on any other row.
+ */
+export function clickToggles(press: TogglePress | null, click: { index: number | null; x: number; y: number; detail: number }): number | null {
+  if (!press || click.index !== press.index || click.detail > 1) return null;
+  if (Math.abs(click.x - press.x) >= DRAG_START || Math.abs(click.y - press.y) >= DRAG_START) return null;
+  return press.index;
+}
+
 export class DragSession {
   /** The edges that start or end at the dragged table. */
   readonly edges = new Set<number>();

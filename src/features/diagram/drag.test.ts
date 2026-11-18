@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bestOf, budget } from "./bench";
-import { DragSession } from "./drag";
+import { DRAG_START, DragSession, clickToggles } from "./drag";
 import { layoutDiagram } from "./layout";
 import { buildDiagram, type DiagramModel } from "./model";
 import { Router, routeEdges, type Rect, type RoutedEdge } from "./route";
@@ -180,5 +180,29 @@ describe("drag performance", () => {
     expect(last.filter(Boolean).length).toBeGreaterThan(0);
     expect(per * 3, `frame ${per.toFixed(1)} ms, full route ${fullMs.toFixed(0)} ms`).toBeLessThan(fullMs);
     expect(per).toBeLessThan(budget(20));
+  });
+});
+
+describe("clickToggles", () => {
+  const press = { index: 4, x: 100, y: 200 };
+  const click = (x: number, y: number, detail = 1, index: number | null = 4) => ({ index, x, y, detail });
+
+  it("toggles on a click that did not move, on the row the button went down on", () => {
+    expect(clickToggles(press, click(100, 200))).toBe(4);
+    expect(clickToggles(press, click(100 + DRAG_START - 1, 200 - DRAG_START + 1))).toBe(4);
+  });
+
+  it("does not toggle after a drag, nor on another row, nor without a press on the row", () => {
+    expect(clickToggles(press, click(100 + DRAG_START, 200))).toBeNull();
+    expect(clickToggles(press, click(100, 200 - 40))).toBeNull();
+    expect(clickToggles(press, click(100, 200, 1, 5))).toBeNull();
+    expect(clickToggles(press, click(100, 200, 1, null))).toBeNull();
+    expect(clickToggles(null, click(100, 200))).toBeNull();
+  });
+
+  it("toggles once for a double-click: the second click is left to the dblclick, which opens the table", () => {
+    const clicks = [click(100, 200, 1), click(100, 200, 2)].map((c) => clickToggles(press, c));
+    expect(clicks).toEqual([4, null]);
+    expect(clickToggles(press, click(100, 200, 3))).toBeNull();
   });
 });
