@@ -27,8 +27,11 @@ import { computeAggregates, formatStat, type Aggregates } from "./aggregates";
 import { COPY_FORMAT_LABELS, formatRows, type CopyColumn } from "./copy";
 import { DateEditor } from "./DateEditor";
 import { DEFAULT_FIND_OPTIONS, compileQuery, findNextMatch, type FindOptions } from "./find";
+import { ColumnSearchBar, MatchedText } from "./ColumnSearchBar";
+import { matchColumns, stepColumnPos } from "./columnSearch";
 import { FindBar } from "./FindBar";
 import { fkTooltip, isLinkModifier, isMacPlatform, resolveFkLink } from "./fkLink";
+import { registerGrid } from "./gridRegistry";
 import { LocalFilterPopup } from "./LocalFilterPopup";
 import { NULL_KEY, countMatches, countValues, type ValueCount } from "./localFilter";
 import { ManageColumns } from "./ManageColumns";
@@ -271,7 +274,10 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     });
   }
 
-  const vis = createMemo<number[]>(() => {
+  // quick column search (Find Column): a temporary view filter over the columns Manage Columns leaves visible
+  const [csOpen, setCsOpen] = createSignal(false);
+  const [csQuery, setCsQuery] = createSignal("");
+  const visBase = createMemo<number[]>(() => {
     const n = props.columns.length;
     const h = hidden();
     const o = order();
@@ -279,6 +285,14 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     const list = base.filter((c) => !h.has(c));
     const p = pinned();
     return p.size ? [...list.filter((c) => p.has(c)), ...list.filter((c) => !p.has(c))] : list;
+  });
+  const csMatches = createMemo(() => (csQuery().trim() ? matchColumns(props.columns, visBase(), csQuery()) : null));
+  /** Matched name ranges of the shown columns, for the header highlight (empty without a search). */
+  const csRanges = createMemo(() => new Map((csMatches() ?? []).map((m) => [m.ci, m.ranges])));
+  /** The columns drawn: those of Manage Columns narrowed by the quick column search. */
+  const vis = createMemo<number[]>(() => {
+    const m = csMatches();
+    return m ? m.map((x) => x.ci) : visBase();
   });
   /** Pinned (frozen) columns lead the visible ones; the transposed layout has none. */
   const nPinned = createMemo(() => {
@@ -1509,7 +1523,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
   }
 
   function onKeyDown(e: KeyboardEvent) {
-    if ((e.target as HTMLElement).closest?.(".dgg-ew, .dgg-bool, .dgg-ve, .dgg-menu, .dgg-find, .dgg-side")) return;
+    if ((e.target as HTMLElement).closest?.(".dgg-ew, .dgg-bool, .dgg-ve, .dgg-menu, .dgg-find, .dgg-cs, .dgg-side")) return;
     const mod = e.ctrlKey || e.metaKey;
     const k = e.key;
     const alt = e.altKey;
@@ -1549,6 +1563,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     else if (k === "Enter" && mod && !alt) submit();
     else if (k === "Enter" && shift && !mod) openValueEditor();
     else if (k === "Enter" || k === "F2") startEdit();
+    else if (k === "Escape" && csOpen()) closeColumnSearch();
     else if (k === "Escape") {
       if (ranges().length > 1 || (ranges()[0] && (ranges()[0].r0 !== ranges()[0].r1 || ranges()[0].c0 !== ranges()[0].c1))) {
         const a = active();
@@ -2031,6 +2046,59 @@ export function DataGrid(props: DataGridProps): JSX.Element {
   const filterMatchCount = () => countMatches(props.rowCount, colFilters(), sourceKey);
   const clearLocalFilter = () => setColFilters(new Map());
 
+  // ---- quick column search (Find Column) ----
+  let focusCs: (() => void) | null = null;
+  /** Row to scroll to when bringing a column into view: the top visible one, so the vertical scroll stays. */
+  const csScrollRow = () => (T() ? (active()?.r ?? 0) : Math.max(0, Math.min(total() - 1, Math.ceil(logicalTop() / ROW_H))));
+  /** Runs `change` (it alters the columns drawn) and keeps the selected column selected, at its new position, in view. */
+  function keepColumnSelected(change: () => void) {
+    const a = active();
+    const ci = activeCi();
+    const g = ranges();
+    const whole = total() > 0 && g.length === 1 && g[0].c0 === g[0].c1 && g[0].r0 === 0 && g[0].r1 >= total() - 1;
+    batch(() => {
+      change();
+      setSelection([], null);
+    });
+    const p = ci === null ? undefined : visPos().get(ci);
+    if (!a || p === undefined) return;
+    if (!whole) selectCell(a.r, p);
+    else {
+      selectCols(p, p, false, { r: a.r, c: p });
+      ensureVisible(csScrollRow(), p);
+    }
+  }
+  function onColumnSearchQuery(q: string) {
+    if (q === csQuery()) return;
+    keepColumnSelected(() => setCsQuery(q));
+  }
+  /** Enter / Down (1) and Shift+Enter / Up (-1): selects the next / previous shown column and scrolls to it. */
+  function stepColumnSearch(dir: 1 | -1) {
+    const n = nCols();
+    const g = ranges();
+    const cur = g.length === 1 && g[0].c0 === g[0].c1 && g[0].r0 === 0 && g[0].r1 >= total() - 1 ? g[0].c0 : null;
+    const p = stepColumnPos(n, cur, dir);
+    if (p < 0) return;
+    if (total() > 0) selectCols(p, p, false, { r: active()?.r ?? 0, c: p });
+    ensureVisible(csScrollRow(), p);
+  }
+  function openColumnSearch() {
+    if (csOpen()) {
+      focusCs?.();
+      return;
+    }
+    setCsOpen(true);
+  }
+  function closeColumnSearch() {
+    if (!csOpen()) return;
+    keepColumnSelected(() => {
+      setCsOpen(false);
+      setCsQuery("");
+    });
+    root.focus({ preventScroll: true });
+  }
+  const toggleColumnSearch = () => (csOpen() ? closeColumnSearch() : openColumnSearch());
+
   // ---- manage columns ----
   function openManageColumns(anchor?: DOMRect) {
     setManage({ anchor, bounds: root.getBoundingClientRect() });
@@ -2120,6 +2188,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
   const viewState = createMemo<GridViewState>(() => ({
     transposed: T(),
     findOpen: findOpen(),
+    columnSearchOpen: csOpen(),
     sidePanel: sideTab(),
     localFilterActive: lfEnabled() && colFilters().size > 0,
     localFilterEnabled: lfEnabled(),
@@ -2161,11 +2230,15 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     findNext,
     findPrevious,
     openManageColumns,
+    openColumnSearch,
+    closeColumnSearch,
+    toggleColumnSearch,
     setLocalFilterEnabled: setLfEnabled,
     clearLocalFilter,
     getViewState: viewState,
   };
   props.apiRef?.(api);
+  onMount(() => onCleanup(registerGrid(root, api)));
 
   const hasSelectionAt = (r: number) => {
     const a = active();
@@ -2198,7 +2271,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       >
         <i class={"dgg-ico " + iconOf(props.columns[ci])} />
         <span class="dgg-hname" title={`${props.columns[ci].name}: ${props.columns[ci].typeName.toUpperCase()}`}>
-          {props.columns[ci].name}
+          <MatchedText text={props.columns[ci].name} ranges={csRanges().get(ci)} />
         </span>
         <button
           class="dgg-hbtn funnel"
@@ -2361,7 +2434,9 @@ export function DataGrid(props: DataGridProps): JSX.Element {
                 >
                   <div class="dgg-gr nm" classList={{ sel: colSelectedFully(r) }} style={{ top: r * ROW_H - shiftV() + "px" }}>
                     <i class={"dgg-ico " + iconOf(props.columns[vis()[r]])} />
-                    <span>{props.columns[vis()[r]]?.name}</span>
+                    <span>
+                      <MatchedText text={props.columns[vis()[r]]?.name ?? ""} ranges={csRanges().get(vis()[r])} />
+                    </span>
                   </div>
                 </Show>
               )}
@@ -2405,7 +2480,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       onContextMenu={onContextMenu}
       onPaste={onPaste}
       onCopy={(e) => {
-        if (edit() || (e.target as HTMLElement).closest?.(".dgg-ve, .dgg-find, .dgg-side")) return;
+        if (edit() || (e.target as HTMLElement).closest?.(".dgg-ve, .dgg-find, .dgg-cs, .dgg-side")) return;
         e.preventDefault();
         const t = selectionText("tsv");
         if (t) e.clipboardData?.setData("text/plain", t);
@@ -2437,7 +2512,21 @@ export function DataGrid(props: DataGridProps): JSX.Element {
               onClose={closeFind}
             />
           </Show>
+          <Show when={csOpen() && !textMode()}>
+            <ColumnSearchBar
+              query={csQuery()}
+              shown={nCols()}
+              total={visBase().length}
+              focusRef={(f) => (focusCs = f)}
+              onQuery={onColumnSearchQuery}
+              onStep={stepColumnSearch}
+              onClose={closeColumnSearch}
+            />
+          </Show>
           <div class="dgg-view">
+            <Show when={csOpen() && !textMode() && csQuery().trim() && nCols() === 0}>
+              <div class="dgg-cs-empty">No columns match</div>
+            </Show>
             <Show when={!textMode()} fallback={<TextView columns={props.columns} rowCount={props.rowCount} getRow={props.getRow} version={props.version} />}>
               {tableView}
             </Show>

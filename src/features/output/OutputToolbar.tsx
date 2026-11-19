@@ -2,6 +2,7 @@
 import { Show, type JSX } from "solid-js";
 import { GridToolbar } from "../../components/grid";
 import type { ObjectRef } from "../../api/types";
+import { actionShortcut, getAction } from "../../state/actions";
 import { ActionButton, Icon, type MenuItem, ToolbarSeparator, openMenu, overflowToolbar } from "../../components/ui";
 import { openDdlTab, openTableTab } from "../table/commands";
 import { CLIPBOARD_EXTRACTORS, copyResult, exportResultData, extractorMenuItems, formatLabel } from "./export";
@@ -70,6 +71,9 @@ function ResultToolbar(props: { out: ConsoleOutput; tab: ResultTab }): JSX.Eleme
         onClearLocalFilter={() => api()?.clearLocalFilter()}
         onManageColumns={(anchor) => api()?.openManageColumns(anchor)}
         columnsHidden={(tab().view()?.hiddenColumns ?? 0) > 0}
+        onColumnSearch={() => api()?.toggleColumnSearch()}
+        columnSearchOpen={!!tab().view()?.columnSearchOpen}
+        columnSearchShortcut={actionShortcut(getAction("table.findColumn"))}
         onReload={() => host()?.rerun(tab())}
         onCancel={() => host()?.cancel()}
         extractor={formatLabel(tab().extractor())}

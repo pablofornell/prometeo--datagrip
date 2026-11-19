@@ -28,6 +28,7 @@ type Icon =
   | "export"
   | "openTab"
   | "columns"
+  | "colFilter"
   | "viewAs"
   | "gear"
   | "more"
@@ -125,6 +126,12 @@ export interface GridToolbarProps {
   onManageColumns?: (anchor: DOMRect) => void;
   /** Some columns are hidden: the button gets a blue dot. */
   columnsHidden?: boolean;
+  /** `Find Column`: toggles the quick column search bar (`api.toggleColumnSearch()`). The button is disabled without a handler. */
+  onColumnSearch?: () => void;
+  /** The column search bar is open (button shown pressed). */
+  columnSearchOpen?: boolean;
+  /** Shortcut of `Find Column` as the keymap has it (shown in the tooltip). */
+  columnSearchShortcut?: string;
   /** `View as > Transpose` check; the item is enabled when `onTransposeChange` is given. */
   transposed?: boolean;
   onTransposeChange?: (on: boolean) => void;
@@ -239,6 +246,7 @@ export function GridToolbar(props: GridToolbarProps): JSX.Element {
       <Sep />
       <Btn icon="export" title="Export Data" disabled={!props.onExport} onClick={(e) => props.onExport?.(e.currentTarget as HTMLElement)} />
       <Sep />
+      <Btn icon="colFilter" title="Find Column" shortcut={props.columnSearchShortcut} disabled={!props.onColumnSearch} selected={props.columnSearchOpen} onClick={() => props.onColumnSearch?.()} />
       <Btn
         icon="columns"
         title="Manage Columns"

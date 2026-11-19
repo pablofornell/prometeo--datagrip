@@ -124,6 +124,8 @@ export interface GridViewState {
   transposed: boolean;
   /** The Find bar (Ctrl+F) is open. */
   findOpen: boolean;
+  /** The quick column search bar (Find Column) is open. */
+  columnSearchOpen: boolean;
   /** The side panel (Record view) is open, with its active tab. */
   sidePanel: SideTab | null;
   /** Local filter: at least one column has an active value filter and filtering is enabled. */
@@ -177,6 +179,11 @@ export interface DataGridApi {
   findPrevious(): void;
   /** Ctrl+F12: the column list popup. `anchor` = rectangle of the toolbar button (otherwise centred over the grid). */
   openManageColumns(anchor?: DOMRect): void;
+  /** Find Column: opens the quick column search bar (narrows the grid to the columns whose name matches) and focuses it. */
+  openColumnSearch(): void;
+  /** Clears the search, restores every column (the selected column stays selected) and closes the bar. */
+  closeColumnSearch(): void;
+  toggleColumnSearch(): void;
   setLocalFilterEnabled(on: boolean): void;
   clearLocalFilter(): void;
   getViewState(): GridViewState;
