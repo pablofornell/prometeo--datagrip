@@ -223,7 +223,7 @@ function Demo() {
   const [orderBy, setOrderBy] = createSignal("");
   const [log, setLog] = createSignal<string>("");
   const [pageSize, setPageSize] = createSignal<number | "all">(500);
-  const [view, setView] = createSignal<GridViewState>({ transposed: false, findOpen: false, sidePanel: null, localFilterActive: false, localFilterEnabled: true, hiddenColumns: 0 });
+  const [view, setView] = createSignal<GridViewState>({ transposed: false, findOpen: false, columnSearchOpen: false, sidePanel: null, localFilterActive: false, localFilterEnabled: true, hiddenColumns: 0, pinnedColumns: 0 });
   const [preview, setPreview] = createSignal<string | null>(null);
   let api!: DataGridApi;
   const FK = q.get("fk") === "1";

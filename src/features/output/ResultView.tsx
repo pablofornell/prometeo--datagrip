@@ -42,6 +42,7 @@ export function ResultView(props: { tab: ResultTab; out: ConsoleOutput; selected
     });
   });
   const host = () => props.out.host;
+  const sqlTarget = createMemo(() => sqlTableRef(tab(), props.out.host));
   // status bar (while this grid has the focus): active cell `row:col` and the aggregate of the selection
   let lastSelection: SelectionInfo | undefined;
   const reportSelection = (info: SelectionInfo | undefined = lastSelection) => {
@@ -103,8 +104,9 @@ export function ResultView(props: { tab: ResultTab; out: ConsoleOutput; selected
         onCopy={(text) => void copyText(text)}
         onReload={() => props.out.host?.rerun(tab())}
         tableName={tab().meta.find((c) => c.tableRef)?.tableRef ?? undefined}
-        sqlTable={sqlTableRef(tab(), props.out.host)}
-        onSqlCopied={(kind, count) => notify({ kind: "info", ...sqlCopiedNotice(kind, count) })}
+        sqlTable={sqlTarget()?.table ?? null}
+        sqlKinds={sqlTarget()?.kinds}
+        onSqlCopied={(kind, count, skipped) => notify({ kind: "info", ...sqlCopiedNotice(kind, count, skipped) })}
         editable={!!tab().edit()}
         onSubmit={(changes) => host()?.applyEdits(tab(), toTabRows(changes)) ?? false}
         onChangesChange={tab().setPending}

@@ -159,7 +159,21 @@ export function literal(v: Cell, typeName: string, driver?: Driver): string {
     if (driver === "mysql" || driver === "sqlite") return `X'${hex}'`;
     return `'\\x${hex}'`;
   }
+  // PG arrays arrive as JSON arrays: written back as an array literal ('{1,2}'), like dbcore does
+  if (Array.isArray(v) && driver === "postgres") return quoteString(driver, pgArrayLiteral(v));
   return quoteString(driver, JSON.stringify(v));
+}
+
+/** One element (or nested array) of a PG array literal `{..}` (the same text as dbcore's `pg_array_element`). */
+function pgArrayLiteral(v: Cell): string {
+  const quote = (s: string) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (v === null || v === undefined) return "NULL";
+  if (Array.isArray(v)) return `{${v.map(pgArrayLiteral).join(",")}}`;
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return String(v);
+  if (typeof v === "string") return quote(v);
+  if (isBinaryCell(v)) return quote(`\\x${v.$bin}`);
+  return quote(JSON.stringify(v));
 }
 
 export type FilterOp = "=" | "<>" | "<" | ">" | "<=" | ">=" | "like" | "not like" | "is null" | "is not null";
@@ -298,39 +312,100 @@ export interface RowSqlColumn {
   default?: string | null;
 }
 
+/** A grid row for `Generate SQL`: the values as shown (pending edits applied) and the stored ones (null: not loaded / not saved). */
+export interface RowSqlRow {
+  /** What INSERT writes and UPDATE sets. */
+  values: Cell[];
+  /** What the WHERE of SELECT / UPDATE / DELETE compares against: the row as the server stores it, never a pending edit. */
+  original: Cell[] | null;
+}
+
+/** A binary value the grid only holds the start of: writing it would store / compare a cut-off value. */
+const isTruncatedBinary = (v: Cell): boolean => isBinaryCell(v) && (v.truncated === true || (v.len !== undefined && v.len * 2 > v.$bin.length));
+/** Types a `col = value` comparison is unreliable or impossible for (LOBs, JSON, floating point, arrays, XML, geometry). */
+const NOT_COMPARABLE = /lob|json|float|double|\breal\b|array|\[\]|^_|xml|^long\b|geom|geog/i;
+/** A value usable as a WHERE term (never `DEFAULT` / an expression, a cut-off binary, an array or an object). */
+const isPlainValue = (v: Cell): boolean => !isTruncatedBinary(v) && !Array.isArray(v) && (typeof v !== "object" || v === null || isBinaryCell(v));
+const NO_KEY = "-- No primary key: this statement can match more than one row";
+
 /**
- * One `SELECT` / `INSERT` / `UPDATE` / `DELETE` per row (`rows[i][j]` is the value of `columns[j]`), written like the
- * preview of the pending changes (`changeStatements`: same quoting, literals and layout). The WHERE of SELECT / UPDATE /
- * DELETE is the key; a table without one uses every column (`col is null` for the NULLs). Read-only columns (aliases,
- * generated) are left out; an UPDATE of a table with nothing but key columns sets them all.
+ * One `SELECT` / `INSERT` / `UPDATE` / `DELETE` per row, written like the preview of the pending changes
+ * (`changeStatements`: same quoting, literals and layout). The WHERE of SELECT / UPDATE / DELETE is the key, always taken
+ * from the stored row (`original`), so it names the row the user picked even when it has pending edits; UPDATE sets the
+ * non-key columns to the shown values. When the key is missing (none, not in the result, a NULL / cut-off part) the
+ * WHERE uses every comparable column (not LOBs, JSON, floating point, arrays, cut-off binaries) and a comment above the
+ * statement says it can match more than one row; with nothing comparable the statement is replaced by a comment.
+ * Read-only columns (aliases, generated) are left out; an UPDATE of a table with nothing but key columns sets them all.
+ * A binary value cut off by the grid is never written (a `-- col: binary value too large, left out` comment says so).
+ * Rows without an `original` (not loaded, or new and unsaved) have no statement except INSERT; `skipped` counts them.
  */
-export function rowStatements(driver: Driver, ref: ObjectRef, kind: RowSqlKind, columns: RowSqlColumn[], rows: Cell[][]): string[] {
+export function generateRowSql(driver: Driver, ref: ObjectRef, kind: RowSqlKind, columns: RowSqlColumn[], rows: (Cell[] | RowSqlRow)[]): { statements: string[]; skipped: number } {
   const used = columns.map((_, j) => j).filter((j) => !columns[j].readOnly || columns[j].isPk);
-  const keyed = used.filter((j) => columns[j].isPk);
-  const key = keyed.length ? keyed : used;
-  const nonKey = used.filter((j) => !key.includes(j));
-  const sets = nonKey.length ? nonKey : used;
+  const keyCols = used.filter((j) => columns[j].isPk);
   const pick = (row: Cell[], js: number[]): Record<string, Cell> => {
     const o: Record<string, Cell> = {};
     for (const j of js) o[columns[j].name] = row[j] ?? null;
     return o;
   };
-  const out: string[] = [];
-  for (const row of rows) {
-    const change: GridChange =
-      kind === "insert"
-        ? { kind: "insert", row: NEW_ROW, key: {}, values: pick(row, used) }
-        : kind === "update"
-          ? { kind: "update", row: 0, key: pick(row, key), values: pick(row, sets) }
-          : { kind: "delete", row: 0, key: pick(row, key), values: {} };
-    const [text] = changeStatements(driver, ref, columns, [change]);
-    // a SELECT is the DELETE of the same row with another verb
-    out.push(kind === "select" ? text.replace(/^DELETE\n/, "SELECT *\n") : text);
+  const statements: string[] = [];
+  let skipped = 0;
+  for (const r of rows) {
+    const { values, original } = Array.isArray(r) ? { values: r, original: r } : r;
+    if (kind !== "insert" && !original) {
+      skipped++;
+      continue;
+    }
+    const notes: string[] = [];
+    const left = new Set<string>();
+    // a cut-off binary is left out of what is written (`values`) and of what is compared (`original`)
+    const writable = (js: number[]) => js.filter((j) => (isTruncatedBinary(values[j]) ? (left.add(columns[j].name), false) : true));
+    let text: string | null;
+    if (kind === "insert") {
+      const cols = writable(used);
+      text = cols.length === 0 && used.length > 0 ? null : changeStatements(driver, ref, columns, [{ kind: "insert", row: NEW_ROW, key: {}, values: pick(values, cols) }])[0];
+      if (text === null) notes.push("-- Nothing to insert");
+    } else {
+      const orig = original!;
+      const keyed = keyCols.length > 0 && keyCols.every((j) => orig[j] !== null && orig[j] !== undefined && isPlainValue(orig[j]));
+      const whereCols = keyed
+        ? keyCols
+        : used.filter((j) => !NOT_COMPARABLE.test(columns[j].typeName) && isPlainValue(orig[j]));
+      if (!keyed) {
+        // the truncated binaries of the stored row are reported too: they would have been compared
+        for (const j of used) if (isTruncatedBinary(orig[j])) left.add(columns[j].name);
+        notes.push(NO_KEY);
+      }
+      if (whereCols.length === 0) {
+        notes.push("-- No comparable column: statement not generated");
+        text = null;
+      } else if (kind === "update") {
+        const rest = keyed ? used.filter((j) => !keyCols.includes(j)) : used;
+        const sets = writable(rest.length ? rest : used);
+        text = sets.length === 0 ? null : changeStatements(driver, ref, columns, [{ kind: "update", row: 0, key: pick(orig, whereCols), values: pick(values, sets) }])[0];
+        if (text === null) notes.push("-- Nothing to update");
+      } else {
+        const [del] = changeStatements(driver, ref, columns, [{ kind: "delete", row: 0, key: pick(orig, whereCols), values: {} }]);
+        // a SELECT is the DELETE of the same row with another verb
+        text = kind === "select" ? del.replace(/^DELETE\n/, "SELECT *\n") : del;
+      }
+    }
+    const head = [...notes.filter((n) => n === NO_KEY), ...[...left].map((n) => `-- ${n}: binary value too large, left out`), ...notes.filter((n) => n !== NO_KEY)];
+    statements.push([...head, ...(text === null ? [] : [text])].join("\n"));
   }
-  return out;
+  return { statements, skipped };
+}
+
+/** `generateRowSql` for rows whose shown and stored values are the same (`rows[i][j]` is the value of `columns[j]`). */
+export function rowStatements(driver: Driver, ref: ObjectRef, kind: RowSqlKind, columns: RowSqlColumn[], rows: Cell[][]): string[] {
+  return generateRowSql(driver, ref, kind, columns, rows).statements;
 }
 
 /** Notification text after `Generate SQL` copied `count` statements. */
-export function sqlCopiedNotice(kind: RowSqlKind, count: number): { title: string; body: string } {
-  return { title: `Copied ${count} ${count === 1 ? "statement" : "statements"}`, body: `${kind.toUpperCase()} to the clipboard` };
+export function sqlCopiedNotice(kind: RowSqlKind, count: number, skipped = 0): { title: string; body: string } {
+  const miss = skipped > 0 ? `${skipped} ${skipped === 1 ? "row" : "rows"} not loaded ${skipped === 1 ? "was" : "were"} skipped` : "";
+  if (count === 0) return { title: "Nothing copied", body: miss || `No ${kind.toUpperCase()} statement for the selection` };
+  return {
+    title: `Copied ${count} ${count === 1 ? "statement" : "statements"}`,
+    body: miss ? `${kind.toUpperCase()} to the clipboard; ${miss}` : `${kind.toUpperCase()} to the clipboard`,
+  };
 }

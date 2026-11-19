@@ -23,7 +23,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { ObjectRef } from "../../api/types";
-import { rowStatements, type RowSqlKind } from "../../features/table/sql";
+import { generateRowSql, type RowSqlKind, type RowSqlRow } from "../../features/table/sql";
 import { settings } from "../../state/settings";
 import { computeAggregates, formatStat, type Aggregates } from "./aggregates";
 import { COPY_FORMAT_LABELS, formatRows, type CopyColumn } from "./copy";
@@ -157,11 +157,13 @@ export interface DataGridProps {
   onExportToClipboard?: () => void;
   /**
    * Table the rows come from, for `Generate SQL` of the row menu: `null` = not one known table (the entries are disabled),
-   * omitted = no `Generate SQL` entry. Statements follow `dialect`; the key is the `isPk` columns, else every column.
+   * omitted = no `Generate SQL` entry. Statements follow `dialect`; the key is the `isPk` columns, else every comparable column.
    */
   sqlTable?: ObjectRef | null;
-  /** Called after `Generate SQL` copied `count` statements of `kind` to the clipboard (the host shows the notification). */
-  onSqlCopied?: (kind: RowSqlKind, count: number) => void;
+  /** The statements `Generate SQL` offers (default: all four); the others are disabled with a hint. */
+  sqlKinds?: RowSqlKind[];
+  /** Called after `Generate SQL` copied `count` statements of `kind` to the clipboard, leaving `skipped` rows out (the host shows the notification). */
+  onSqlCopied?: (kind: RowSqlKind, count: number, skipped: number) => void;
   /** SQL dialect, for the expressions offered by `Set SQL Expression` and the quoting of SQL INSERT copies. */
   dialect?: "postgres" | "mysql" | "sqlite" | "oracle";
   /** Extra scroll room below the last row (the floating paging pill). */
@@ -1623,22 +1625,36 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     }));
   }
 
-  /** `Generate SQL`: one statement per row the selection touches (all columns, hidden ones too), to the clipboard. */
+  /**
+   * `Generate SQL`: one statement per row the selection touches (all columns, hidden ones too), to the clipboard. The WHERE
+   * comes from the stored row (`getRow`), the INSERT values / UPDATE SET from the shown one (pending edits applied); rows
+   * not loaded (or new and unsaved) have no stored row and are skipped.
+   */
   function generateSql(kind: RowSqlKind) {
     const ref = props.sqlTable;
     const rs = ranges();
     if (!ref || !rs.length) return;
     const rowSet = new Set<number>();
     for (const g of rs) for (let r = g.r0; r <= Math.min(g.r1, total() - 1); r++) rowSet.add(r);
-    const rows = [...rowSet].sort((a, b) => a - b).map((r) => props.columns.map((_, ci) => cellValue(r, ci)));
+    const rows: RowSqlRow[] = [...rowSet]
+      .sort((a, b) => a - b)
+      .map((r) => ({
+        values: props.columns.map((_, ci) => cellValue(r, ci)),
+        original: r < pending.insertedCount ? null : (props.getRow(srcOf(r)) ?? null),
+      }));
     if (!rows.length) return;
-    writeClipboard(rowStatements(props.dialect ?? "postgres", ref, kind, props.columns, rows).join("\n\n"), "sql");
-    props.onSqlCopied?.(kind, rows.length);
+    const { statements, skipped } = generateRowSql(props.dialect ?? "postgres", ref, kind, props.columns, rows);
+    if (statements.length) writeClipboard(statements.join("\n\n"), "sql");
+    props.onSqlCopied?.(kind, statements.length, skipped);
   }
   function generateSqlItem(has: boolean): MenuItem | null {
     if (props.sqlTable === undefined) return null;
     if (!props.sqlTable) return { label: "Generate SQL", disabled: true, title: "The rows do not come from one known table" };
-    const item = (kind: RowSqlKind, label: string): MenuItem => ({ label, onSelect: () => generateSql(kind) });
+    const kinds = props.sqlKinds ?? ["select", "insert", "update", "delete"];
+    const item = (kind: RowSqlKind, label: string): MenuItem =>
+      kinds.includes(kind)
+        ? { label, onSelect: () => generateSql(kind) }
+        : { label, disabled: true, title: "Needs the table's key: run a select of the table that includes its primary key, or open the table" };
     return {
       label: "Generate SQL",
       disabled: !has,
@@ -2092,11 +2108,22 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     const ci = activeCi();
     const g = ranges();
     const whole = total() > 0 && g.length === 1 && g[0].c0 === g[0].c1 && g[0].r0 === 0 && g[0].r1 >= total() - 1;
+    // gutter selections (whole rows: every shown column): they stay whole rows across the new width
+    const wholeRows = !whole && nCols() > 0 && g.length > 0 && g.every((x) => x.c0 === 0 && x.c1 >= nCols() - 1);
     batch(() => {
       change();
       setSelection([], null);
     });
     const p = ci === null ? undefined : visPos().get(ci);
+    if (wholeRows && a && nCols() > 0) {
+      const c = Math.min(p ?? 0, nCols() - 1);
+      setSelection(
+        g.map((x) => ({ ...x, c0: 0, c1: nCols() - 1 })),
+        { r: a.r, c },
+      );
+      ensureVisible(csScrollRow(), c);
+      return;
+    }
     if (!a || p === undefined) return;
     if (!whole) selectCell(a.r, p);
     else {

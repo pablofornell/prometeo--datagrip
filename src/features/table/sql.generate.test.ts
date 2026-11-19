@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { ObjectRef } from "../../api/types";
 import type { Cell } from "../../components/grid/types";
-import { type RowSqlColumn, rowStatements, sqlCopiedNotice } from "./sql";
+import { generateRowSql, type RowSqlColumn, rowStatements, sqlCopiedNotice } from "./sql";
 
 const ref = (name: string, schema: string | null = "shop"): ObjectRef => ({ schema, name, kind: "table" });
 const cols: RowSqlColumn[] = [
@@ -118,13 +118,13 @@ describe("rowStatements, table with a primary key", () => {
 describe("rowStatements, table without a primary key", () => {
   it("every column is the key; NULLs use IS NULL", () => {
     const r: Cell[] = [7, null, "2020-01-31"];
-    expect(rowStatements("postgres", ref("t"), "select", noKey, [r])).toEqual([`SELECT *\nFROM shop.t\nWHERE id = 7 AND name is null AND born = '2020-01-31';`]);
-    expect(rowStatements("postgres", ref("t"), "delete", noKey, [r])).toEqual([`DELETE\nFROM shop.t\nWHERE id = 7 AND name is null AND born = '2020-01-31';`]);
+    expect(rowStatements("postgres", ref("t"), "select", noKey, [r])).toEqual([`-- No primary key: this statement can match more than one row\nSELECT *\nFROM shop.t\nWHERE id = 7 AND name is null AND born = '2020-01-31';`]);
+    expect(rowStatements("postgres", ref("t"), "delete", noKey, [r])).toEqual([`-- No primary key: this statement can match more than one row\nDELETE\nFROM shop.t\nWHERE id = 7 AND name is null AND born = '2020-01-31';`]);
   });
 
   it("UPDATE sets all the columns", () => {
     expect(rowStatements("mysql", ref("t", "demo"), "update", noKey, [[7, null, "2020-01-31"]])[0]).toBe(
-      `UPDATE demo.t\nSET id = 7,\n    name = null,\n    born = '2020-01-31'\nWHERE id = 7 AND name is null AND born = '2020-01-31';`,
+      `-- No primary key: this statement can match more than one row\nUPDATE demo.t\nSET id = 7,\n    name = null,\n    born = '2020-01-31'\nWHERE id = 7 AND name is null AND born = '2020-01-31';`,
     );
   });
 
@@ -133,7 +133,7 @@ describe("rowStatements, table without a primary key", () => {
       { name: "ID", typeName: "NUMBER" },
       { name: "NAME", typeName: "VARCHAR2(10)" },
     ];
-    expect(rowStatements("oracle", ref("T", "APP"), "delete", c, [[1, ""]])[0]).toBe(`DELETE\nFROM APP.T\nWHERE ID = 1 AND NAME is null;`);
+    expect(rowStatements("oracle", ref("T", "APP"), "delete", c, [[1, ""]])[0]).toBe(`-- No primary key: this statement can match more than one row\nDELETE\nFROM APP.T\nWHERE ID = 1 AND NAME is null;`);
   });
 
   it("INSERT lists all the columns", () => {
@@ -141,9 +141,123 @@ describe("rowStatements, table without a primary key", () => {
   });
 });
 
+describe("generateRowSql, exact rows", () => {
+  it("the WHERE comes from the stored row, SET from the shown one (a pending edit of the key and of a column)", () => {
+    const original: Cell[] = [7, "old", "2020-01-31"];
+    const values: Cell[] = [8, "new", "2020-01-31"];
+    const { statements } = generateRowSql("postgres", ref("t"), "update", cols, [{ values, original }]);
+    expect(statements).toEqual([`UPDATE shop.t\nSET name = 'new',\n    born = '2020-01-31'\nWHERE id = 7;`]);
+    expect(generateRowSql("postgres", ref("t"), "delete", cols, [{ values, original }]).statements).toEqual([`DELETE\nFROM shop.t\nWHERE id = 7;`]);
+    expect(generateRowSql("postgres", ref("t"), "select", cols, [{ values, original }]).statements[0]).toContain("WHERE id = 7;");
+  });
+  it("INSERT writes the shown values", () => {
+    const { statements } = generateRowSql("postgres", ref("t"), "insert", cols, [{ values: [8, "new", null], original: [7, "old", null] }]);
+    expect(statements).toEqual([`INSERT INTO shop.t (id, name, born)\nVALUES (8, 'new', null);`]);
+  });
+  it("a pending DEFAULT is never a WHERE term (no-key table: that column is left out of the comparison)", () => {
+    const { statements } = generateRowSql("postgres", ref("t"), "delete", noKey, [{ values: [{ $default: true }, "x", null], original: [7, "x", null] }]);
+    expect(statements[0]).not.toContain("DEFAULT");
+    expect(statements[0]).toContain("WHERE id = 7 AND name = 'x' AND born is null;");
+  });
+  it("rows that are not loaded are skipped and counted (INSERT does not need the stored row)", () => {
+    const rows = [{ values: row, original: row }, { values: [null, null, null], original: null }];
+    const r = generateRowSql("postgres", ref("t"), "delete", cols, rows);
+    expect(r.statements).toEqual([`DELETE\nFROM shop.t\nWHERE id = 7;`]);
+    expect(r.skipped).toBe(1);
+    expect(generateRowSql("postgres", ref("t"), "insert", cols, rows)).toMatchObject({ skipped: 0 });
+    expect(generateRowSql("postgres", ref("t"), "select", cols, [rows[1]])).toEqual({ statements: [], skipped: 1 });
+  });
+});
+
+describe("generateRowSql, truncated binaries", () => {
+  const c: RowSqlColumn[] = [
+    { name: "id", typeName: "int4", isPk: true },
+    { name: "img", typeName: "bytea" },
+    { name: "n", typeName: "text" },
+  ];
+  const big = { $bin: "abcd", len: 1000, truncated: true };
+  const note = "-- img: binary value too large, left out";
+  it("INSERT leaves the column out and says so", () => {
+    expect(rowStatements("postgres", ref("t"), "insert", c, [[1, big, "a"]])).toEqual([`${note}\nINSERT INTO shop.t (id, n)\nVALUES (1, 'a');`]);
+  });
+  it("UPDATE does not set it (it would overwrite the stored value with a cut-off one)", () => {
+    expect(rowStatements("postgres", ref("t"), "update", c, [[1, big, "a"]])).toEqual([`${note}\nUPDATE shop.t\nSET n = 'a'\nWHERE id = 1;`]);
+  });
+  it("a cut-off size alone (len bigger than the bytes held) counts as truncated", () => {
+    expect(rowStatements("postgres", ref("t"), "insert", c, [[1, { $bin: "ab", len: 10 }, "a"]])[0]).toContain("INSERT INTO shop.t (id, n)");
+  });
+  it("a whole binary is written", () => {
+    expect(rowStatements("postgres", ref("t"), "insert", c, [[1, { $bin: "ab", len: 1 }, "a"]])[0]).toContain(`'\\xab'`);
+  });
+  it("a truncated key falls back to the comparable columns, never the cut-off value", () => {
+    const k: RowSqlColumn[] = [{ name: "k", typeName: "bytea", isPk: true }, { name: "n", typeName: "text" }];
+    expect(rowStatements("postgres", ref("t"), "delete", k, [[big, "a"]])).toEqual([
+      "-- No primary key: this statement can match more than one row\n-- k: binary value too large, left out\nDELETE\nFROM shop.t\nWHERE n = 'a';",
+    ]);
+  });
+  it("only a cut-off column to write: nothing is generated", () => {
+    expect(rowStatements("postgres", ref("t"), "insert", [{ name: "img", typeName: "bytea" }], [[big]])).toEqual([`${note}\n-- Nothing to insert`]);
+  });
+});
+
+describe("generateRowSql, no usable key", () => {
+  const nk: RowSqlColumn[] = [
+    { name: "id", typeName: "int4" },
+    { name: "note", typeName: "text" },
+    { name: "doc", typeName: "jsonb" },
+    { name: "price", typeName: "float8" },
+    { name: "body", typeName: "clob" },
+    { name: "tags", typeName: "text[]" },
+    { name: "ratio", typeName: "real" },
+  ];
+  const r: Cell[] = [1, "a", { k: 1 }, 1.5, "big", ["x"], 0.5];
+  const warn = "-- No primary key: this statement can match more than one row";
+  it("compares the comparable columns only and warns above the statement", () => {
+    for (const kind of ["select", "update", "delete"] as const) {
+      const [text] = rowStatements("postgres", ref("t"), kind, nk, [r]);
+      expect(text.startsWith(warn + "\n")).toBe(true);
+      expect(text).toMatch(/WHERE id = 1 AND note = 'a';$/);
+    }
+  });
+  it("a key column that is NULL in the row is no key (compared by value, NULL included)", () => {
+    const k: RowSqlColumn[] = [{ name: "id", typeName: "int4", isPk: true }, { name: "n", typeName: "text" }];
+    expect(rowStatements("postgres", ref("t"), "delete", k, [[null, "a"]])[0]).toBe(`${warn}\nDELETE\nFROM shop.t\nWHERE id is null AND n = 'a';`);
+  });
+  it("nothing comparable: a comment instead of a statement that would match everything", () => {
+    const only: RowSqlColumn[] = [{ name: "doc", typeName: "jsonb" }];
+    expect(rowStatements("postgres", ref("t"), "delete", only, [[{ a: 1 }]])).toEqual([`${warn}\n-- No comparable column: statement not generated`]);
+  });
+  it("a keyed row has no warning", () => {
+    expect(rowStatements("postgres", ref("t"), "delete", cols, [row])[0]).not.toContain("--");
+  });
+});
+
+describe("Oracle names and PostgreSQL arrays", () => {
+  it("a mixed case table keeps its case (quoted), an upper case one is bare", () => {
+    const c: RowSqlColumn[] = [{ name: "ID", typeName: "NUMBER", isPk: true }];
+    expect(rowStatements("oracle", ref("Emp", "App"), "delete", c, [[1]])[0]).toBe(`DELETE\nFROM "App"."Emp"\nWHERE ID = 1;`);
+    expect(rowStatements("oracle", ref("EMP", "APP"), "delete", c, [[1]])[0]).toBe(`DELETE\nFROM APP.EMP\nWHERE ID = 1;`);
+  });
+  it("array cells are array literals, not JSON", () => {
+    const c: RowSqlColumn[] = [{ name: "id", typeName: "int4", isPk: true }, { name: "a", typeName: "int4[]" }, { name: "s", typeName: "text[]" }];
+    expect(rowStatements("postgres", ref("t"), "insert", c, [[1, [1, 2], ["a b", 'q"x', null, "NULL"]]])[0]).toBe(
+      `INSERT INTO shop.t (id, a, s)\nVALUES (1, '{1,2}', E'{"a b","q\\\\"x",NULL,"NULL"}');`,
+    );
+    expect(rowStatements("postgres", ref("t"), "insert", c, [[1, [[1], [2]], []]])[0]).toContain(`'{{1},{2}}', '{}'`);
+  });
+  it("other dialects keep JSON text", () => {
+    const c: RowSqlColumn[] = [{ name: "id", typeName: "int", isPk: true }, { name: "a", typeName: "json" }];
+    expect(rowStatements("mysql", ref("t", "demo"), "insert", c, [[1, [1, 2]]])[0]).toContain(`'[1,2]'`);
+  });
+});
+
 describe("sqlCopiedNotice", () => {
   it("counts the statements", () => {
     expect(sqlCopiedNotice("insert", 1)).toEqual({ title: "Copied 1 statement", body: "INSERT to the clipboard" });
     expect(sqlCopiedNotice("delete", 3).title).toBe("Copied 3 statements");
+  });
+  it("says how many rows were skipped", () => {
+    expect(sqlCopiedNotice("update", 4, 2)).toEqual({ title: "Copied 4 statements", body: "UPDATE to the clipboard; 2 rows not loaded were skipped" });
+    expect(sqlCopiedNotice("update", 0, 1)).toEqual({ title: "Nothing copied", body: "1 row not loaded was skipped" });
   });
 });
