@@ -28,6 +28,7 @@ import {
   type SortSpec,
 } from "../../components/grid";
 import { notify, openMenu } from "../../components/ui";
+import { actionShortcut, getAction } from "../../state/actions";
 import { settings } from "../../state/settings";
 import { setGridSelection, setStatus } from "../../state/status";
 import { type EditorTab, activateTab, updateTab } from "../../state/tabs";
@@ -661,6 +662,9 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
         onClearLocalFilter={() => api?.clearLocalFilter()}
         onManageColumns={(anchor) => api?.openManageColumns(anchor)}
         columnsHidden={(view()?.hiddenColumns ?? 0) > 0}
+        onColumnSearch={() => api?.toggleColumnSearch()}
+        columnSearchOpen={!!view()?.columnSearchOpen}
+        columnSearchShortcut={actionShortcut(getAction("table.findColumn"))}
       />
       <Show when={ds() && cols()}>
         <FilterBar

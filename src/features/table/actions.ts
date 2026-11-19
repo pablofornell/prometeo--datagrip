@@ -2,6 +2,7 @@
 import type { ObjectRef } from "../../api/types";
 import { notify } from "../../components/ui";
 import { EditorView } from "@codemirror/view";
+import { focusedGridApi } from "../../components/grid/gridRegistry";
 import { type Action } from "../../state/actions";
 import { exportCurrentResult } from "../output";
 import { openTableExport } from "./exportData";
@@ -121,6 +122,16 @@ export function tableActions(): Action[] {
         if (c) return c.exportData();
         if (!exportCurrentResult()) notify({ kind: "info", title: "Nothing to export", body: "Open a table or select a result first." });
       },
+    },
+    {
+      // Find Column: opens the quick column search of the grid that has the focus (table editor or query result);
+      // clicking the toolbar button goes straight to the grid, so this action is the keyboard route only
+      id: "table.findColumn",
+      title: "Find Column",
+      shortcut: "Ctrl+Alt+F",
+      icon: "column-filter",
+      enabled: () => !!focusedGridApi(),
+      run: () => focusedGridApi()?.openColumnSearch(),
     },
     {
       // Console.TableResult.EditFilterCriteria: the WHERE field of the active table editor takes the focus, text selected

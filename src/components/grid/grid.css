@@ -28,6 +28,7 @@
   --dgg-i-export: url("../../assets/icons/download.svg");
   --dgg-i-openTab: url("../../assets/icons/open-new-tab.svg");
   --dgg-i-columns: url("../../assets/icons/layout.svg");
+  --dgg-i-colFilter: url("../../assets/icons/column-filter.svg");
   --dgg-i-viewAs: url("../../assets/icons/show.svg");
   --dgg-i-gear: url("../../assets/icons/settings.svg");
   --dgg-i-more: url("../../assets/icons/more-vertical.svg");
@@ -60,6 +61,7 @@
   --dgg-i-export: url("../../assets/icons/download_dark.svg");
   --dgg-i-openTab: url("../../assets/icons/open-new-tab_dark.svg");
   --dgg-i-columns: url("../../assets/icons/layout_dark.svg");
+  --dgg-i-colFilter: url("../../assets/icons/column-filter_dark.svg");
   --dgg-i-viewAs: url("../../assets/icons/show_dark.svg");
   --dgg-i-gear: url("../../assets/icons/settings_dark.svg");
   --dgg-i-more: url("../../assets/icons/more-vertical_dark.svg");
@@ -93,6 +95,7 @@
 .dgg-i.i-export { background-image: var(--dgg-i-export); }
 .dgg-i.i-openTab { background-image: var(--dgg-i-openTab); }
 .dgg-i.i-columns { background-image: var(--dgg-i-columns); }
+.dgg-i.i-colFilter { background-image: var(--dgg-i-colFilter); }
 .dgg-i.i-viewAs { background-image: var(--dgg-i-viewAs); }
 .dgg-i.i-gear { background-image: var(--dgg-i-gear); }
 .dgg-i.i-more { background-image: var(--dgg-i-more); }
@@ -780,6 +783,61 @@
 }
 :root[data-theme="dark"] .dgg-find-close { background-image: url("../../assets/icons/close_dark.svg"); }
 .dgg-find-close:hover { background-color: var(--dg-action-button-hover-bg, #ffffff17); }
+
+/* ---- quick column search bar (Find Column; 32px + 1px border, a row of its own above the grid) ---- */
+.dgg-cs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 33px;
+  box-sizing: border-box;
+  padding: 0 0 1px 10px;
+  background: var(--g-find-bg);
+  border-bottom: 1px solid var(--g-side-border);
+  font: 12px / 16px var(--dg-font-ui, "Inter", sans-serif);
+  color: var(--dg-text, #d1d3d9);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dgg-cs-ico { margin-right: 6px; }
+.dgg-cs-field { position: relative; flex: none; width: 260px; display: flex; align-items: center; }
+.dgg-cs-input {
+  width: 100%;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 24px 0 8px;
+  border: 1px solid var(--dg-border, #43454a);
+  border-radius: 4px;
+  background: var(--dg-input-bg, #191a1c);
+  color: var(--dg-text, #d1d3d9);
+  font: 13px / 16px var(--dg-font-ui, "Inter", sans-serif);
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.dgg-cs-input::placeholder { color: var(--dg-input-placeholder, #73767c); }
+.dgg-cs-input:focus { border-color: var(--dg-focus-ring, #3871e1); box-shadow: inset 0 0 0 1px var(--dg-focus-ring, #3871e1); }
+.dgg-cs-input.err { color: var(--dg-text-error, #f57e84); }
+.dgg-cs-clear {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: var(--dgg-i-clear, url("../../assets/icons/close-small.svg")) center / 16px 16px no-repeat;
+  cursor: default;
+}
+:root[data-theme="dark"] .dgg-cs-clear { background-image: url("../../assets/icons/close-small_dark.svg"); }
+/* "No columns match" under the header of the grid left without columns */
+.dgg-cs-empty { position: absolute; left: 0; right: 0; top: 64px; text-align: center; pointer-events: none; color: var(--dg-text-secondary, #9498a0); font: 13px / 18px var(--dg-font-ui, "Inter", sans-serif); }
+/* fixed width: the hint ("3 of 30 columns" / "No columns match") does not move the buttons next to it */
+.dgg-cs-hint { flex: none; min-width: 124px; margin: 0 4px 0 10px; color: var(--dg-text-secondary, #9498a0); white-space: nowrap; }
+.dgg-cs-hint.err { color: var(--dg-text-error, #f57e84); }
+.dgg-cs .dgg-fbtn:first-of-type { margin-left: 0; }
+.dgg-cs .dgg-fbtn:disabled { opacity: 0.4; pointer-events: none; }
+.dgg-cs .dgg-find-close { margin-right: 8px; }
 
 /* ---- side panel (record view) ---- */
 .dgg-side {
