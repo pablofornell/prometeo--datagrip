@@ -862,6 +862,85 @@ mark.dg-search-match {
   }
 }
 
+/* <Loading>: spinner + phase lines. Laid out from the start, invisible until the delay passed (no jump when it shows). */
+.dg-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 16px;
+  color: var(--dg-text-secondary);
+  font: var(--dg-font-size-medium, 13px) / 20px var(--dg-font-ui, "Inter", sans-serif);
+  pointer-events: none;
+  visibility: hidden;
+}
+.dg-loading.dg-loading-on {
+  visibility: visible;
+}
+.dg-loading-compact {
+  position: static;
+  inset: auto;
+  display: inline-flex;
+  justify-content: flex-start;
+  padding: 0;
+}
+.dg-loading-lines {
+  width: 340px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dg-loading-compact .dg-loading-lines {
+  width: auto;
+}
+.dg-loading-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  white-space: nowrap;
+}
+.dg-loading-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+}
+.dg-loading-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dg-loading-running {
+  color: var(--dg-text);
+}
+.dg-loading-done .dg-loading-mark {
+  color: var(--dg-success-fg);
+}
+.dg-loading-failed,
+.dg-loading-failed .dg-loading-mark {
+  color: var(--dg-text-error);
+}
+.dg-loading-ms {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .dg-loading {
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .dg-loading.dg-loading-on {
+    opacity: 1;
+  }
+}
+
 /* main menu bar dropdowns (Swing-style: tighter insets, full-bleed separators) */
 .dg-menu-bar-menu {
   padding-top: 4px;

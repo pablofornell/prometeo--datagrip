@@ -40,6 +40,14 @@
   color: var(--dg-text);
   font: 13px / 18px var(--dg-font-ui, "Inter", sans-serif);
 }
+/* the phase lines of reading / comparing / generating sit on a card over the view (nothing under them moves) */
+.sd-loading .dg-loading-lines {
+  box-sizing: border-box;
+  padding: 10px 14px;
+  background: var(--dg-panel-bg);
+  border: 1px solid var(--dg-border);
+  border-radius: 8px;
+}
 .sd-toolbar {
   display: flex;
   align-items: center;

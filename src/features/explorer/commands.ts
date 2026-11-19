@@ -58,15 +58,17 @@ export async function openTable(d: NodeData | undefined): Promise<void> {
   if (d && ref) await openTableRef(d.dsId, ref);
 }
 
-/** Opens the data editor tab of a table / view given by reference (explorer nodes and names in the SQL editor). */
+/** Id of the data editor tab of a table / view (the explorer marks the node of a tab that is still opening). */
+export const tableTabIdOf = (dsId: string, ref: ObjectRef): string => `table:${dsId}:${ref.schema ?? ""}.${ref.name}`;
+
+/**
+ * Opens the data editor tab of a table / view given by reference (explorer nodes and names in the SQL editor). The tab
+ * opens at once and does the connecting itself: it shows the phases (connecting, reading the columns and the first
+ * rows) and a failure in place, and the node of the table spins until the first rows are there.
+ */
 export async function openTableRef(dsId: string, ref: ObjectRef): Promise<void> {
-  try {
-    await ensureConnected(dsId);
-  } catch (e) {
-    return failDs(dsId, `Connection to ${dsName(dsId)} failed`, e);
-  }
   openTab({
-    id: `table:${dsId}:${ref.schema ?? ""}.${ref.name}`,
+    id: tableTabIdOf(dsId, ref),
     kind: "table",
     title: `${ref.name} [${dsName(dsId)}]`,
     icon: tabIconOf(ref.kind),

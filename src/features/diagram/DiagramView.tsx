@@ -21,16 +21,17 @@
  */
 import { For, Show, batch, createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ObjectRef } from "../../api/types";
-import { ActionButton, ToolbarSeparator, type MenuItem, notify, openMenu } from "../../components/ui";
+import { ActionButton, Loading, ToolbarSeparator, type MenuItem, notify, openMenu } from "../../components/ui";
 import { startTask } from "../../state/status";
 import { theme } from "../../state/theme";
 import type { EditorTab } from "../../state/tabs";
-import { loadSchemaSnapshot, schemaSnapshotErrorFor, schemaSnapshotFor } from "../explorer";
+import { connectedDataSourceIds, explorerDataSources, loadSchemaSnapshot, schemaSnapshotErrorFor, schemaSnapshotFor } from "../explorer";
 import { openDdlTab, openTableTab } from "../table/commands";
 import { describeFocus, focusSets, neighbourInDirection, sameFocus, type Focus } from "./focus";
 import { COLOR_MODES, assignColors, type ColorMode } from "./groups";
 import { DRAG_START, DragSession, clickToggles, type TogglePress } from "./drag";
 import { createSceneEngine } from "./engineClient";
+import { layoutPhase, loadPhase } from "./phases";
 import { diagramFontCss, embedFonts, exportFile, renderPng, svgFileText } from "./export";
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { DGM, buildDiagram, hasToggle, prunePositions, subsetOf, toggleKey, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
@@ -953,13 +954,13 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
           </div>
         </Show>
         <Show when={isLoading()}>
-          <div class="dgd-overlay">Loading diagram…</div>
+          <Loading phase={loadPhase(connectedDataSourceIds().has(props.dsId), explorerDataSources().find((d) => d.id === props.dsId)?.name ?? props.dsId)} />
         </Show>
         <Show when={computing() && !hasData() && objects().length > 0}>
-          <div class="dgd-overlay">Laying out diagram…</div>
+          <Loading phase={layoutPhase(wanted().model.nodes.length)} />
         </Show>
         <Show when={computing() && hasData()}>
-          <div class="dgd-busy" role="progressbar" aria-label="Updating the diagram" />
+          <Loading compact class="dgd-busy" phase={layoutPhase(wanted().model.nodes.length)} />
         </Show>
         <Show when={!loading() && loadError() !== undefined && objects().length === 0}>
           <div class="dgd-overlay error">

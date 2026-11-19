@@ -49,6 +49,8 @@ export interface SourceHooks {
   onSessionLost?: () => Promise<string | undefined>;
   /** The session to read through (opened on demand); replaces the plain `sessionId` accessor when given. */
   ensureSession?: () => Promise<string | undefined>;
+  /** The request is about to go out (the session it needs, if any, is ready): the start of "reading the table". */
+  onFetch?: () => void;
 }
 
 /**
@@ -84,6 +86,7 @@ export function createTableSource(
 
   const read = async (req: Parameters<typeof tableData>[2]): Promise<ResultSet> => {
     const sid = hooks.ensureSession ? await hooks.ensureSession() : sessionId();
+    hooks.onFetch?.();
     if (!sid) return tableData(dsId, ref, req);
     try {
       return await tableDataInSession(dsId, sid, ref, req);
