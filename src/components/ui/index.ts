@@ -37,5 +37,5 @@ export type { TreeItem, TreeController, TreeProps } from "./Tree";
 export { overflowToolbar } from "./overflow";
 export { Loading } from "./Loading";
 export type { LoadingProps } from "./Loading";
-export { LOADING_DELAY_MS, createDelayedFlag, createPhaseLog, formatElapsed, nextPaint } from "./loading";
-export type { LoadingPhase, PhaseLog, PhaseStatus } from "./loading";
+export { LOADING_DELAY_MS, createDelayedFlag, createPhaseLog, formatElapsed, nextPaint } from "./phaseLog";
+export type { LoadingPhase, PhaseLog, PhaseStatus } from "./phaseLog";

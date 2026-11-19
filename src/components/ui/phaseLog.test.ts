@@ -12,7 +12,7 @@ import {
   lastPhases,
   phaseText,
   type LoadingPhase,
-} from "./loading";
+} from "./phaseLog";
 import css from "../../styles/ui.css?raw";
 
 const phase = (id: number, over: Partial<LoadingPhase> = {}): LoadingPhase => ({ id, text: `p${id}…`, status: "running", startedAt: 0, ...over });

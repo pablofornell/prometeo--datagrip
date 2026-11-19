@@ -1,5 +1,5 @@
 import { type Component, For, Show } from "solid-js";
-import { type LoadingPhase, LOADING_DELAY_MS, createDelayedFlag, formatElapsed, lastPhases, phaseText } from "./loading";
+import { type LoadingPhase, LOADING_DELAY_MS, createDelayedFlag, formatElapsed, lastPhases, phaseText } from "./phaseLog";
 
 export interface LoadingProps {
   /** Work in progress. Nothing shows until it has lasted `delay` ms; false removes the indicator. Default true. */
