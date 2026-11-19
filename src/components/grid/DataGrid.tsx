@@ -22,6 +22,8 @@ import {
   type JSX,
 } from "solid-js";
 import { Portal } from "solid-js/web";
+import type { ObjectRef } from "../../api/types";
+import { rowStatements, type RowSqlKind } from "../../features/table/sql";
 import { settings } from "../../state/settings";
 import { computeAggregates, formatStat, type Aggregates } from "./aggregates";
 import { COPY_FORMAT_LABELS, formatRows, type CopyColumn } from "./copy";
@@ -150,6 +152,13 @@ export interface DataGridProps {
   onChangeExtractor?: (at: { x: number; y: number }) => void;
   /** `Export Table to Clipboard` of the cell menu; omitted = no entry. */
   onExportToClipboard?: () => void;
+  /**
+   * Table the rows come from, for `Generate SQL` of the row menu: `null` = not one known table (the entries are disabled),
+   * omitted = no `Generate SQL` entry. Statements follow `dialect`; the key is the `isPk` columns, else every column.
+   */
+  sqlTable?: ObjectRef | null;
+  /** Called after `Generate SQL` copied `count` statements of `kind` to the clipboard (the host shows the notification). */
+  onSqlCopied?: (kind: RowSqlKind, count: number) => void;
   /** SQL dialect, for the expressions offered by `Set SQL Expression` and the quoting of SQL INSERT copies. */
   dialect?: "postgres" | "mysql" | "sqlite" | "oracle";
   /** Extra scroll room below the last row (the floating paging pill). */
@@ -1596,6 +1605,29 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     }));
   }
 
+  /** `Generate SQL`: one statement per row the selection touches (all columns, hidden ones too), to the clipboard. */
+  function generateSql(kind: RowSqlKind) {
+    const ref = props.sqlTable;
+    const rs = ranges();
+    if (!ref || !rs.length) return;
+    const rowSet = new Set<number>();
+    for (const g of rs) for (let r = g.r0; r <= Math.min(g.r1, total() - 1); r++) rowSet.add(r);
+    const rows = [...rowSet].sort((a, b) => a - b).map((r) => props.columns.map((_, ci) => cellValue(r, ci)));
+    if (!rows.length) return;
+    writeClipboard(rowStatements(props.dialect ?? "postgres", ref, kind, props.columns, rows).join("\n\n"), "sql");
+    props.onSqlCopied?.(kind, rows.length);
+  }
+  function generateSqlItem(has: boolean): MenuItem | null {
+    if (props.sqlTable === undefined) return null;
+    if (!props.sqlTable) return { label: "Generate SQL", disabled: true, title: "The rows do not come from one known table" };
+    const item = (kind: RowSqlKind, label: string): MenuItem => ({ label, onSelect: () => generateSql(kind) });
+    return {
+      label: "Generate SQL",
+      disabled: !has,
+      submenu: [item("select", "SELECT"), item("insert", "INSERT"), item("update", "UPDATE"), item("delete", "DELETE")],
+    };
+  }
+
   /** Values of the record of display row `r` by column name (what the host builds the target's WHERE from). */
   function recordOf(r: number): Record<string, Cell> {
     const rec: Record<string, Cell> = {};
@@ -1776,6 +1808,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       { separator: true },
       { label: "Copy", shortcut: "Ctrl+C", icon: "copy", disabled: !has, onSelect: () => copy("tsv") },
       { label: "Copy As", disabled: !has, submenu: copyAsItems() },
+      ...x([generateSqlItem(has)]),
       { label: "Paste", shortcut: "Ctrl+V", disabled: !ed || !has, onSelect: pasteFromClipboard },
       { label: "Select All", shortcut: "Ctrl+A", onSelect: selectAll },
       ...x([

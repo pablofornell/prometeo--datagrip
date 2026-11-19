@@ -4,11 +4,12 @@ import { DataGrid, GridPagingPill } from "../../components/grid";
 import type { GridChange, GridColumn, PageSize, SelectionInfo } from "../../components/grid";
 import { notify, openMenu } from "../../components/ui";
 import { setGridSelection } from "../../state/status";
+import { sqlCopiedNotice } from "../table/sql";
 import { createFkNavigation } from "../table/fkNav";
 import { SqlPopup } from "../table/Popups";
 import { copyResult, copyText, extractorMenuItems, formatLabel, isBinaryFormat } from "./export";
 import type { ConsoleOutput, ResultTab } from "./model";
-import { resultTableRef } from "./tableOf";
+import { resultTableRef, sqlTableRef } from "./tableOf";
 
 export function ResultView(props: { tab: ResultTab; out: ConsoleOutput; selected: boolean }): JSX.Element {
   const tab = () => props.tab;
@@ -102,6 +103,8 @@ export function ResultView(props: { tab: ResultTab; out: ConsoleOutput; selected
         onCopy={(text) => void copyText(text)}
         onReload={() => props.out.host?.rerun(tab())}
         tableName={tab().meta.find((c) => c.tableRef)?.tableRef ?? undefined}
+        sqlTable={sqlTableRef(tab(), props.out.host)}
+        onSqlCopied={(kind, count) => notify({ kind: "info", ...sqlCopiedNotice(kind, count) })}
         editable={!!tab().edit()}
         onSubmit={(changes) => host()?.applyEdits(tab(), toTabRows(changes)) ?? false}
         onChangesChange={tab().setPending}

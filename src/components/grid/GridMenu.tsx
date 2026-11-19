@@ -17,6 +17,8 @@ export interface MenuItem {
   /** Highlighted "primary" first row (like "Count Rows" in the paging menu). */
   primary?: boolean;
   submenu?: MenuItem[];
+  /** Hover hint (e.g. why the item is disabled). */
+  title?: string;
   /** Small icon in the left column (name of a `.dgg-menu-ico.i-*` class, see grid.css); `fx` draws the SQL-expression mark. */
   icon?: string;
   onSelect?: () => void;
@@ -144,6 +146,7 @@ function MenuRows(props: {
             <div
               class="dgg-menu-item"
               classList={{ hover: props.hover === i() && !it.disabled, disabled: it.disabled, primary: it.primary }}
+              title={it.title}
               onMouseEnter={() => props.onHover(i(), it)}
               onClick={(e) => {
                 e.stopPropagation();
