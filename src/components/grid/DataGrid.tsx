@@ -39,7 +39,7 @@ import { NULL_KEY, countMatches, countValues, type ValueCount } from "./localFil
 import { ManageColumns } from "./ManageColumns";
 import { SidePanel, type SideDock } from "./SidePanel";
 import { cellRect, indexAt, prefixSums, recordWidth, toLogical, toScreen, windowOf } from "./transpose";
-import { measuredViewport } from "./viewport";
+import { measuredViewport, overscanRows, rowWindow } from "./viewport";
 import { logicalPos, logicalShift, scrollExtent, scrollPos } from "./virtualScroll";
 import {
   DEFAULT_VALUE,
@@ -48,6 +48,7 @@ import {
   displayCell,
   displayLength,
   editText,
+  isDefaultCell,
   isEditableKind,
   isExprCell,
   isRightAligned,
@@ -79,7 +80,6 @@ import "./grid.css";
 
 export const ROW_H = 27;
 export const HEADER_H = 27;
-const OVERSCAN_ROWS = 4;
 const OVERSCAN_PX = 280;
 const MIN_COL_W = 28;
 const CHAR_W = 8;
@@ -256,6 +256,11 @@ export function DataGrid(props: DataGridProps): JSX.Element {
   const iconOf = (c: GridColumn | undefined) => iconClass(c && !c.isFk && props.fkColumns?.().has(c.name) ? { ...c, isFk: true } : c);
   // an Oracle DATE holds a time of day too: its editor offers (and keeps) the time
   const kinds = createMemo<ColumnKind[]>(() => props.columns.map((c) => columnKind(c.typeName, props.dialect)));
+  /** Columns whose values link to a referenced row (Ctrl+Click): their non-NULL cells get the `fk` cue. Indexed by column. */
+  const fkCols = createMemo<boolean[]>(() => {
+    const nav = props.navigation;
+    return props.columns.map((c) => !!nav && nav.referenced(c.name).length > 0);
+  });
   const [widths, setWidths] = createSignal<number[]>([]);
   const [order, setOrder] = createSignal<number[]>([]);
   const [hidden, setHidden] = createSignal<Set<number>>(new Set());
@@ -460,11 +465,8 @@ export function DataGrid(props: DataGridProps): JSX.Element {
 
   const rowWin = createMemo<[number, number]>(
     () => {
-      const t = vCount();
-      const top = scrollTop() + shiftV();
-      const r0 = Math.max(0, Math.floor(top / ROW_H) - OVERSCAN_ROWS);
-      const r1 = Math.min(t - 1, Math.ceil((top + viewH() - HEADER_H) / ROW_H) + OVERSCAN_ROWS);
-      return [r0, r1];
+      const dataH = viewH() - HEADER_H;
+      return rowWindow(scrollTop() + shiftV(), dataH, vCount(), ROW_H, overscanRows(dataH, ROW_H));
     },
     [0, -1],
     { equals: (a, b) => a[0] === b[0] && a[1] === b[1] },
@@ -513,6 +515,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
       if (fm(text) && !inSel(r, vi)) cls += " fm";
       if (text.length > maxc) text = text.slice(0, maxc);
     }
+    if (fkCols()[ci] && val !== null && val !== undefined && !isDefaultCell(val) && !isExprCell(val)) cls += " fk";
     return `<div class="c${right ? " r" : ""}${cls}" style="left:${x}px;width:${w}px">${esc(text)}</div>`;
   }
   /** `pin`: the pinned columns only (drawn in the sticky layer); otherwise the windowed, unpinned ones. */

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { measuredViewport } from "./viewport";
+import { MIN_OVERSCAN_ROWS, measuredViewport, overscanRows, rowWindow } from "./viewport";
 import { prefixSums, windowOf } from "./transpose";
 
 // the table editor's customers table: id 124px, email 228px, name 160px, vip 134px, created_at 266px
@@ -29,5 +29,40 @@ describe("viewport measurement", () => {
     // the size the grid windows on after the fix
     const v = measuredViewport(0, 0, { w: 1180, h: 480 });
     expect(colWindow(v.w)).toEqual(shown);
+  });
+});
+
+describe("row window", () => {
+  const ROW = 27;
+
+  it("keeps half a screen of rows built beyond each edge, at least MIN_OVERSCAN_ROWS", () => {
+    expect(overscanRows(100, ROW)).toBe(MIN_OVERSCAN_ROWS);
+    expect(overscanRows(0, ROW)).toBe(MIN_OVERSCAN_ROWS);
+    expect(overscanRows(-27, ROW)).toBe(MIN_OVERSCAN_ROWS);
+    expect(overscanRows(573, ROW)).toBe(11); // 21.2 visible rows
+    expect(overscanRows(1620, ROW)).toBe(30); // 60 visible rows
+  });
+
+  it("the buffer is larger than one wheel flick of a few hundred px (it was 4 rows = 108px)", () => {
+    expect(overscanRows(573, ROW) * ROW).toBeGreaterThan(280);
+  });
+
+  it("windows the visible rows plus the overscan at both ends", () => {
+    // 600px of data from row 100: rows 100..122 visible
+    expect(rowWindow(100 * ROW, 600, 10_000, ROW, 10)).toEqual([90, 133]);
+  });
+
+  it("clamps to the first and the last row", () => {
+    expect(rowWindow(0, 600, 10_000, ROW, 10)).toEqual([0, 33]);
+    expect(rowWindow(9_990 * ROW, 600, 10_000, ROW, 10)).toEqual([9_980, 9_999]);
+  });
+
+  it("a short result is entirely built, none gives an empty window", () => {
+    expect(rowWindow(0, 600, 5, ROW, 10)).toEqual([0, 4]);
+    expect(rowWindow(0, 600, 0, ROW, 10)).toEqual([0, -1]);
+  });
+
+  it("a partly scrolled first row is still built", () => {
+    expect(rowWindow(100 * ROW + 5, 600, 10_000, ROW, 0)).toEqual([100, 123]);
   });
 });

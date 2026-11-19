@@ -4,6 +4,7 @@
  *   tx=manual  txactive=1  Tx widget with the commit / roll back buttons
  *   late=<ms>  rows arrive after the grid mounted
  *   name=<text>  (ref demos) first name of row 1
+ *   fk=1  foreign key navigation on the last_name, age, country, city and qty columns (Ctrl+Click logs the row)
  *   bench=<port>  run the scroll benchmark and POST the result to http://localhost:<port>/ (for engines without devtools) */
 import { Show, createSignal, onMount } from "solid-js";
 import { render } from "solid-js/web";
@@ -27,6 +28,7 @@ import {
   type SortSpec,
   type ViewMode,
 } from "../src/components/grid";
+import type { GridNavigation } from "../src/components/grid/types";
 
 const q = new URLSearchParams(location.search);
 const theme = q.get("theme") === "light" ? "light" : "dark";
@@ -224,6 +226,11 @@ function Demo() {
   const [view, setView] = createSignal<GridViewState>({ transposed: false, findOpen: false, sidePanel: null, localFilterActive: false, localFilterEnabled: true, hiddenColumns: 0 });
   const [preview, setPreview] = createSignal<string | null>(null);
   let api!: DataGridApi;
+  const FK = q.get("fk") === "1";
+  const fkNavigation: GridNavigation = {
+    referenced: (col) => (["last_name", "age", "country", "city", "qty"].includes(col) ? [{ label: `${col}s (id)`, qualified: `public.${col}s`, open: (row) => setLog(`go to ${col}s: ${JSON.stringify(row[col])}`) }] : []),
+    related: () => [],
+  };
 
   onMount(() => {
     (window as unknown as Record<string, unknown>).__grid = api;
@@ -255,6 +262,7 @@ function Demo() {
         onViewChange={setView}
         viewMode={viewMode()}
         onSelectionChange={setSel}
+        navigation={FK ? fkNavigation : undefined}
         apiRef={(a) => (api = a)}
       >
         <GridPagingPill
