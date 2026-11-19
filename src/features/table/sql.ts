@@ -7,7 +7,7 @@ import { isKeyword } from "../schema-editor/keywords";
 import type { Cell as ApiCell, ColumnMeta, Driver, ObjectRef, RowChange } from "../../api/types";
 // direct module paths: the grid barrel pulls in the Solid components (not loadable in the node test environment)
 import { classifyType, isBinaryCell, isDefaultCell, isExprCell } from "../../components/grid/format";
-import type { Cell, GridChange, SortSpec } from "../../components/grid/types";
+import { NEW_ROW, type Cell, type GridChange, type SortSpec } from "../../components/grid/types";
 
 const SIMPLE_IDENT = /^[a-z_][a-z0-9_$]*$/;
 const ORACLE_IDENT = /^[A-Z][A-Z0-9_$#]*$/;
@@ -233,7 +233,7 @@ export function toRowChanges(
 // ---------------------------------------------------------------- preview
 
 /** The statements Submit would run (one text each, formatted like DataGrip's "Preview Pending Changes" popup). */
-export function changeStatements(driver: Driver, ref: ObjectRef, columns: ColumnMeta[], changes: GridChange[]): string[] {
+export function changeStatements(driver: Driver, ref: ObjectRef, columns: Pick<ColumnMeta, "name" | "typeName" | "default">[], changes: GridChange[]): string[] {
   const table = qualifiedName(driver, ref);
   const id = (s: string) => (isSimple(driver, s) ? s : quoteIdent(driver, s));
   const typeOf = (name: string) => columns.find((c) => c.name === name)?.typeName ?? "";
@@ -281,6 +281,56 @@ export function changeStatements(driver: Driver, ref: ObjectRef, columns: Column
 }
 
 /** The statements Submit would run, formatted like DataGrip's "Preview Pending Changes" popup. */
-export function previewSql(driver: Driver, ref: ObjectRef, columns: ColumnMeta[], changes: GridChange[]): string {
+export function previewSql(driver: Driver, ref: ObjectRef, columns: Pick<ColumnMeta, "name" | "typeName" | "default">[], changes: GridChange[]): string {
   return changeStatements(driver, ref, columns, changes).join("\n\n");
+}
+
+// ---------------------------------------------------------------- Generate SQL (row menu of the grid)
+
+export type RowSqlKind = "select" | "insert" | "update" | "delete";
+
+/** A grid column as `rowStatements` reads it: `isPk` marks the key (primary or unique), `readOnly` an expression / generated column. */
+export interface RowSqlColumn {
+  name: string;
+  typeName: string;
+  isPk?: boolean;
+  readOnly?: boolean;
+  default?: string | null;
+}
+
+/**
+ * One `SELECT` / `INSERT` / `UPDATE` / `DELETE` per row (`rows[i][j]` is the value of `columns[j]`), written like the
+ * preview of the pending changes (`changeStatements`: same quoting, literals and layout). The WHERE of SELECT / UPDATE /
+ * DELETE is the key; a table without one uses every column (`col is null` for the NULLs). Read-only columns (aliases,
+ * generated) are left out; an UPDATE of a table with nothing but key columns sets them all.
+ */
+export function rowStatements(driver: Driver, ref: ObjectRef, kind: RowSqlKind, columns: RowSqlColumn[], rows: Cell[][]): string[] {
+  const used = columns.map((_, j) => j).filter((j) => !columns[j].readOnly || columns[j].isPk);
+  const keyed = used.filter((j) => columns[j].isPk);
+  const key = keyed.length ? keyed : used;
+  const nonKey = used.filter((j) => !key.includes(j));
+  const sets = nonKey.length ? nonKey : used;
+  const pick = (row: Cell[], js: number[]): Record<string, Cell> => {
+    const o: Record<string, Cell> = {};
+    for (const j of js) o[columns[j].name] = row[j] ?? null;
+    return o;
+  };
+  const out: string[] = [];
+  for (const row of rows) {
+    const change: GridChange =
+      kind === "insert"
+        ? { kind: "insert", row: NEW_ROW, key: {}, values: pick(row, used) }
+        : kind === "update"
+          ? { kind: "update", row: 0, key: pick(row, key), values: pick(row, sets) }
+          : { kind: "delete", row: 0, key: pick(row, key), values: {} };
+    const [text] = changeStatements(driver, ref, columns, [change]);
+    // a SELECT is the DELETE of the same row with another verb
+    out.push(kind === "select" ? text.replace(/^DELETE\n/, "SELECT *\n") : text);
+  }
+  return out;
+}
+
+/** Notification text after `Generate SQL` copied `count` statements. */
+export function sqlCopiedNotice(kind: RowSqlKind, count: number): { title: string; body: string } {
+  return { title: `Copied ${count} ${count === 1 ? "statement" : "statements"}`, body: `${kind.toUpperCase()} to the clipboard` };
 }

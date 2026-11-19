@@ -57,7 +57,7 @@ import { logSubmitted } from "../output/edit";
 import { extractorMenuItems, isBinaryFormat } from "../output/extractors";
 import { ChoiceDialog, ColumnFilterPopup, EXPORT_FORMATS, ExportDialog, SqlPopup, exportFileBase, type ExportPath, type ExportTarget } from "./Popups";
 import { type PageSize, type Query, type QueryReport, createTableSource } from "./source";
-import { appendCondition, buildCondition, changeStatements, orderByToSort, previewSql, qualifiedName, selectSql, sortToOrderBy, tableQuerySql, toRowChanges } from "./sql";
+import { appendCondition, buildCondition, changeStatements, orderByToSort, previewSql, qualifiedName, selectSql, sortToOrderBy, sqlCopiedNotice, tableQuerySql, toRowChanges } from "./sql";
 import "./table.css";
 
 interface Choice {
@@ -688,6 +688,8 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
               onSubmit={onSubmit}
               onChangesChange={setPending}
               tableName={tableName()}
+              sqlTable={ref}
+              onSqlCopied={(kind, count) => notify({ kind: "info", ...sqlCopiedNotice(kind, count) })}
               sort={sortSpecs()}
               sortMode="external"
               onSortChange={sortChange}
