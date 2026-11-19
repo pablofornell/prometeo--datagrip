@@ -38,6 +38,7 @@ Linux, dmg on macOS). `npm run tauri build -- --no-bundle` builds only the binar
 ## Documentation
 
 - [User guide](docs/USER-GUIDE.md): data sources, consoles, grid, history, shortcuts.
+- [MCP server for AI agents](docs/MCP.md): connect Claude Code, permissions per folder or data source, 30-day agent log.
 - [Building on Windows](docs/BUILD-WINDOWS.md): prerequisites, installers, signing, CI.
 - [Troubleshooting](docs/TROUBLESHOOTING.md): logs, window state, connections, resets.
 - [Architecture contract](docs/PLAN.md).

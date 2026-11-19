@@ -13,6 +13,7 @@
 // model (ORACLE_SCHEMAS: DEMO / HR, packages, synonyms, sequences ...) with Oracle names and ORA- errors.
 
 import type { MockHandler } from "./tauri";
+import { mcpMockHandlers } from "./mock-mcp";
 import { splitStatements as splitOracle } from "../components/editor/split";
 import type {
   ApplyResult,
@@ -2260,4 +2261,7 @@ export const mockHandlers: Record<string, MockHandler> = {
     saveFs(f);
     return fileInfo(to, f.files[to]);
   }),
+
+  // ---- MCP server (./mock-mcp.ts)
+  ...mcpMockHandlers({ sources: () => state.sources, load: loadJson, save: saveJson }),
 };

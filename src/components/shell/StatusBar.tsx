@@ -3,6 +3,7 @@ import { AGGREGATORS, aggregatorChoice, aggregatorText, focusArea, setAggregator
 import { hideToolWindow, isToolWindowVisible, showToolWindow } from "../../state/layout";
 import { activeTabId } from "../../state/tabs";
 import { Icon } from "../ui/Icon";
+import { Slot } from "../../state/slots";
 import { openMenu, tip, unreadNotificationCount } from "../ui";
 
 /** The result grid of the active console tab, while it has the focus: its cell position / aggregate replace the caret. */
@@ -122,6 +123,8 @@ export function StatusBar(): JSX.Element {
             <Icon name="dg/locked" class={status.readOnly ? "" : "dg-dim"} />
           </span>
         </Show>
+        {/* MCP server state (features/mcp): only while the server is on */}
+        <Slot id="statusbar.mcp" />
         {/* notifications bell: opens the Notifications tool window; the blue dot marks unread entries */}
         <span
           class="dg-status-widget dg-status-icon dg-status-bell dg-clickable"

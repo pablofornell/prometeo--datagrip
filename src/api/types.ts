@@ -852,3 +852,117 @@ export interface ScriptSummary {
   ddlCommitted: boolean;
   elapsedMs: number;
 }
+
+// ---------------------------------------------------------------- MCP server (docs/MCP.md; src-tauri/src/mcp)
+
+/** The two independent permissions an agent can have on a data source. */
+export interface McpPerm {
+  read: boolean;
+  write: boolean;
+}
+
+export interface McpStatus {
+  /** The user setting. */
+  enabled: boolean;
+  /** The listener is bound. */
+  running: boolean;
+  port: number;
+  /** `http://127.0.0.1:7311/mcp` */
+  endpoint: string;
+  token: string;
+  /** For example "Port 7311 is in use". */
+  error: string | null;
+  startedAtMs: number | null;
+  /** Sessions seen in the last 10 minutes. */
+  activeSessions: number;
+  logRetentionDays: number;
+}
+
+export interface McpPolicyInput {
+  /** Folder name -> perm. */
+  folderRules: Record<string, McpPerm>;
+  /** Data source id -> perm (overrides the folder). */
+  sourceRules: Record<string, McpPerm>;
+  /** Data source id -> folder name (pushed by the frontend: the folders live in the UI state). */
+  groups: Record<string, string>;
+}
+
+export interface McpEffectivePerm extends McpPerm {
+  /** Which rule gave it. */
+  origin: "source" | "folder" | "none";
+  /** Write was forced off by the data source's read-only flag. */
+  readOnlySource: boolean;
+}
+
+export interface McpPolicy extends McpPolicyInput {
+  /** Every known data source. */
+  effective: Record<string, McpEffectivePerm>;
+}
+
+export interface McpSession {
+  id: string;
+  /** From initialize `clientInfo.name`, "unknown" if missing. */
+  clientName: string;
+  clientVersion: string | null;
+  startedAtMs: number;
+  lastSeenMs: number;
+  /** Seen in the last 10 minutes and not ended. */
+  active: boolean;
+  /** Tool calls. */
+  actionCount: number;
+  /** error + denied. */
+  errorCount: number;
+  /** `execute_statement` calls. */
+  writeCount: number;
+  dataSourceIds: string[];
+}
+
+export type McpLogStatus = "ok" | "error" | "denied";
+
+export interface McpLogEntry {
+  id: string;
+  tsMs: number;
+  sessionId: string;
+  clientName: string;
+  /** "session": initialize / end. */
+  kind: "session" | "tool";
+  /** "initialize", "end", "run_query", ... */
+  tool: string;
+  dataSourceId: string | null;
+  dataSourceName: string | null;
+  sql: string | null;
+  /** Other arguments, small. */
+  args: unknown | null;
+  status: McpLogStatus;
+  error: string | null;
+  elapsedMs: number;
+  /** Rows returned. */
+  rowCount: number | null;
+  /** Rows changed. */
+  rowsAffected: number | null;
+  /** More rows than returned. */
+  truncated: boolean;
+  /** At most 20 rows, values cut to 200 characters. */
+  preview: { columns: string[]; rows: (string | null)[][] } | null;
+  /** One line, for example "Returned 12 rows from orders". */
+  summary: string;
+}
+
+export interface McpLogQuery {
+  sessionId?: string;
+  dataSourceId?: string;
+  status?: McpLogStatus;
+  text?: string;
+  sinceMs?: number;
+  untilMs?: number;
+  /** Default 200, max 1000. */
+  limit?: number;
+  /** Paging: entries older than this. */
+  beforeTsMs?: number;
+}
+
+export type McpEvent =
+  | { type: "entry"; entry: McpLogEntry }
+  | { type: "status"; status: McpStatus }
+  /** The session list changed: fetch it again. */
+  | { type: "sessions" };

@@ -18,3 +18,4 @@ import "./runconfig";
 import "./dump";
 import "./schema-diff";
 import "./usages";
+import "./mcp";

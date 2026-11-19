@@ -21,6 +21,25 @@ const commit = (next: Stored): void => {
   saveUiState(KEY, next);
 };
 
+/** What happened to a folder, for the features that key their own data by folder name (the MCP permissions). */
+export type DsFolderChange = { type: "rename"; from: string; to: string } | { type: "remove"; name: string };
+const listeners = new Set<(c: DsFolderChange) => void>();
+
+/** `cb` runs after a folder was renamed or removed (its data sources have already followed). Returns the unsubscribe function. */
+export function onDsFolderChange(cb: (c: DsFolderChange) => void): () => void {
+  listeners.add(cb);
+  return () => listeners.delete(cb);
+}
+const emit = (c: DsFolderChange): void => {
+  for (const l of [...listeners]) {
+    try {
+      l(c);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+};
+
 const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: "base" }) || (a < b ? -1 : a > b ? 1 : 0);
 
 /** Folder names, alphabetical. */
@@ -47,6 +66,7 @@ export function renameDsFolder(from: string, to: string): boolean {
   if (!n || taken || !state().folders.includes(from)) return false;
   const group = Object.fromEntries(Object.entries(state().group).map(([id, g]) => [id, g === from ? n : g]));
   commit({ folders: state().folders.map((f) => (f === from ? n : f)), group });
+  if (n !== from) emit({ type: "rename", from, to: n });
   return true;
 }
 
@@ -54,6 +74,7 @@ export function renameDsFolder(from: string, to: string): boolean {
 export function removeDsFolder(name: string): void {
   const group = Object.fromEntries(Object.entries(state().group).filter(([, g]) => g !== name));
   commit({ folders: state().folders.filter((f) => f !== name), group });
+  emit({ type: "remove", name });
 }
 
 /** Moves a data source into a folder (`null` = top level). */

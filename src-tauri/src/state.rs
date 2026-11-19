@@ -27,6 +27,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::files::FileAccess;
+use crate::mcp::{McpService, McpStatus};
 use crate::store::{
     redact, strip_url_password, ConsoleStore, DataSourceStore, DataSourceView, NoKeyring,
     OsKeyring, PasswordStorage, SecretStore, StartupNotice, UiStateStore,
@@ -61,7 +62,7 @@ const MAX_STRING_EXPORT: usize = 64 * 1024 * 1024;
 pub const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// How long one data source gets to close on exit; a bit less than [`SHUTDOWN_GRACE`] so that the stuck ones are
 /// given up (and logged) by themselves and the overall cap is only a backstop.
-const SHUTDOWN_SOURCE_GRACE: Duration = Duration::from_millis(4500);
+pub(crate) const SHUTDOWN_SOURCE_GRACE: Duration = Duration::from_millis(4500);
 
 /// A growing buffer that refuses to pass `limit` bytes.
 struct CappedBuf {
@@ -229,6 +230,8 @@ pub struct AppState {
     pub consoles: Arc<ConsoleStore>,
     /// Scratch files, opened `.sql` files and attached folders of the Files tool window (`files.rs`).
     pub files: Arc<FileAccess>,
+    /// The embedded MCP server (`mcp/`): its own connections, log and permissions.
+    pub mcp: Arc<McpService>,
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
     /// session id -> data source id
@@ -268,7 +271,7 @@ async fn blocking<T: Send + 'static>(
 /// Runs `close(id)` for every id at the same time, giving each `per_source` and all of them `total`; returns the
 /// ids that did not finish. One that hangs (a pool waiting for a connection that never comes back) is dropped,
 /// with a warning, instead of holding up the rest.
-async fn close_all<F, Fut>(
+pub(crate) async fn close_all<F, Fut>(
     ids: Vec<String>,
     total: Duration,
     per_source: Duration,
@@ -374,12 +377,15 @@ impl AppState {
         data_dir: PathBuf,
         secrets: Arc<dyn SecretStore>,
     ) -> Result<Self, String> {
+        let mgr = ConnectionManager::new();
+        let sources = Arc::new(DataSourceStore::load(
+            config_dir.join("data-sources.json"),
+            secrets,
+        )?);
         Ok(AppState {
-            mgr: ConnectionManager::new(),
-            sources: Arc::new(DataSourceStore::load(
-                config_dir.join("data-sources.json"),
-                secrets,
-            )?),
+            mcp: McpService::new(mgr.clone(), sources.clone(), &config_dir, &data_dir),
+            mgr,
+            sources,
             ui: Arc::new(UiStateStore::load(
                 config_dir.join("ui-state.json"),
                 UiStateStore::DEFAULT_DEBOUNCE,
@@ -455,12 +461,24 @@ impl AppState {
 
     pub async fn delete_data_source(&self, id: &str) -> Result<(), String> {
         self.disconnect(id).await?;
+        self.mcp.close_source(id).await;
         let (sources, consoles, id) = (self.sources.clone(), self.consoles.clone(), id.to_string());
         blocking(move || {
             sources.delete(&id)?;
             consoles.delete_all(&id)
         })
         .await
+    }
+
+    /// Starts, stops or restarts the MCP server (`docs/MCP.md`). The port must be 1024-65535; a port that cannot
+    /// be bound is reported in the returned status, not as an error.
+    pub async fn mcp_configure(&self, enabled: bool, port: i64) -> Result<McpStatus, String> {
+        if !(1024..=65535).contains(&port) {
+            return Err(format!(
+                "The port must be between 1024 and 65535 (got {port})"
+            ));
+        }
+        self.mcp.configure(enabled, port as u16).await
     }
 
     pub async fn duplicate_data_source(&self, id: &str) -> Result<DataSourceView, String> {
@@ -593,6 +611,11 @@ impl AppState {
     /// [`SHUTDOWN_SOURCE_GRACE`] (a pool waits for every checked-out connection, and introspection or page counts
     /// cannot be cancelled), all of them by [`SHUTDOWN_GRACE`]; the process exits after it whatever the servers answer.
     pub async fn shutdown(&self) {
+        // the MCP listener and its connections close at the same time as the rest, each with its own time limit
+        tokio::join!(self.mcp.shutdown(), self.shutdown_sources());
+    }
+
+    async fn shutdown_sources(&self) {
         let tokens: Vec<CancellationToken> =
             [&self.imports, &self.exports, &self.dumps, &self.scripts]
                 .into_iter()

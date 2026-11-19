@@ -18,6 +18,9 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::files::{FileAccess, FileContent, FileInfo, FileRoots};
+use crate::mcp::log::{McpLogEntry, McpLogQuery, McpSession};
+use crate::mcp::policy::{McpPolicy, McpPolicyInput};
+use crate::mcp::{McpEvent, McpStatus};
 use crate::state::{AppInfo, AppState};
 use crate::store::DataSourceView;
 
@@ -1325,4 +1328,64 @@ mod tests {
             None
         ));
     }
+}
+
+// ---------------------------------------------------------------- MCP server (docs/MCP.md)
+
+#[tauri::command]
+pub async fn mcp_status(state: State<'_, AppState>) -> Res<McpStatus> {
+    Ok(state.mcp.status())
+}
+
+/// Starts, stops or restarts the server. A port that is in use ends in `McpStatus.error`, not in an error.
+#[tauri::command]
+pub async fn mcp_configure(state: State<'_, AppState>, enabled: bool, port: i64) -> Res<McpStatus> {
+    state.mcp_configure(enabled, port).await
+}
+
+#[tauri::command]
+pub async fn mcp_regenerate_token(state: State<'_, AppState>) -> Res<McpStatus> {
+    state.mcp.regenerate_token().await
+}
+
+#[tauri::command]
+pub async fn mcp_get_policy(state: State<'_, AppState>) -> Res<McpPolicy> {
+    Ok(state.mcp.policy())
+}
+
+#[tauri::command]
+pub async fn mcp_set_policy(state: State<'_, AppState>, policy: McpPolicyInput) -> Res<McpPolicy> {
+    state.mcp.set_policy(policy).await
+}
+
+#[tauri::command]
+pub async fn mcp_sessions(state: State<'_, AppState>) -> Res<Vec<McpSession>> {
+    state.mcp.sessions().await
+}
+
+#[tauri::command]
+pub async fn mcp_log(state: State<'_, AppState>, query: McpLogQuery) -> Res<Vec<McpLogEntry>> {
+    state.mcp.log_query(query).await
+}
+
+#[tauri::command]
+pub async fn mcp_clear_log(state: State<'_, AppState>) -> Res<()> {
+    state.mcp.clear_log().await
+}
+
+/// Live events of the MCP server (new log entries, status and session changes) through `on_event`; returns the
+/// subscription id. A channel that cannot be written to any more (webview reloaded) is dropped.
+#[tauri::command]
+pub async fn mcp_subscribe(state: State<'_, AppState>, on_event: Channel<McpEvent>) -> Res<u64> {
+    Ok(state
+        .mcp
+        .subscribe(std::sync::Arc::new(move |ev: &McpEvent| {
+            on_event.send(ev.clone()).is_ok()
+        })))
+}
+
+#[tauri::command]
+pub async fn mcp_unsubscribe(state: State<'_, AppState>, id: u64) -> Res<()> {
+    state.mcp.unsubscribe(id);
+    Ok(())
 }

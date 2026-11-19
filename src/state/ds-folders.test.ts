@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/db", () => ({ getUiState: async () => undefined, setUiState: async () => undefined }));
 
-import { addDsFolder, dsFolders, dsGroupOf, forgetDsGroup, moveToDsFolder, removeDsFolder, renameDsFolder, resetDsFolders } from "./ds-folders";
+import { type DsFolderChange, addDsFolder, dsFolders, dsGroupOf, forgetDsGroup, moveToDsFolder, onDsFolderChange, removeDsFolder, renameDsFolder, resetDsFolders } from "./ds-folders";
 
 beforeEach(() => resetDsFolders());
 
@@ -43,5 +43,23 @@ describe("data source folders", () => {
     moveToDsFolder("a", "prod");
     forgetDsGroup("a");
     expect(dsGroupOf("a")).toBeUndefined();
+  });
+
+  it("announces renamed and removed folders", () => {
+    const seen: DsFolderChange[] = [];
+    const off = onDsFolderChange((c) => seen.push(c));
+    addDsFolder("prod");
+    renameDsFolder("prod", "live");
+    renameDsFolder("live", "LIVE"); // a case change is a rename too
+    renameDsFolder("LIVE", "LIVE"); // same name: nothing changed
+    renameDsFolder("nope", "x"); // unknown folder: refused, nothing announced
+    removeDsFolder("LIVE");
+    off();
+    removeDsFolder("again");
+    expect(seen).toEqual([
+      { type: "rename", from: "prod", to: "live" },
+      { type: "rename", from: "live", to: "LIVE" },
+      { type: "remove", name: "LIVE" },
+    ]);
   });
 });

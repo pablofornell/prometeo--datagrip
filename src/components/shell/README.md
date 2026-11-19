@@ -25,6 +25,8 @@ unless noted.
 | `files.body` | Files tool window body (placeholder: `FilesToolWindow` of `src/features/files`) | - |
 | `services.body` | Services tool window body (`src/features/services`) | - |
 | `<id>.header` / `.headerActions` / `.toolbar` | same slots for every window id (`explorer`, `files`, `output`, `services`) | - |
+| `mcp.view` | the MCP view (`src/features/mcp`): a grid item (`<section class="dg-island dg-mcp-host">`) that replaces the editor island while `state/view.ts` says `mcp`; the left column stays, the right / bottom docks collapse and the editor is hidden, not unmounted | - |
+| `statusbar.mcp` | MCP server widget of the status bar (left of the notification bell) | - |
 | `output.body` | Database Output body (results grid / log) | - |
 | `output.header` | next to the "Database Output" title: `Tabs variant="result"` (Output + result tabs) | - |
 | `output.headerActions` | right side of the output header (source + duration, open in editor), before ⋮ and — | - |

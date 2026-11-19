@@ -99,6 +99,7 @@ export const MAIN_MENU: MenuBarEntry[] = [
     mnemonic: "V",
     items: [
       sub("Tool Windows", "T", toolWindowMenuItems()),
+      opt("mcp.toggleView", "M"),
       sub("Appearance", "A", [a("theme.system"), a("theme.dark"), a("theme.light")]),
       sep,
       opt("nav.recentFiles", "F"),

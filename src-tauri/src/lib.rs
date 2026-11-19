@@ -1,5 +1,6 @@
 mod commands;
 pub mod files;
+pub mod mcp;
 pub mod state;
 pub mod store;
 
@@ -125,6 +126,8 @@ pub fn run() {
                         .map(|d| std::path::PathBuf::from(d).join("webview"))
                 });
             let state = AppState::open(config_dir, data_dir)?;
+            // the MCP server is off by default; start it when the user turned it on in an earlier run
+            tauri::async_runtime::block_on(state.mcp.start_if_enabled());
             app.manage(state);
             // the main window is declared in tauri.conf.json with `create: false`: built here to set the WebView data directory
             for cfg in app.config().app.windows.iter().filter(|w| !w.create) {
@@ -223,6 +226,16 @@ pub fn run() {
             commands::create_scratch,
             commands::delete_scratch,
             commands::rename_scratch,
+            commands::mcp_status,
+            commands::mcp_configure,
+            commands::mcp_regenerate_token,
+            commands::mcp_get_policy,
+            commands::mcp_set_policy,
+            commands::mcp_sessions,
+            commands::mcp_log,
+            commands::mcp_clear_log,
+            commands::mcp_subscribe,
+            commands::mcp_unsubscribe,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Prometeo DataGrip");

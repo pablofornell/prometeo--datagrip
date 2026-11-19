@@ -25,6 +25,13 @@ import type {
   ImportRequest,
   ImportResult,
   ImportSource,
+  McpEvent,
+  McpLogEntry,
+  McpLogQuery,
+  McpPolicy,
+  McpPolicyInput,
+  McpSession,
+  McpStatus,
   ObjectRef,
   ResultSet,
   RowChange,
@@ -472,3 +479,29 @@ export const listScratches = (): Promise<FileInfo[]> => invoke("list_scratches")
 export const createScratch = (): Promise<FileInfo> => invoke("create_scratch");
 export const deleteScratch = (path: string): Promise<void> => invoke("delete_scratch", { path });
 export const renameScratch = (path: string, to: string): Promise<FileInfo> => invoke("rename_scratch", { path, to });
+
+// ---------------------------------------------------------------- MCP server (docs/MCP.md)
+
+export const mcpStatus = (): Promise<McpStatus> => invoke("mcp_status");
+/** Enables / disables the server and sets its port; starts, stops or restarts the listener. */
+export const mcpConfigure = (enabled: boolean, port: number): Promise<McpStatus> => invoke("mcp_configure", { enabled, port });
+/** Makes a new token: agents that use the old one are refused from then on. */
+export const mcpRegenerateToken = (): Promise<McpStatus> => invoke("mcp_regenerate_token");
+export const mcpGetPolicy = (): Promise<McpPolicy> => invoke("mcp_get_policy");
+export const mcpSetPolicy = (policy: McpPolicyInput): Promise<McpPolicy> => invoke("mcp_set_policy", { policy });
+/** Newest first, last 30 days. */
+export const mcpSessions = (): Promise<McpSession[]> => invoke("mcp_sessions");
+/** Newest first. */
+export const mcpLog = (query: McpLogQuery): Promise<McpLogEntry[]> => invoke("mcp_log", { query });
+export const mcpClearLog = (): Promise<null> => invoke("mcp_clear_log");
+
+/**
+ * Live events of the MCP server (new log entries, status changes, session list changes). Resolves with the function
+ * that ends the subscription.
+ */
+export async function mcpSubscribe(onEvent: (e: McpEvent) => void): Promise<() => void> {
+  const sink: { onmessage: (e: McpEvent) => void } = isTauri() ? new Channel<McpEvent>() : { onmessage: () => {} };
+  sink.onmessage = onEvent;
+  const id = await invoke<number>("mcp_subscribe", { onEvent: sink });
+  return () => void invoke("mcp_unsubscribe", { id }).catch(() => {});
+}

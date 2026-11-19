@@ -4,6 +4,7 @@ import { createStore, produce } from "solid-js/store";
 import { type PaneTree, type SplitDir, hasPane, leaf, leaves, oppositePane, removeLeaf, splitIds, splitLeaf } from "./panes";
 import { loadLocal, saveUiState } from "./persist";
 import { type Ask, runDecisions } from "./decisions";
+import { leaveAppView } from "./view";
 
 export type TabKind = "console" | "table" | "ddl" | "file" | "diagram" | "schemadiff";
 
@@ -266,6 +267,7 @@ export function reopenClosedById(id: string): boolean {
   setClosedTabs((l) => l.filter((x) => x.id !== id));
   if (tabsState.list.some((x) => x.id === id)) {
     focusTab(id);
+    leaveAppView();
     persist();
     return true;
   }
@@ -322,6 +324,7 @@ export function openTab(t: NewTab): void {
     setTabsState("list", (l) => [...l, { closeable: true, pinned: false, ...t, pane }]);
   }
   focusTab(t.id);
+  leaveAppView(); // opening a tab from the explorer while the MCP view is up: the user wants to see it
   const pane = paneOf(t.id);
   if (pane && i < 0) enforceTabLimit(pane, t.id);
   persist();
@@ -338,6 +341,7 @@ export function updateTab(id: string, patch: Partial<EditorTab>): void {
 export function activateTab(id: string): void {
   if (tabsState.list.some((t) => t.id === id)) {
     focusTab(id);
+    leaveAppView();
     persist();
   }
 }

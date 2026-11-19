@@ -148,6 +148,17 @@ export const PAGES: PageNode[] = [
       },
     ],
   },
+  {
+    id: "tools",
+    title: "Tools",
+    children: [
+      {
+        id: "tools.mcp",
+        title: "MCP Server",
+        keywords: ["MCP", "Model Context Protocol", "AI", "agent", "Claude", "Enable MCP server", "Port", "token", "localhost", "Open MCP view", "permissions"],
+      },
+    ],
+  },
 ];
 
 export function findNode(id: string, nodes: PageNode[] = PAGES): PageNode | undefined {

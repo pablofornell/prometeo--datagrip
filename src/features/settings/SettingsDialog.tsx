@@ -6,6 +6,8 @@ import { DEFAULT_SETTINGS, type Settings, settings, updateSettings } from "../..
 import { type ThemePref, setThemePref, themePref } from "../../state/theme";
 import { ColorSchemePage } from "./ColorSchemePage";
 import { KeymapPage } from "./KeymapPage";
+import { McpSettingsPage } from "../mcp/McpSettingsPage";
+import { runAction } from "../../state/actions";
 import { PAGES, type PageNode, filterTree, findNode, firstLeaf, pathOf, visibleRows } from "./model";
 import { AppearancePage, CodeStyleSqlPage, DataEditorPage, EditorAppearancePage, EditorFontPage, GroupPage, QueryExecutionPage } from "./pages";
 import type { Draft } from "./widgets";
@@ -252,6 +254,15 @@ export function SettingsDialog(props: SettingsDialogProps) {
               </Match>
               <Match when={page() === "editor.code-style.sql"}>
                 <CodeStyleSqlPage draft={draft} />
+              </Match>
+              <Match when={page() === "tools.mcp"}>
+                <McpSettingsPage
+                  draft={draft}
+                  openView={() => {
+                    ok(); // the normal OK: what was changed on the other pages is applied, not thrown away
+                    void runAction("mcp.openView");
+                  }}
+                />
               </Match>
             </Switch>
           </div>

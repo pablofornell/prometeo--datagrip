@@ -4,6 +4,7 @@ import { minimizeWindow, toggleMaximizeWindow, closeWindow } from "../../api/win
 import { ACTION_IDS } from "../../state/core-actions";
 import { TOOL_WINDOWS, isPinned, isToolWindowVisible, setToolWindowPinned, toggleToolWindow, toolbarWindows } from "../../state/layout";
 import { isModalOpen, menuBarOpen, setMenuBarOpen } from "../../state/ui";
+import { isMcpView } from "../../state/view";
 import { ActionButton } from "../ui/ActionButton";
 import { Icon } from "../ui/Icon";
 import { type MenuItem, Mnemonic, closeMenu, openMenu } from "../ui/Menu";
@@ -179,6 +180,15 @@ export function MainToolbar(): JSX.Element {
           title="Search Everywhere"
           class="dg-toolbar-btn"
           onClick={() => {}}
+        />
+        <ActionButton
+          icon="mcp@20x20"
+          iconSize={20}
+          size={30}
+          action="mcp.toggleView"
+          title="MCP: AI agents and your data sources"
+          class="dg-toolbar-btn"
+          selected={isMcpView()}
         />
         <ActionButton
           icon="settings@20x20"

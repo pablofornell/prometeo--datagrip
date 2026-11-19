@@ -30,6 +30,7 @@ import { DEFAULT_SETTINGS, EDITOR_FONT_MAX, EDITOR_FONT_MIN, settings, updateSet
 import { activeTabId, closeAllTabs, closeOtherTabs, closeTab, cycleTab } from "./tabs";
 import { type ThemePref, setThemePref, themePref } from "./theme";
 import { isModalOpen, menuBarOpen, setAboutOpen, setMenuBarOpen } from "./ui";
+import { focusEditorArea as focusEditor, leaveAppView } from "./view";
 
 
 /** Ids of actions other modules are expected to implement (kept in one place for discoverability). */
@@ -223,13 +224,8 @@ function lastToolWindow(): string | undefined {
   return id && isToolWindowVisible(id) ? id : undefined;
 }
 
-/** Puts the keyboard focus back into the active editor (falls back to the editor island itself). */
+/** Puts the keyboard focus back into the active editor; Esc in the left column of the MCP view also leaves that view. */
 function focusEditorArea(): void {
-  const area = document.querySelector<HTMLElement>("[data-editor-area]");
-  const view = ".dg-editor-view:not(.dg-hidden) .cm-content, .dg-editor-view:not(.dg-hidden) .dgg";
-  const target =
-    area?.querySelector<HTMLElement>(".dg-pane-focused " + view.replace(", ", ", .dg-pane-focused ")) ??
-    area?.querySelector<HTMLElement>(view) ??
-    area;
-  target?.focus({ preventScroll: true });
+  leaveAppView();
+  focusEditor();
 }

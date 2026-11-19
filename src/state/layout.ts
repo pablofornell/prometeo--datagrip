@@ -2,6 +2,7 @@
 import { createSignal } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { loadBackendState, loadLocal, saveUiState } from "./persist";
+import { isMcpView, leaveAppView } from "./view";
 
 export type ToolWindowAnchor = "left" | "right" | "bottom";
 
@@ -164,6 +165,7 @@ export const commitLayout = persist;
 export function resetLayout(): void {
   setLayout(produce((s) => Object.assign(s, normalize({ visible: { ...defaults().visible, output: !!s.visible.output } }))));
   setMaximized(null);
+  leaveAppView();
   persist();
 }
 
@@ -195,6 +197,8 @@ const [maxId, setMaxId] = createSignal<string | null>(null);
 export const maximizedToolWindow = maxId;
 const setMaximized = setMaxId;
 export const isMaximized = (id: string): boolean => maxId() === id;
+/** Restores a maximized window (the MCP view takes the editor's place, a maximized window would cover it). */
+export const clearMaximizedToolWindow = (): void => void setMaxId(null);
 export function toggleMaximizeToolWindow(id: string): void {
   if (!layout.visible[id]) return;
   const on = maxId() !== id;
@@ -213,8 +217,14 @@ export const markActiveToolWindow = setActiveTw;
 /** The windows Hide All Windows closed, restored by the next press (cleared when the user opens a window). */
 let hiddenByHideAll: string[] | null = null;
 
+/** The MCP view only keeps the left column: a window at the right or bottom is meant to be seen, so the editor comes back. */
+function leaveViewFor(id: string): void {
+  if (isMcpView() && anchorOf(id) !== "left") leaveAppView();
+}
+
 /** Shows a window; the one it replaces at the same anchor is hidden (Services <-> Database Output). */
 export function showToolWindow(id: string, focus = true): void {
+  leaveViewFor(id);
   hiddenByHideAll = null;
   // a window maximized over the editor hides all the others: opening another one leaves the maximized state
   if (maxId() !== null && maxId() !== id) setMaxId(null);
@@ -252,6 +262,7 @@ export function moveToolWindow(id: string, anchor: ToolWindowAnchor): void {
 }
 
 export function focusToolWindow(id: string): void {
+  leaveViewFor(id);
   if (maxId() !== null && maxId() !== id) setMaxId(null); // the maximized window hides the others
   setActiveTw(id);
   queueMicrotask(() => {
@@ -264,6 +275,8 @@ export function focusToolWindow(id: string): void {
 
 /** Alt+N behaviour: hidden -> show+focus; visible but not focused -> focus; focused -> hide. */
 export function toggleToolWindow(id: string): void {
+  // a visible window at the right / bottom is behind the MCP view: the shortcut brings it up, it does not hide it
+  if (layout.visible[id] && isMcpView() && anchorOf(id) !== "left") return focusToolWindow(id);
   if (!layout.visible[id]) return showToolWindow(id);
   const el = document.querySelector<HTMLElement>(`[data-toolwindow="${id}"]`);
   if (el && el.contains(document.activeElement)) hideToolWindow(id);

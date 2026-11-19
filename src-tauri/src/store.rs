@@ -33,7 +33,7 @@ pub fn write_private(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// [`write_private`] for a file that holds plain-text passwords: on Windows the ACL is also cut down to the
 /// current user (inheritance removed), the closest equivalent of `0600`.
-fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), String> {
     write_atomic_mode(path, bytes, Protect::Secret)
 }
 

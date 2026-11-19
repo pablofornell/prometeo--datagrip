@@ -127,6 +127,20 @@ A data source can have a color (**Data Sources > Color**). The tint of tree rows
 **off by default**: enable it in **Settings > Appearance > Color by data source**, and set its **Intensity**
 (25 to 200 % of the theme's tint). **Use project colors in main toolbar** applies only when it is on.
 
+## MCP server for AI agents
+
+The **MCP** view (View ▸ MCP, `Ctrl+Shift+M`, or the toolbar button) lets AI agents such as Claude Code
+use your data sources. Only the Database Explorer stays on the left; the rest of the window shows the view.
+
+- **Connect**: switch the server on, then copy the `claude mcp add` command (or the `.mcp.json` snippet).
+  The server listens on `127.0.0.1` only and needs the token in the command.
+- **Permissions**: give **read**, **write**, both or none to a folder or to one data source.
+  A data-source rule wins over its folder rule. Without a rule an agent sees nothing.
+- **Sessions**: each agent session with a timeline of its actions: the SQL, the result preview, errors and refused calls.
+- **Log**: every agent action of the last 30 days, with filters. Select a data source in the explorer to filter by it.
+
+See [MCP server](MCP.md) for the security model and the tools.
+
 ## Settings, themes and layout
 
 - **File > Settings…** (`Ctrl+Alt+S`) changes the theme, editor font and keymap.

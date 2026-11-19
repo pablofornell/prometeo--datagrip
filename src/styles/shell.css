@@ -187,6 +187,23 @@
   display: none;
 }
 
+/* MCP view (state/view.ts): the left column stays, the rest of the area is the view; the editor and the right / bottom
+   windows are hidden (not unmounted: their consoles own DB sessions). The tracks are set by Shell. */
+.dg-body > .dg-mcp-host {
+  display: none;
+  grid-area: 1 / 3 / 4 / 6;
+}
+.dg-body[data-view="mcp"] > .dg-mcp-host {
+  display: flex;
+}
+.dg-body[data-view="mcp"] > .dg-editor-area,
+.dg-body[data-view="mcp"] > .dg-toolwindow:not([data-anchor="left"]) {
+  display: none;
+}
+.dg-body[data-view="mcp"][data-max] > .dg-mcp-host {
+  display: none;
+}
+
 /* ---------------------------------------------------------------- Tool window panel */
 .dg-tw-header {
   display: flex;

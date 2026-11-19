@@ -31,7 +31,7 @@ describe("settings page tree", () => {
 
   it("builds visible rows from the expanded set", () => {
     const rows = visibleRows(PAGES, (id) => id === "editor");
-    expect(rows.map((r) => r.node.id)).toEqual(["database", "appearance-behavior", "keymap", "editor", "editor.general", "editor.font", "editor.color-scheme", "editor.code-style"]);
+    expect(rows.map((r) => r.node.id)).toEqual(["database", "appearance-behavior", "keymap", "editor", "editor.general", "editor.font", "editor.color-scheme", "editor.code-style", "tools"]);
     expect(rows.find((r) => r.node.id === "editor.general")?.depth).toBe(1);
   });
 
