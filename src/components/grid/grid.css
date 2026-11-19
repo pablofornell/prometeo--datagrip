@@ -304,12 +304,8 @@
 .dgg-u.mod { background: var(--g-mod); }
 .dgg-u.tint { background: rgba(255, 255, 255, 0.075); }
 :root[data-theme="light"] .dgg-u.tint { background: rgba(0, 0, 0, 0.05); }
-/* foreign key cell hovered with Ctrl / Cmd held: link underline under the text line */
-.dgg-u.fklink {
-  background:
-    linear-gradient(var(--dg-link, #71a1fe), var(--dg-link, #71a1fe)) no-repeat 6px calc(100% - 6px) / calc(100% - 12px) 1px,
-    rgba(113, 161, 254, 0.1);
-}
+/* foreign key cell hovered with Ctrl / Cmd held: faint wash under the value, which `.c.fk` turns into a link */
+.dgg-u.fklink { background: rgba(113, 161, 254, 0.1); }
 .dgg-scroller.fk-link, .dgg-scroller.fk-link .dgg-row { cursor: pointer; }
 /* short-lived hint of a Ctrl+Click that leads nowhere (NULL key) */
 .dgg-fkhint {
@@ -334,6 +330,8 @@
   height: 27px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--g-line);
+  /* a row has a fixed box: layout and paint of its cells never reach the other rows (nor the ones scrolled in) */
+  contain: layout paint style;
 }
 .dgg-row .c {
   position: absolute;
@@ -349,6 +347,21 @@
 }
 .dgg-row .c.r { text-align: right; }
 .dgg-row .c.nul { color: var(--g-null); }
+/* Foreign key value (never NULL): a faint dotted underline, drawn from the text colour so it reads on every fill (selected,
+   found, modified) and in both themes. It adds no box: widths and the row height do not change. */
+.dgg-row .c.fk {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 32%, transparent);
+}
+.dgg-row .c.fk:hover { text-decoration-color: color-mix(in srgb, currentColor 65%, transparent); }
+/* Ctrl / Cmd held over the cell (the grid sets `fk-link` then): the value is a link */
+.dgg-scroller.fk-link .dgg-row .c.fk:hover {
+  color: var(--dg-accent-fg, #71a1fe);
+  text-decoration-style: solid;
+  text-decoration-color: currentColor;
+}
 .dgg-row .c.bin { color: var(--dg-editor-folded-fg, #868991); }
 
 .dgg-editor {
