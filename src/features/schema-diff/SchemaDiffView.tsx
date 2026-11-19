@@ -3,11 +3,11 @@
  * the selected object on both sides, and "Generate migration script", which opens a console of B's data source with
  * the SQL that makes B like A. The models are read when the tab opens (Refresh reads them again).
  */
-import { For, Show, createEffect, createMemo, createSignal, on, onMount, type JSX, untrack } from "solid-js";
+import { For, Show, batch, createEffect, createMemo, createSignal, on, onMount, type JSX, untrack } from "solid-js";
 import { type SchemaModel, createConsole, getDdl, schemaModel, writeConsole } from "../../api/db";
-import { ActionButton, Checkbox, ComboBox, CopyButton, Icon, type ComboOption, notify, tip } from "../../components/ui";
+import { ActionButton, Checkbox, ComboBox, CopyButton, Icon, Loading, type ComboOption, createPhaseLog, nextPaint, notify, tip } from "../../components/ui";
 import type { EditorTab } from "../../state/tabs";
-import { ensureConnected, explorerDataSources, openConsoleTab } from "../explorer";
+import { connectedDataSourceIds, ensureConnected, explorerDataSources, openConsoleTab } from "../explorer";
 import { errText } from "../table/ds";
 import { DEFAULT_DIFF_OPTIONS, type DiffFilter, type DiffNode, type DiffOptions, diffSchemas, filterDiff, summarize, visibleRows } from "./diff";
 import { type MigrationOptions, planCounts, planMigration, renderMigration, tableDdlKey, tablesToCreate } from "./migration";
@@ -41,21 +41,50 @@ function Compare(props: { left: SchemaRef; right: SchemaRef }): JSX.Element {
   const [ddlA, setDdlA] = createSignal("");
   const [ddlB, setDdlB] = createSignal("");
   const [busy, setBusy] = createSignal(false);
+  // The phases of reading + comparing the two schemas, and of writing the migration script (both shown by <Loading>)
+  const phases = createPhaseLog();
+  const genPhases = createPhaseLog();
   let ddlSeq = 0;
 
   const dsName = (id: string): string => explorerDataSources().find((d) => d.id === id)?.name ?? id;
   const labelA = () => `${props.left.schema} [${dsName(props.left.dsId)}]`;
   const labelB = () => `${props.right.schema} [${dsName(props.right.dsId)}]`;
 
+  /** Runs `p` as the running phase `end` belongs to: ends it when `p` settles. */
+  const timed = async <T,>(p: Promise<T>, end: (status?: "done" | "failed") => void): Promise<T> => {
+    try {
+      const v = await p;
+      end();
+      return v;
+    } catch (e) {
+      end("failed");
+      throw e;
+    }
+  };
+
   const load = async () => {
     setLoading(true);
     setError("");
+    phases.clear();
     try {
+      const idle = [...new Set([props.left.dsId, props.right.dsId])].filter((id) => !connectedDataSourceIds().has(id));
+      if (idle.length) phases.step(`Connecting to ${idle.map(dsName).join(" and ")}…`);
       await Promise.all([ensureConnected(props.left.dsId), ensureConnected(props.right.dsId)]);
-      const [ma, mb] = await Promise.all([schemaModel(props.left.dsId, props.left.schema), schemaModel(props.right.dsId, props.right.schema)]);
-      setA(ma);
-      setB(mb);
+      phases.finish();
+      const [ma, mb] = await Promise.all([
+        timed(schemaModel(props.left.dsId, props.left.schema), phases.start(`Reading schema metadata of ${labelA()}…`)),
+        timed(schemaModel(props.right.dsId, props.right.schema), phases.start(`Reading schema metadata of ${labelB()}…`)),
+      ]);
+      // the comparison runs on the main thread as soon as both models are set: let the phase line paint first
+      phases.step("Comparing schemas…");
+      await nextPaint();
+      batch(() => {
+        setA(ma);
+        setB(mb);
+      });
+      phases.finish();
     } catch (e) {
+      phases.fail();
       setError(errText(e));
     } finally {
       setLoading(false);
@@ -133,21 +162,29 @@ function Compare(props: { left: SchemaRef; right: SchemaRef }): JSX.Element {
     const mb = b();
     if (!ma || !mb || busy()) return;
     setBusy(true);
+    genPhases.clear();
     try {
       const ddl = new Map<string, string>();
-      for (const name of tablesToCreate(ma, mb)) {
+      const missing = tablesToCreate(ma, mb);
+      if (missing.length) genPhases.step(`Reading the DDL of ${missing.length} ${missing.length === 1 ? "table" : "tables"} only in A…`);
+      for (const name of missing) {
         ddl.set(tableDdlKey(name), await getDdl(props.left.dsId, { schema: ma.schema, name, kind: "table" }, true));
       }
+      genPhases.step("Planning the migration…");
+      await nextPaint();
       const migration: MigrationOptions = { includeDrops: includeDrops() };
       const plan = planMigration(ma, mb, opts(), ddl);
       const counts = planCounts(plan, migration);
       if (counts.total === 0 && plan.notes.length === 0) {
+        genPhases.finish();
         notify({ kind: "info", title: "Nothing to migrate", body: `${labelB()} is already like ${labelA()}.` });
         return;
       }
       const text = renderMigration(plan, migration, { from: labelA(), to: labelB() });
+      genPhases.step(`Writing the script to a console of ${dsName(props.right.dsId)}…`);
       const name = await createConsole(props.right.dsId);
       await writeConsole(props.right.dsId, name, text);
+      genPhases.finish();
       openConsoleTab(props.right.dsId, name);
       notify({
         kind: "success",
@@ -156,6 +193,7 @@ function Compare(props: { left: SchemaRef; right: SchemaRef }): JSX.Element {
         timeout: 10000,
       });
     } catch (e) {
+      genPhases.fail();
       notify({ kind: "error", title: "Cannot generate the migration script", body: errText(e) });
     } finally {
       setBusy(false);
@@ -197,9 +235,8 @@ function Compare(props: { left: SchemaRef; right: SchemaRef }): JSX.Element {
           </div>
         </div>
       </Show>
-      <Show when={loading() && !error()}>
-        <div class="sd-overlay">Reading both schemas...</div>
-      </Show>
+      <Loading class="sd-loading" active={loading() && !error()} log={phases.phases()} />
+      <Loading class="sd-loading" active={busy()} log={genPhases.phases()} />
       <Show when={summary()}>
         {(s) => (
           <div class="sd-summary">

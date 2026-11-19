@@ -27,8 +27,9 @@ import {
   type SelectionInfo,
   type SortSpec,
 } from "../../components/grid";
-import { notify, openMenu } from "../../components/ui";
+import { Loading, createPhaseLog, notify, openMenu } from "../../components/ui";
 import { settings } from "../../state/settings";
+import { beginOpening } from "../../state/opening";
 import { setGridSelection, setStatus } from "../../state/status";
 import { type EditorTab, activateTab, updateTab } from "../../state/tabs";
 import { type ObjectTabData, openDdlTab } from "./commands";
@@ -36,7 +37,7 @@ import { registerController } from "./controller";
 import { confirmEndTransactions } from "../console/txguard";
 import { connectedDataSourceIds, ensureConnected } from "../explorer";
 import { rowsRetrieved } from "../output/format";
-import { CONNECTION_LOST_LOG, CONNECTION_LOST_TX_LOG } from "../../state/connection-errors";
+import { CONNECTION_LOST_LOG, CONNECTION_LOST_TX_LOG, friendlyConnectionError } from "../../state/connection-errors";
 import { type ConsoleOutput, createOutput, removeOutput } from "../output/model";
 import { dsInfo, errText, loadDataSources, writeClipboard } from "./ds";
 import { type ExportSource, exportPreview, exportTableQuery } from "./exportData";
@@ -99,11 +100,22 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
     else out?.log("text", rowsRetrieved(r.rows, r.ms, undefined, undefined, q.pageSize === "all" ? 1 : q.page * q.pageSize + 1));
     out?.setLastMs(r.ms);
   };
+  // Until the first rows arrive (or the open fails) the tab shows the phases of the work; the explorer node spins too
+  const phases = createPhaseLog();
+  const [starting, setStarting] = createSignal(true);
+  let endOpening: (() => void) | undefined;
   const src = createTableSource(dsId, ref, props.where ? { where: props.where } : {}, sid, {
     onQuery,
     onSessionLost: () => recoverSession(),
     // Tx: Manual reads go through the transaction session, reopened here when it was lost
-    ensureSession: async () => (txMode() === "manual" ? (sid() ?? (await openTxSession())) : undefined),
+    ensureSession: async () => {
+      if (txMode() !== "manual") return undefined;
+      if (sid()) return sid();
+      if (starting()) phases.step("Opening session…");
+      return openTxSession();
+    },
+    // the backend reads the columns (names, types, keys) and the first page in one request
+    onFetch: () => starting() && phases.step(`Reading columns and first rows of ${ref.name}…`),
   });
   let root!: HTMLDivElement;
   let api: DataGridApi | undefined;
@@ -166,7 +178,8 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
     }
   }
 
-  const reload = () => void reloadPage();
+  // a tab that never got its first rows starts over (connection included); one that has them reloads the page
+  const reload = () => void (cols() ? reloadPage() : start());
 
   async function applyFilter(): Promise<void> {
     const ok = await reloadPage({ where: whereText().trim(), orderBy: orderText().trim(), page: 0 });
@@ -197,23 +210,44 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
     }
   }
 
-  onMount(() => {
-    void (async () => {
+  /** Connects, reads the columns and the first page. Errors show inside the tab (see `error`). */
+  async function start(): Promise<void> {
+    endOpening?.();
+    endOpening = beginOpening(props.tab.id);
+    phases.clear();
+    setError(null);
+    setStarting(true);
+    try {
+      if (!ds()) phases.step("Reading data sources…");
+      await loadDataSources();
+      if (!ds()) throw new Error("The data source of this tab no longer exists.");
+      out ??= createOutput(props.tab.id, driver());
+      if (!connectedDataSourceIds().has(dsId)) phases.step(`Connecting to ${sourceLabel()}…`);
       try {
-        await loadDataSources();
-        if (!ds()) throw new Error("The data source of this tab no longer exists.");
-        out = createOutput(props.tab.id, driver());
         await ensureConnected(dsId);
-        out.log("text", "Connected");
-        await src.load();
       } catch (e) {
-        // shown inside the tab: restoring many tabs must not raise a balloon each (the explorer closes tabs of
-        // deleted data sources at startup, see features/explorer/restore.ts)
-        setError(errText(e));
+        const d = ds();
+        throw new Error(d ? friendlyConnectionError(errText(e), { driver: d.driver, host: d.host, port: d.port, file: d.file }) : errText(e));
       }
-    })();
-  });
+      out.log("text", "Connected");
+      const loaded = await src.load();
+      phases.finish();
+      // the load resolved but no columns arrived (an error inside the batch that applies the page is swallowed there)
+      if (loaded && !src.columns()) throw new Error(`The columns of ${ref.name} could not be read.`);
+    } catch (e) {
+      // shown inside the tab: restoring many tabs must not raise a balloon each (the explorer closes tabs of
+      // deleted data sources at startup, see features/explorer/restore.ts)
+      phases.fail();
+      setError(errText(e));
+    } finally {
+      setStarting(false);
+      endOpening?.();
+    }
+  }
+
+  onMount(() => void start());
   onCleanup(() => {
+    endOpening?.();
     src.dispose();
     removeOutput(props.tab.id);
   });
@@ -717,6 +751,9 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
               />
             </DataGrid>
           )}
+        </Show>
+        <Show when={starting() && !error() && !cols()}>
+          <Loading log={phases.phases()} />
         </Show>
         <Show when={error() && !cols()}>
           <div class="dgt-message dgt-error">

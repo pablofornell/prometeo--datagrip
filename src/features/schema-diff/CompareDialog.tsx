@@ -4,8 +4,8 @@
  * PostgreSQL, the schemas the server lists otherwise), system schemas left out.
  */
 import { Show, createSignal, onMount, type JSX } from "solid-js";
-import { ComboBox, Dialog, type ComboOption } from "../../components/ui";
-import { ensureConnected, explorerDataSources } from "../explorer";
+import { ComboBox, Dialog, Loading, type ComboOption } from "../../components/ui";
+import { connectedDataSourceIds, ensureConnected, explorerDataSources } from "../explorer";
 import { type SchemaItem, loadSchemaGroups } from "../explorer/schemaFilter";
 import { errText } from "../table/ds";
 import type { SchemaRef } from "./model";
@@ -24,6 +24,7 @@ export function CompareDialog(props: CompareDialogProps): JSX.Element {
   const [schema, setSchema] = createSignal<string | undefined>(undefined);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal("");
+  const [phase, setPhase] = createSignal("");
   let seq = 0;
 
   /** Connects the data source and lists its schemas; a late answer for another data source is dropped. */
@@ -36,7 +37,11 @@ export function CompareDialog(props: CompareDialogProps): JSX.Element {
     try {
       const ds = sources().find((d) => d.id === id);
       if (!ds) return;
-      await ensureConnected(id);
+      if (!connectedDataSourceIds().has(id)) {
+        setPhase(`Connecting to ${ds.name}…`);
+        await ensureConnected(id);
+      }
+      setPhase(`Reading the schemas of ${ds.name}…`);
       const groups = await loadSchemaGroups(ds);
       const items = groups
         .filter((g) => g.name === null || g.name === ds.database)
@@ -65,7 +70,10 @@ export function CompareDialog(props: CompareDialogProps): JSX.Element {
       width={520}
       onClose={props.onClose}
       footerLeft={
-        <Show when={problem()}>
+        <Show
+          when={problem()}
+          fallback={<Loading compact active={loading()} phase={phase()} />}
+        >
           <span class="dgd-problem" role="alert">
             {problem()}
           </span>

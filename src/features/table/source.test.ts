@@ -72,3 +72,24 @@ describe("a Manual-mode table editor whose session is gone", () => {
     await expect(src.load()).rejects.toThrow("syntax error");
   });
 });
+
+describe("the phase hook of the first read", () => {
+  it("fires after the session is ready and before the request goes out", async () => {
+    const order: string[] = [];
+    inSession.mockImplementation(async () => (order.push("request"), page(1)));
+    const src = createTableSource("d1", ref, {}, () => undefined, {
+      ensureSession: async () => (order.push("session"), "s1"),
+      onFetch: () => order.push("fetch"),
+    });
+    await src.load();
+    expect(order).toEqual(["session", "fetch", "request"]);
+  });
+  it("fires for the pool path too, and a failing load still rejects and ends loading", async () => {
+    const onFetch = vi.fn();
+    tableData.mockRejectedValue(new Error("boom"));
+    const src = createTableSource("d1", ref, {}, () => undefined, { onFetch });
+    await expect(src.load()).rejects.toThrow("boom");
+    expect(onFetch).toHaveBeenCalledOnce();
+    expect(src.loading()).toBe(false);
+  });
+});

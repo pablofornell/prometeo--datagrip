@@ -1,5 +1,6 @@
 import { For, type JSX, Show } from "solid-js";
 import { Highlighted, Icon, Tree, openMenu } from "../../components/ui";
+import { isOpening } from "../../state/opening";
 import { theme } from "../../state/theme";
 import { DRIVERS, driverItems, showContextMenu } from "./actions";
 import {
@@ -10,6 +11,7 @@ import {
   openDdl,
   openTable,
   renaming,
+  tableTabIdOf,
 } from "./commands";
 import {
   badges,
@@ -28,7 +30,7 @@ import {
 } from "./core";
 import { DialogHost } from "./dialogs";
 import { LOCAL, localIconUrl, providerIcon } from "./icons";
-import { type ENode, TABLE_CHILD, TABLE_LIKE } from "./model";
+import { type ENode, TABLE_CHILD, TABLE_LIKE, tableRefOf } from "./model";
 import { NodeIcon } from "./NodeIcon";
 import { openSchemaSelector } from "./SchemaSelector";
 
@@ -111,6 +113,22 @@ function DsIcon(props: { node: ENode }): JSX.Element {
   );
 }
 
+/** The icon of an object; the spinner of the data source icon while the data tab of a table / view is opening. */
+function ObjectIcon(props: { node: ENode }): JSX.Element {
+  const d = props.node.data;
+  const opening = () => {
+    const ref = TABLE_LIKE.includes(d.kind) ? tableRefOf(d) : null;
+    return !!ref && isOpening(tableTabIdOf(d.dsId, ref));
+  };
+  return (
+    <Show when={opening()} fallback={<NodeIcon name={d.icon} class="dg-tree-icon" />}>
+      <span class="dg-tree-icon dg-explorer-ds-icon">
+        <span class="dg-spinner" />
+      </span>
+    </Show>
+  );
+}
+
 function renderLabel(item: ENode, query: string): JSX.Element {
   const d = item.data;
   if (d.kind === "loading") return <span class="dg-tree-label dg-explorer-loading">{item.label}</span>;
@@ -126,7 +144,7 @@ function renderLabel(item: ENode, query: string): JSX.Element {
   const badge = () => (d.kind === "dataSource" && busy().has(item.id) ? "…" : badges()[item.id]);
   return (
     <>
-      <Show when={d.kind === "dataSource"} fallback={<NodeIcon name={d.icon} class="dg-tree-icon" />}>
+      <Show when={d.kind === "dataSource"} fallback={<ObjectIcon node={item} />}>
         <DsIcon node={item} />
       </Show>
       <Show
