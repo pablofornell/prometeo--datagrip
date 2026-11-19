@@ -35,6 +35,8 @@ import { diagramFontCss, embedFonts, exportFile, renderPng, svgFileText } from "
 import { layoutDiagram, resolveDrop, type Direction, type LayoutResult } from "./layout";
 import { DGM, buildDiagram, hasToggle, prunePositions, subsetOf, toggleKey, type ColumnsMode, type DiagramModel, type DiagramOptions } from "./model";
 import { resolvePalette } from "./palette";
+import { RelationsModal } from "./RelationsModal";
+import { buildAdjacency, clickOpensRelations, hasRelations, type NodePress } from "./relations";
 import type { RoutedEdge } from "./route";
 import { createScheduler } from "./scheduler";
 import { applyBounds, buildScene, edgeColor, edgeInner, renderDiagramSvg, type Scene } from "./svg";
@@ -152,6 +154,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   let fitFrame = 0;
   /** Where the button went down on an expand / collapse row (a click there that did not move toggles the table). */
   let pressedToggle: TogglePress | null = null;
+  /** Where the button went down on a table (a click there that did not move opens its relations). */
+  let pressedNode: NodePress | null = null;
+  /** The table (`nodeKey`) whose relations focus is open, or null. */
+  const [relations, setRelations] = createSignal<string | null>(null);
 
   const objects = () => subsetOf(schemaSnapshotFor(props.dsId, props.schema), props.tables);
   const loadError = () => schemaSnapshotErrorFor(props.dsId, props.schema);
@@ -441,6 +447,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
 
   function onMouseDown(e: MouseEvent): void {
     pressedToggle = null;
+    pressedNode = null;
     if (e.button !== 0) return;
     stage.focus({ preventScroll: true });
     // The expand / collapse row is also a handle: the table is picked up as from any other row, and the click toggles
@@ -459,6 +466,7 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
       stage.classList.add("panning");
       return;
     }
+    pressedNode = { index, x: e.clientX, y: e.clientY };
     setSelection({ kind: "node", index });
     setHover(null);
     // A newer layout is being computed: these boxes are about to move, so they cannot be picked up (the cursor says so).
@@ -583,7 +591,22 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
   function onClick(e: MouseEvent): void {
     const toggle = clickToggles(pressedToggle, { index: toggleAt(e), x: e.clientX, y: e.clientY, detail: e.detail });
     pressedToggle = null;
-    if (toggle !== null) toggleColumns(toggle);
+    const press = pressedNode;
+    pressedNode = null;
+    if (toggle !== null) return toggleColumns(toggle);
+    const index = clickOpensRelations(press, { index: nodeAt(e), x: e.clientX, y: e.clientY, detail: e.detail });
+    if (index !== null) openRelations(index);
+  }
+
+  /**
+   * A click on a table that has relations (a foreign key to or from another table, in the whole schema) opens the
+   * relations focus over the diagram; a table without any is just selected (double-click, Enter or the menu open it).
+   */
+  function openRelations(index: number): void {
+    const node = model().nodes[index];
+    if (!node || !hasRelations(buildAdjacency(schemaSnapshotFor(props.dsId, props.schema)), node.key)) return;
+    setHover(null);
+    setRelations(node.key);
   }
 
   /** Opens the table, also from its expand / collapse row (whose first click already toggled it, see `clickToggles`). */
@@ -988,6 +1011,9 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
           <div class="dgd-note">No foreign keys between these tables: they are packed side by side.</div>
         </Show>
       </div>
+      <Show when={relations()}>
+        <RelationsModal dsId={props.dsId} schema={props.schema} table={relations()!} colorMode={colorMode()} showTypes={showTypes()} edgeLabels={edgeLabels()} onClose={() => setRelations(null)} />
+      </Show>
     </div>
   );
 }
