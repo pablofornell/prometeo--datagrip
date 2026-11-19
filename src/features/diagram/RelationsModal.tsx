@@ -10,7 +10,7 @@
  */
 import { For, Show, batch, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type JSX } from "solid-js";
 import type { ObjectRef } from "../../api/types";
-import { ActionButton, ToolbarSeparator, notify } from "../../components/ui";
+import { ActionButton, Loading, ToolbarSeparator, notify } from "../../components/ui";
 import { Dialog } from "../../components/ui/Dialog";
 import { theme } from "../../state/theme";
 import { schemaSnapshotFor } from "../explorer";
@@ -22,6 +22,7 @@ import type { LayoutResult } from "./layout";
 import { buildDiagram, nodeKey, type ColumnsMode, type DiagramModel } from "./model";
 import { resolvePalette } from "./palette";
 import { RELATION_MAX_DEPTH, bfsLevels, buildAdjacency, clickOpensRelations, radialLayout, type NodePress } from "./relations";
+import { layoutPhase } from "./phases";
 import { renderDiagramSvg, type Scene } from "./svg";
 import { fitView, zoomAt, type View } from "./view";
 import "./relations.css";
@@ -39,7 +40,8 @@ export interface RelationsModalProps {
 
 /** Up to this many tables every column is drawn; past it only the keys (the boxes of a big neighbourhood would not fit). */
 const ALL_COLUMNS_UP_TO = 12;
-/** A click on the backdrop right after the dialog opened is the second click of a double-click on the table: ignored. */
+/** A click right after the dialog opened is the second click of a double-click on the table: the backdrop does not close
+ *  it and the dialog's own controls (Close, depth, ...) do not take it. */
 const BACKDROP_GRACE_MS = 400;
 
 /** What the last finished job produced. */
@@ -61,6 +63,7 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
   const [wantedDepth, setWantedDepth] = createSignal(1);
   const [shown, setShown] = createSignal<Shown | null>(null);
   const [computing, setComputing] = createSignal(0); // tables being laid out, 0 when idle
+  const [failure, setFailure] = createSignal<string | null>(null); // the first layout failed (nothing to show yet)
   const [hover, setHover] = createSignal<number | null>(null);
   const [view, setView] = createSignal<View>({ zoom: 1, tx: 0, ty: 0 });
   const [win, setWin] = createSignal({ width: window.innerWidth, height: window.innerHeight });
@@ -110,7 +113,10 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
     if (centerIdx < 0) return props.onClose(); // the table is gone (the snapshot reloaded without it)
     const layout = radialLayout(model, centerIdx, model.nodes.map((n) => level.get(n.key) ?? 0));
     const job = ++seq;
-    setComputing(model.nodes.length);
+    batch(() => {
+      setFailure(null);
+      setComputing(model.nodes.length);
+    });
     engine.run({ model, direction: "LR", layout, positions: [] }).then(
       (res) => {
         if (job !== seq) return;
@@ -122,8 +128,13 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
       },
       (err) => {
         if (err instanceof Cancelled || job !== seq) return;
-        setComputing(0);
-        notify({ kind: "error", title: "Diagram", body: err instanceof Error ? err.message : String(err) });
+        const body = err instanceof Error ? err.message : String(err);
+        batch(() => {
+          setComputing(0);
+          // with a diagram on screen it stays and a notice tells; without one the dialog says so and offers Retry
+          if (shown()) notify({ kind: "error", title: "Diagram", body });
+          else setFailure(body);
+        });
       },
     );
   };
@@ -134,6 +145,7 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
     const types = props.showTypes;
     untrack(() => start(objs, lv, key, types));
   });
+  const retry = (): void => start(objects(), levels().slice(0, depth() + 1), center(), props.showTypes);
 
   // ---------------------------------------------------------------- rendering (the main diagram's renderer)
 
@@ -344,20 +356,28 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
     const onBackdrop = (e: Event): void => {
       if (e.target === overlay && Date.now() - openedAt > BACKDROP_GRACE_MS) props.onClose();
     };
+    // capture phase, so it runs before the buttons' own handlers
+    const onGraceClick = (e: Event): void => {
+      if (Date.now() - openedAt > BACKDROP_GRACE_MS) return;
+      e.stopPropagation();
+      e.preventDefault();
+    };
     const attach = (): void => {
       overlay = root.closest(".dg-dialog-overlay");
       overlay?.classList.add("dgd-rel-overlay");
       overlay?.addEventListener("mousedown", onBackdrop);
+      overlay?.addEventListener("click", onGraceClick, true);
     };
     attach();
-    const retry = overlay ? 0 : requestAnimationFrame(attach);
+    const retryAttach = overlay ? 0 : requestAnimationFrame(attach);
 
     onCleanup(() => {
       seq++;
       engine.dispose();
       observer.disconnect();
-      cancelAnimationFrame(retry);
+      cancelAnimationFrame(retryAttach);
       overlay?.removeEventListener("mousedown", onBackdrop);
+      overlay?.removeEventListener("click", onGraceClick, true);
       window.removeEventListener("resize", onResize);
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
@@ -432,11 +452,19 @@ export function RelationsModal(props: RelationsModalProps): JSX.Element {
           <div class="dgd-sr" aria-live="polite">
             {status()}
           </div>
-          <Show when={!shown()}>
-            <div class="dgd-overlay">{computing() > 0 ? `Laying out ${computing()} tables…` : "Loading…"}</div>
+          <Show when={!shown() && failure() === null}>
+            <Loading phase={computing() > 0 ? layoutPhase(computing()) : "Loading…"} />
+          </Show>
+          <Show when={!shown() && failure() !== null}>
+            <div class="dgd-overlay error">
+              <div class="dgd-error-text">{failure()}</div>
+              <a class="dgd-retry" onClick={retry}>
+                Retry
+              </a>
+            </div>
           </Show>
           <Show when={shown() && computing() > 0}>
-            <div class="dgd-busy" role="progressbar" aria-label="Updating the diagram" />
+            <Loading compact class="dgd-busy" phase={layoutPhase(computing())} />
           </Show>
         </div>
       </div>

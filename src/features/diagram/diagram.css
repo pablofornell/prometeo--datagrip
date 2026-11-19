@@ -78,7 +78,8 @@
 }
 /* A new layout is being computed while a diagram is on screen: a small pill over the stage's top edge (the diagram
    stays and nothing moves). <Loading> only shows it when the job outlasts its delay, so quick updates do not flash it. */
-.dgd-view .dgd-busy {
+.dgd-view .dgd-busy,
+.dgd-rel-body .dgd-busy {
   position: absolute;
   top: 8px;
   left: 50%;

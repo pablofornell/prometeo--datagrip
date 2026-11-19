@@ -1,5 +1,6 @@
 /* The relations focus (RelationsModal.tsx): the generic Dialog frame, sized by the component, over a blurred and dimmed
-   diagram. The stage, the busy bar and the overlay notes are the main diagram's (.dgd-stage, .dgd-busy, .dgd-overlay). */
+   diagram. The stage, the busy pill (<Loading compact class="dgd-busy">, styled in diagram.css for this body too) and the
+   overlay notes are the main diagram's (.dgd-stage, .dgd-busy, .dgd-overlay). */
 .dg-dialog-overlay.dgd-rel-overlay {
   background: var(--dg-dialog-overlay);
   -webkit-backdrop-filter: blur(6px) brightness(0.8);

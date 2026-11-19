@@ -287,6 +287,11 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     if (s && s.kind === "node" && s.index >= model().nodes.length) setSelection(null);
   });
 
+  // The relations focus is portalled to the body: it must not stay over another tab when this one is hidden.
+  createEffect(() => {
+    if (!props.active) setRelations(null);
+  });
+
   // Coming back to the tab retries a snapshot that failed while it was hidden.
   createEffect(
     on(
@@ -536,7 +541,10 @@ function Diagram(props: { tab: EditorTab; active: boolean; dsId: string; schema:
     drag = null;
     stage.classList.remove("panning");
     // a table that was dragged from its toggle row (and maybe back to where it was) is not toggled by the click
-    if (d.mode === "node" && d.moved) pressedToggle = null;
+    if (d.mode === "node" && d.moved) {
+      pressedToggle = null;
+      pressedNode = null; // nor does it open the relations (a drag away and back is still a drag)
+    }
     if (frame) {
       cancelAnimationFrame(frame);
       frame = 0;

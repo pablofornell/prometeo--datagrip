@@ -38,10 +38,10 @@ export function CompareDialog(props: CompareDialogProps): JSX.Element {
       const ds = sources().find((d) => d.id === id);
       if (!ds) return;
       if (!connectedDataSourceIds().has(id)) {
-        setPhase(`Connecting to ${ds.name}…`);
+        if (mine === seq) setPhase(`Connecting to ${ds.name}…`);
         await ensureConnected(id);
       }
-      setPhase(`Reading the schemas of ${ds.name}…`);
+      if (mine === seq) setPhase(`Reading the schemas of ${ds.name}…`);
       const groups = await loadSchemaGroups(ds);
       const items = groups
         .filter((g) => g.name === null || g.name === ds.database)

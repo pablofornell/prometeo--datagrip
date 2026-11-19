@@ -212,9 +212,13 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
   }
 
   /** Connects, reads the columns and the first page. Errors show inside the tab (see `error`). */
+  let startSeq = 0;
   async function start(): Promise<void> {
+    // a Reload while a run is still going starts another: only the newest run touches the phases and the flags
+    const run = ++startSeq;
+    const latest = () => run === startSeq;
     endOpening?.();
-    endOpening = beginOpening(props.tab.id);
+    const end = (endOpening = beginOpening(props.tab.id));
     phases.clear();
     setError(null);
     setStarting(true);
@@ -232,17 +236,22 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
       }
       out.log("text", "Connected");
       const loaded = await src.load();
+      if (!latest()) return;
       phases.finish();
       // the load resolved but no columns arrived (an error inside the batch that applies the page is swallowed there)
       if (loaded && !src.columns()) throw new Error(`The columns of ${ref.name} could not be read.`);
+      // dropped (cancelled): without columns the tab would stay blank, so say so (Retry starts over)
+      if (!loaded && !src.columns()) throw new Error("Loading cancelled.");
     } catch (e) {
       // shown inside the tab: restoring many tabs must not raise a balloon each (the explorer closes tabs of
       // deleted data sources at startup, see features/explorer/restore.ts)
-      phases.fail();
-      setError(errText(e));
+      if (latest()) {
+        phases.fail();
+        setError(errText(e));
+      }
     } finally {
-      setStarting(false);
-      endOpening?.();
+      if (latest()) setStarting(false);
+      end();
     }
   }
 
