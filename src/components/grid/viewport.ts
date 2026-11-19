@@ -17,15 +17,15 @@ export function measuredViewport(w: number, h: number, prev: ViewSize): ViewSize
 }
 
 /** Fewest rows kept built above and below the visible ones. */
-export const MIN_OVERSCAN_ROWS = 10;
+export const MIN_OVERSCAN_ROWS = 15;
 
 /**
- * Rows built beyond each edge of the viewport: half a screen, at least `MIN_OVERSCAN_ROWS`. The browser scrolls the
+ * Rows built beyond each edge of the viewport: one screen, at least `MIN_OVERSCAN_ROWS`. The browser scrolls the
  * pixels it already has before the scroll event reaches the page, so the rows must already stand where a wheel notch or a
  * flick lands; with a few rows (4 = 108px) every wheel step outran them and showed blank space until the next frame.
  */
 export function overscanRows(dataH: number, rowH: number): number {
-  return Math.max(MIN_OVERSCAN_ROWS, Math.ceil(Math.max(0, dataH) / rowH / 2));
+  return Math.max(MIN_OVERSCAN_ROWS, Math.ceil(Math.max(0, dataH) / rowH));
 }
 
 /**

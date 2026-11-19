@@ -39,12 +39,12 @@ describe("row window", () => {
     expect(overscanRows(100, ROW)).toBe(MIN_OVERSCAN_ROWS);
     expect(overscanRows(0, ROW)).toBe(MIN_OVERSCAN_ROWS);
     expect(overscanRows(-27, ROW)).toBe(MIN_OVERSCAN_ROWS);
-    expect(overscanRows(573, ROW)).toBe(11); // 21.2 visible rows
-    expect(overscanRows(1620, ROW)).toBe(30); // 60 visible rows
+    expect(overscanRows(573, ROW)).toBe(22); // 21.2 visible rows
+    expect(overscanRows(1620, ROW)).toBe(60); // 60 visible rows
   });
 
   it("the buffer is larger than one wheel flick of a few hundred px (it was 4 rows = 108px)", () => {
-    expect(overscanRows(573, ROW) * ROW).toBeGreaterThan(280);
+    expect(overscanRows(573, ROW) * ROW).toBeGreaterThan(573);
   });
 
   it("windows the visible rows plus the overscan at both ends", () => {
