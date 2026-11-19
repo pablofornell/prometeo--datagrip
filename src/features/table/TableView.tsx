@@ -225,6 +225,7 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
     try {
       if (!ds()) phases.step("Reading data sources…");
       await loadDataSources();
+      if (!latest()) return;
       if (!ds()) throw new Error("The data source of this tab no longer exists.");
       out ??= createOutput(props.tab.id, driver());
       if (!connectedDataSourceIds().has(dsId)) phases.step(`Connecting to ${sourceLabel()}…`);
@@ -234,6 +235,7 @@ function TableEditor(props: { tab: EditorTab; active: boolean; dsId: string; obj
         const d = ds();
         throw new Error(d ? friendlyConnectionError(errText(e), { driver: d.driver, host: d.host, port: d.port, file: d.file }) : errText(e));
       }
+      if (!latest()) return;
       out.log("text", "Connected");
       const loaded = await src.load();
       if (!latest()) return;

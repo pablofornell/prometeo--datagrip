@@ -1638,10 +1638,15 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     for (const g of rs) for (let r = g.r0; r <= Math.min(g.r1, total() - 1); r++) rowSet.add(r);
     const rows: RowSqlRow[] = [...rowSet]
       .sort((a, b) => a - b)
-      .map((r) => ({
-        values: props.columns.map((_, ci) => cellValue(r, ci)),
-        original: r < pending.insertedCount ? null : (props.getRow(srcOf(r)) ?? null),
-      }));
+      .map((r) => {
+        const original = r < pending.insertedCount ? null : (props.getRow(srcOf(r)) ?? null);
+        return {
+          values: props.columns.map((_, ci) => cellValue(r, ci)),
+          original,
+          // a row whose page has not arrived yet: its shown values are all NULL, never write them
+          loaded: r < pending.insertedCount || original !== null,
+        };
+      });
     if (!rows.length) return;
     const { statements, skipped } = generateRowSql(props.dialect ?? "postgres", ref, kind, props.columns, rows);
     if (statements.length) writeClipboard(statements.join("\n\n"), "sql");
@@ -2109,7 +2114,7 @@ export function DataGrid(props: DataGridProps): JSX.Element {
     const g = ranges();
     const whole = total() > 0 && g.length === 1 && g[0].c0 === g[0].c1 && g[0].r0 === 0 && g[0].r1 >= total() - 1;
     // gutter selections (whole rows: every shown column): they stay whole rows across the new width
-    const wholeRows = !whole && nCols() > 0 && g.length > 0 && g.every((x) => x.c0 === 0 && x.c1 >= nCols() - 1);
+    const wholeRows = !whole && nCols() > 1 && g.length > 0 && g.every((x) => x.c0 === 0 && x.c1 >= nCols() - 1);
     batch(() => {
       change();
       setSelection([], null);

@@ -318,6 +318,8 @@ export interface RowSqlRow {
   values: Cell[];
   /** What the WHERE of SELECT / UPDATE / DELETE compares against: the row as the server stores it, never a pending edit. */
   original: Cell[] | null;
+  /** False when the grid has not loaded the row yet: it is skipped for every statement, INSERT included. */
+  loaded?: boolean;
 }
 
 /** A binary value the grid only holds the start of: writing it would store / compare a cut-off value. */
@@ -350,8 +352,8 @@ export function generateRowSql(driver: Driver, ref: ObjectRef, kind: RowSqlKind,
   const statements: string[] = [];
   let skipped = 0;
   for (const r of rows) {
-    const { values, original } = Array.isArray(r) ? { values: r, original: r } : r;
-    if (kind !== "insert" && !original) {
+    const { values, original, loaded } = Array.isArray(r) ? { values: r, original: r, loaded: true } : r;
+    if (loaded === false || (kind !== "insert" && !original)) {
       skipped++;
       continue;
     }
@@ -381,6 +383,10 @@ export function generateRowSql(driver: Driver, ref: ObjectRef, kind: RowSqlKind,
       } else if (kind === "update") {
         const rest = keyed ? used.filter((j) => !keyCols.includes(j)) : used;
         const sets = writable(rest.length ? rest : used);
+        // a pending change of the key is not written (the WHERE names the stored row): say so
+        if (keyed && rest.length)
+          for (const j of keyCols)
+            if (JSON.stringify(values[j] ?? null) !== JSON.stringify(orig[j] ?? null)) notes.push(`-- ${columns[j].name}: the pending key change is not included`);
         text = sets.length === 0 ? null : changeStatements(driver, ref, columns, [{ kind: "update", row: 0, key: pick(orig, whereCols), values: pick(values, sets) }])[0];
         if (text === null) notes.push("-- Nothing to update");
       } else {
@@ -402,7 +408,7 @@ export function rowStatements(driver: Driver, ref: ObjectRef, kind: RowSqlKind, 
 
 /** Notification text after `Generate SQL` copied `count` statements. */
 export function sqlCopiedNotice(kind: RowSqlKind, count: number, skipped = 0): { title: string; body: string } {
-  const miss = skipped > 0 ? `${skipped} ${skipped === 1 ? "row" : "rows"} not loaded ${skipped === 1 ? "was" : "were"} skipped` : "";
+  const miss = skipped > 0 ? `${skipped} ${skipped === 1 ? "row" : "rows"} not loaded or not saved ${skipped === 1 ? "was" : "were"} skipped` : "";
   if (count === 0) return { title: "Nothing copied", body: miss || `No ${kind.toUpperCase()} statement for the selection` };
   return {
     title: `Copied ${count} ${count === 1 ? "statement" : "statements"}`,

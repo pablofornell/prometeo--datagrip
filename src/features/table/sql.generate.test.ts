@@ -146,13 +146,18 @@ describe("generateRowSql, exact rows", () => {
     const original: Cell[] = [7, "old", "2020-01-31"];
     const values: Cell[] = [8, "new", "2020-01-31"];
     const { statements } = generateRowSql("postgres", ref("t"), "update", cols, [{ values, original }]);
-    expect(statements).toEqual([`UPDATE shop.t\nSET name = 'new',\n    born = '2020-01-31'\nWHERE id = 7;`]);
+    expect(statements).toEqual([`-- id: the pending key change is not included\nUPDATE shop.t\nSET name = 'new',\n    born = '2020-01-31'\nWHERE id = 7;`]);
     expect(generateRowSql("postgres", ref("t"), "delete", cols, [{ values, original }]).statements).toEqual([`DELETE\nFROM shop.t\nWHERE id = 7;`]);
     expect(generateRowSql("postgres", ref("t"), "select", cols, [{ values, original }]).statements[0]).toContain("WHERE id = 7;");
   });
   it("INSERT writes the shown values", () => {
     const { statements } = generateRowSql("postgres", ref("t"), "insert", cols, [{ values: [8, "new", null], original: [7, "old", null] }]);
     expect(statements).toEqual([`INSERT INTO shop.t (id, name, born)\nVALUES (8, 'new', null);`]);
+  });
+  it("a pending change of the key is not written and a comment says so", () => {
+    const { statements } = generateRowSql("postgres", ref("t"), "update", cols, [{ values: [8, "a", null], original: [7, "a", null] }]);
+    expect(statements[0]).toMatch(/^-- id: the pending key change is not included\n/);
+    expect(statements[0]).toContain("WHERE id = 7;");
   });
   it("a pending DEFAULT is never a WHERE term (no-key table: that column is left out of the comparison)", () => {
     const { statements } = generateRowSql("postgres", ref("t"), "delete", noKey, [{ values: [{ $default: true }, "x", null], original: [7, "x", null] }]);
@@ -165,6 +170,9 @@ describe("generateRowSql, exact rows", () => {
     expect(r.statements).toEqual([`DELETE\nFROM shop.t\nWHERE id = 7;`]);
     expect(r.skipped).toBe(1);
     expect(generateRowSql("postgres", ref("t"), "insert", cols, rows)).toMatchObject({ skipped: 0 });
+    // a row the grid has not loaded is never written, not even as an INSERT of NULLs
+    const unloaded = [{ values: [null, null, null], original: null, loaded: false }];
+    expect(generateRowSql("postgres", ref("t"), "insert", cols, unloaded)).toEqual({ statements: [], skipped: 1 });
     expect(generateRowSql("postgres", ref("t"), "select", cols, [rows[1]])).toEqual({ statements: [], skipped: 1 });
   });
 });
@@ -257,7 +265,7 @@ describe("sqlCopiedNotice", () => {
     expect(sqlCopiedNotice("delete", 3).title).toBe("Copied 3 statements");
   });
   it("says how many rows were skipped", () => {
-    expect(sqlCopiedNotice("update", 4, 2)).toEqual({ title: "Copied 4 statements", body: "UPDATE to the clipboard; 2 rows not loaded were skipped" });
-    expect(sqlCopiedNotice("update", 0, 1)).toEqual({ title: "Nothing copied", body: "1 row not loaded was skipped" });
+    expect(sqlCopiedNotice("update", 4, 2)).toEqual({ title: "Copied 4 statements", body: "UPDATE to the clipboard; 2 rows not loaded or not saved were skipped" });
+    expect(sqlCopiedNotice("update", 0, 1)).toEqual({ title: "Nothing copied", body: "1 row not loaded or not saved was skipped" });
   });
 });
