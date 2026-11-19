@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Prometeo DataGrip mark: a 3x3 data grid with an iris (spectrum ring) in the middle cell. Same tile and palette as DeepGit. -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="#191A1C"/>
+  <g fill="none" stroke="#F4F5F7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="150" y="150" width="724" height="724" rx="100" ry="100" stroke-width="84"/>
+    <path d="M391.3 150V874M632.7 150V874M150 391.3H874M150 632.7H874" stroke-width="76"/>
+  </g>
+  <!-- iris: the ring is cut out of the grid with a tile-colour outline -->
+  <circle cx="512" cy="512" r="260" fill="#191A1C"/>
+  <defs>
+    <linearGradient id="i0" gradientUnits="userSpaceOnUse" x1="512" y1="330" x2="654.3" y2="398.5"><stop offset="0" stop-color="#9B6BFF"/><stop offset="1" stop-color="#4A86FF"/></linearGradient>
+    <linearGradient id="i1" gradientUnits="userSpaceOnUse" x1="654.3" y1="398.5" x2="689.4" y2="552.5"><stop offset="0" stop-color="#4A86FF"/><stop offset="1" stop-color="#22D8EE"/></linearGradient>
+    <linearGradient id="i2" gradientUnits="userSpaceOnUse" x1="689.4" y1="552.5" x2="591" y2="676"><stop offset="0" stop-color="#22D8EE"/><stop offset="1" stop-color="#2FE08A"/></linearGradient>
+    <linearGradient id="i3" gradientUnits="userSpaceOnUse" x1="591" y1="676" x2="433" y2="676"><stop offset="0" stop-color="#2FE08A"/><stop offset="1" stop-color="#FFB52E"/></linearGradient>
+    <linearGradient id="i4" gradientUnits="userSpaceOnUse" x1="433" y1="676" x2="334.6" y2="552.5"><stop offset="0" stop-color="#FFB52E"/><stop offset="1" stop-color="#FF8A33"/></linearGradient>
+    <linearGradient id="i5" gradientUnits="userSpaceOnUse" x1="334.6" y1="552.5" x2="369.7" y2="398.5"><stop offset="0" stop-color="#FF8A33"/><stop offset="1" stop-color="#FF5C8A"/></linearGradient>
+    <linearGradient id="i6" gradientUnits="userSpaceOnUse" x1="369.7" y1="398.5" x2="512" y2="330"><stop offset="0" stop-color="#FF5C8A"/><stop offset="1" stop-color="#9B6BFF"/></linearGradient>
+  </defs>
+  <g fill="none" stroke-width="124">
+    <path d="M512 330 A182 182 0 0 1 655.5 400" stroke="url(#i0)"/>
+    <path d="M653.1 397 A182 182 0 0 1 689 554.4" stroke="url(#i1)"/>
+    <path d="M689.9 550.6 A182 182 0 0 1 589.2 676.8" stroke="url(#i2)"/>
+    <path d="M592.7 675.1 A182 182 0 0 1 431.3 675.1" stroke="url(#i3)"/>
+    <path d="M434.8 676.8 A182 182 0 0 1 334.1 550.6" stroke="url(#i4)"/>
+    <path d="M335 554.4 A182 182 0 0 1 370.9 397" stroke="url(#i5)"/>
+    <path d="M368.5 400 A182 182 0 0 1 513.9 330" stroke="url(#i6)"/>
+  </g>
+  <circle cx="512" cy="512" r="78" fill="#F4F5F7"/>
+</svg>
