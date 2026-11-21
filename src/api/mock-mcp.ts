@@ -239,7 +239,8 @@ export function mcpMockHandlers({ sources, load, save }: Deps): Record<string, M
     for (const s of subs.values()) s.onmessage?.(e);
   };
 
-  const live = () => {
+  // `ago` stamps the entry in the past: a slow call is stamped with its start, so it can land below newer ones
+  const live = (ago = 0) => {
     const s = sessions.find((x) => x.active);
     if (!running() || !s || !subs.size) return;
     const dsId = sources()[0]?.id ?? "ds-shop";
@@ -248,11 +249,13 @@ export function mcpMockHandlers({ sources, load, save }: Deps): Record<string, M
       { sql: "SELECT id, total FROM public.orders ORDER BY total DESC LIMIT 3", rows: 3, pv: { columns: ["id", "total"], rows: [["10211", "980.00"], ["10388", "845.10"], ["10102", "790.00"]] } },
     ];
     const q = queries[rand(queries.length)];
-    const e = add(s, 0, "run_query", { dataSourceId: dsId, sql: q.sql, summary: `Returned ${q.rows} row${q.rows === 1 ? "" : "s"}`, rowCount: q.rows, preview: q.pv });
+    const e = add(s, ago, "run_query", { dataSourceId: dsId, sql: q.sql, summary: `Returned ${q.rows} row${q.rows === 1 ? "" : "s"}`, rowCount: q.rows, preview: q.pv });
     log.sort((x, y) => y.tsMs - x.tsMs);
     emit({ type: "entry", entry: e });
     emit({ type: "status", status: status() });
   };
+  // demo / test hook: `__mcpMockLive(ago)` makes an entry arrive now, started `ago` ms before
+  (window as unknown as { __mcpMockLive?: (ago?: number) => void }).__mcpMockLive = live;
   const ensureTimer = () => {
     if (!timer) timer = window.setInterval(live, 20_000);
   };

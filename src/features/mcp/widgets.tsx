@@ -6,16 +6,29 @@ import { explorerDataSources } from "../explorer";
 import { dsIconUrl } from "../output/dsicon";
 import { STATUS_LABEL } from "./model";
 
-/** On / off switch (role="switch"), 28 x 16. */
-export function Toggle(props: { checked: boolean; onChange: (on: boolean) => void; label?: string; disabled?: boolean; busy?: boolean; class?: string }): JSX.Element {
+/** On / off switch (role="switch"), 28 x 16. Named by `label`, or by a visible element (`labelledBy`, or a `<label for={id}>`). */
+export function Toggle(props: {
+  checked: boolean;
+  onChange: (on: boolean) => void;
+  label?: string;
+  id?: string;
+  labelledBy?: string;
+  describedBy?: string;
+  disabled?: boolean;
+  busy?: boolean;
+  class?: string;
+}): JSX.Element {
   return (
     <button
       type="button"
       role="switch"
+      id={props.id}
       class={"dg-mcp-switch" + (props.class ? " " + props.class : "")}
       classList={{ "dg-on": props.checked, "dg-busy": props.busy }}
       aria-checked={props.checked}
       aria-label={props.label}
+      aria-labelledby={props.labelledBy}
+      aria-describedby={props.describedBy}
       disabled={props.disabled}
       onClick={() => props.onChange(!props.checked)}
     >

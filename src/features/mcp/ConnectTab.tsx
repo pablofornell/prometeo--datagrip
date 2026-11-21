@@ -1,5 +1,5 @@
 /** Connect tab: how to install Datum in an agent (per project or global), the endpoint and token, and what the agents can reach. */
-import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
+import { For, type JSX, Show, createMemo, createSignal, createUniqueId } from "solid-js";
 import { Button, ComboBox, CopyButton, Icon, TextField, tip } from "../../components/ui";
 import { loadLocal, saveUiState } from "../../state/persist";
 import { confirmDialog } from "./confirm";
@@ -114,6 +114,7 @@ export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
     saveUiState(GLOBAL_KEY, on);
   };
   const scope = (): InstallScope => (global() ? "global" : "project");
+  const scopeId = createUniqueId();
   const [reveal, setReveal] = createSignal(false);
   const [portText, setPortText] = createSignal<string | null>(null);
 
@@ -163,13 +164,16 @@ export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
               <ComboBox<AgentId> class="dg-mcp-combo" width={170} value={agent()} onChange={setAgent} options={AGENTS.map((a) => ({ value: a.id, label: a.label }))} />
             </label>
           </header>
+          {/* one control: the switch is the only tab stop; its visible label toggles it too (label for=), the hint describes it */}
           <div class="dg-mcp-scope">
-            <Toggle checked={global()} onChange={setGlobal} label="Global, for all projects" />
+            <Toggle id={scopeId} labelledBy={scopeId + "-label"} describedBy={scopeId + "-hint"} checked={global()} onChange={setGlobal} />
             <div class="dg-mcp-scope-text">
-              <button type="button" class="dg-mcp-scope-label" onClick={() => setGlobal(!global())}>
+              <label id={scopeId + "-label"} for={scopeId} class="dg-mcp-scope-label">
                 Global — for all projects
-              </button>
-              <span class="dg-mcp-scope-hint">{scopeHint(agent(), scope())}</span>
+              </label>
+              <span id={scopeId + "-hint"} class="dg-mcp-scope-hint">
+                {scopeHint(agent(), scope())}
+              </span>
             </div>
           </div>
           <ol class="dg-mcp-steps">

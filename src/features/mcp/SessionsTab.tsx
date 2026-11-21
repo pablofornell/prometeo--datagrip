@@ -4,7 +4,7 @@ import type { McpLogEntry, McpSession } from "../../api/types";
 import { Button, CopyButton, Icon, Loading } from "../../components/ui";
 import { Splitter } from "../../components/ui/Splitter";
 import { EntryRow } from "./EntryRow";
-import { createFresh, createLogFeed } from "./feed";
+import { createFresh, createLogFeed, createScrollAnchor } from "./feed";
 import { clearExplorerFilter, explorerFilter, selectedSession, setSelectedSession, type McpTab } from "./nav";
 import { clock, dayKey, dayLabel, duration, entryKind, gapBetween, groupByDay, plural, relativeTime, sessionActive, sessionTitle, sessionsOfDataSource } from "./model";
 import { explorerDataSources } from "../explorer";
@@ -95,24 +95,25 @@ function Timeline(props: { id: string }): JSX.Element {
     return m === "all" ? true : m === "writes" ? entryKind(e) === "write" : e.status !== "ok";
   };
 
-  let before: { h: number; top: number; follow: boolean } | null = null;
+  const anchor = createScrollAnchor(() => scroller);
+  let follow = true;
+  let top = 0;
   const feed = createLogFeed(query, {
     onLive: (phase, e) => {
       if (phase === "before") {
-        before = { h: scroller.scrollHeight, top: scroller.scrollTop, follow: nearTop() };
+        follow = nearTop();
+        top = scroller.scrollTop;
+        if (!follow) anchor.capture();
         return;
       }
-      const b = before;
-      before = null;
       fresh.add(e.id);
-      if (!b || b.follow) {
+      if (follow) {
         // reading the top: the new action appears there
-        if (b && b.top > 0) toTop(true);
+        if (top > 0) toTop(true);
         return;
       }
-      // scrolled down: the entry arrives above what is on screen, keep the same rows under the pointer and say so
-      scroller.scrollTop = b.top + (scroller.scrollHeight - b.h);
-      if (matches(e)) setUnseen((n) => n + 1);
+      // scrolled down: keep the row being read where it was; only an entry that landed above it counts as unseen
+      if (anchor.restore(e.id) && matches(e)) setUnseen((n) => n + 1);
     },
   });
 
@@ -216,7 +217,7 @@ function Timeline(props: { id: string }): JSX.Element {
                     return (
                       <>
                         <Show when={gap()}>{(g) => <div class="dg-mcp-gap">{duration(g())} earlier</div>}</Show>
-                        <div data-entry-id={e.id}>
+                        <div>
                           <EntryRow rail entry={e} open={open().has(e.id)} onToggle={() => toggle(e.id)} first={i() === 0} last={i() === visible().length - 1} fresh={fresh.has(e.id)} />
                         </div>
                       </>

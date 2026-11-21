@@ -106,6 +106,45 @@ export function createLogFeed(query: Accessor<McpLogQuery>, opts: LogFeedOptions
   return { entries, loading, loadingMore, hasMore, error, loadMore: () => void more(), reload: () => void load() };
 }
 
+/**
+ * Keeps what the user reads in place while entries are inserted or dropped: `capture()` before the update remembers the first
+ * visible row (an element with `data-entry-id`) and where it is; `restore(id)` after it scrolls so that row is where it was and
+ * says whether the entry `id` now sits above it. Needed because the list does not rely on the browser's scroll anchoring, and
+ * because a new entry is not always inserted above the view (a slow call is stamped with its start) nor the height delta
+ * always the entry's height (the oldest entries are dropped at the cap).
+ */
+export function createScrollAnchor(scroller: () => HTMLElement | undefined): { capture: () => void; restore: (newId: string) => boolean } {
+  let a: { id: string; offset: number } | null = null;
+  const find = (sc: HTMLElement, id: string) => sc.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(id)}"]`);
+  return {
+    capture() {
+      a = null;
+      const sc = scroller();
+      if (!sc) return;
+      const top = sc.getBoundingClientRect().top;
+      for (const row of sc.querySelectorAll<HTMLElement>("[data-entry-id]")) {
+        const r = row.getBoundingClientRect();
+        if (r.bottom > top + 1) {
+          a = { id: row.dataset.entryId!, offset: r.top - top };
+          return;
+        }
+      }
+    },
+    restore(newId) {
+      const sc = scroller();
+      const was = a;
+      a = null;
+      if (!sc || !was) return false;
+      const el = find(sc, was.id);
+      if (!el) return false;
+      const delta = el.getBoundingClientRect().top - sc.getBoundingClientRect().top - was.offset;
+      if (delta) sc.scrollTop += delta;
+      const added = find(sc, newId);
+      return !!added && !!(added.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    },
+  };
+}
+
 /** Ids of the entries that just arrived (their row flashes once); each one is forgotten after the animation. */
 export function createFresh(ms = 2600): { has: (id: string) => boolean; add: (id: string) => void } {
   const [ids, setIds] = createSignal<ReadonlySet<string>>(new Set());

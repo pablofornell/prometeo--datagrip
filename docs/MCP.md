@@ -87,9 +87,9 @@ the file at the given path (on Windows `~` is `%USERPROFILE%`).
 |---|---|---|---|
 | Claude Code | `claude mcp add --transport http datum <url> --header "Authorization: Bearer <token>"` (local scope: only you, this project; add `--scope project` to share it in `.mcp.json`) | same with `--scope user` | `claude mcp list` |
 | Codex CLI | `.codex/config.toml` (read only in trusted projects) | `~/.codex/config.toml` | `codex mcp list`, `/mcp` |
-| Gemini CLI | `gemini mcp add --transport http --header "Authorization: Bearer <token>" datum <url>` (writes `.gemini/settings.json`) | same with `--scope user` (`~/.gemini/settings.json`) | `gemini mcp list` |
+| Gemini CLI | `gemini mcp add --transport http datum <url> --header "Authorization: Bearer <token>"` (writes `.gemini/settings.json`) | same with `--scope user` (`~/.gemini/settings.json`) | `gemini mcp list` |
 | Cursor | `.cursor/mcp.json` | `~/.cursor/mcp.json` | Cursor MCP settings |
-| GitHub Copilot (VS Code, Copilot CLI) | `.mcp.json` at the workspace root | `~/.copilot/mcp-config.json` | `copilot mcp list`, VS Code *Chat: Open Customizations › MCP Servers* |
+| VS Code (Copilot), also read by Copilot CLI | `.mcp.json` at the workspace root | `~/.copilot/mcp-config.json` | `copilot mcp list`, VS Code *Chat: Open Customizations › MCP Servers* |
 | OpenCode | `opencode mcp add datum --url <url> --header "Authorization=Bearer <token>"` | same with `--global` | `opencode mcp list` |
 
 Codex has no command-line flag for a static header, so it gets a file entry:
@@ -103,8 +103,11 @@ Authorization = "Bearer <token>"
 ```
 
 Cursor uses `{"mcpServers": {"datum": {"url": …, "headers": {"Authorization": "Bearer <token>"}}}}`;
-GitHub Copilot the same with `"type": "http"` and `"tools": ["*"]`. Codex and GitHub Copilot do not get a
-command because their `mcp add` cannot set the header (Codex) or has no project scope (Copilot CLI).
+VS Code (Copilot) the same with `"type": "http"` and `"tools": ["*"]`. Codex and VS Code do not get a
+command because `codex mcp add` cannot set a static header, and `code --add-mcp` writes the editor-managed
+`servers` format of VS Code's Local harness, which its docs call deprecated ("The Local harness is deprecated
+and will be removed in February 2027"; "For new Copilot configurations, use these native destinations, not
+.vscode/mcp.json or profile mcp.json").
 
 Sources (checked November 2026):
 [Claude Code](https://code.claude.com/docs/en/mcp),

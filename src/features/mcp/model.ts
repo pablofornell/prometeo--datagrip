@@ -117,7 +117,7 @@ export const AGENTS: { id: AgentId; label: string }[] = [
   { id: "codex", label: "Codex CLI" },
   { id: "gemini", label: "Gemini CLI" },
   { id: "cursor", label: "Cursor" },
-  { id: "copilot", label: "GitHub Copilot" },
+  { id: "copilot", label: "VS Code (Copilot)" },
   { id: "opencode", label: "OpenCode" },
 ];
 export const DEFAULT_AGENT: AgentId = "claude";
@@ -187,10 +187,10 @@ export function installSnippet(agent: AgentId, scope: InstallScope, endpoint: st
           { flag: "--transport" },
           { word: "http" },
           ...(global ? [{ flag: "--scope" }, { word: "user" }] : []),
-          { flag: "--header" },
-          { str: `Authorization: ${auth}` },
           { word: SERVER_NAME },
           { url: endpoint },
+          { flag: "--header" },
+          { str: `Authorization: ${auth}` },
         ]),
         global
           ? ["From any folder: it is saved in ", { code: "~/.gemini/settings.json" }, " for all your projects. Check it with ", { code: "gemini mcp list" }, "."]

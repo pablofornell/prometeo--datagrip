@@ -126,8 +126,8 @@ describe("install snippets", () => {
       global: `claude mcp add --transport http --scope user datum ${EP} --header "Authorization: Bearer ${TOKEN}"`,
     },
     gemini: {
-      project: `gemini mcp add --transport http --header "Authorization: Bearer ${TOKEN}" datum ${EP}`,
-      global: `gemini mcp add --transport http --scope user --header "Authorization: Bearer ${TOKEN}" datum ${EP}`,
+      project: `gemini mcp add --transport http datum ${EP} --header "Authorization: Bearer ${TOKEN}"`,
+      global: `gemini mcp add --transport http --scope user datum ${EP} --header "Authorization: Bearer ${TOKEN}"`,
     },
     opencode: {
       project: `opencode mcp add datum --url ${EP} --header "Authorization=Bearer ${TOKEN}"`,

@@ -693,11 +693,6 @@
   min-width: 0;
 }
 .dg-mcp-scope-label {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
   font-weight: 500;
   cursor: pointer;
 }
@@ -1463,8 +1458,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dg-mcp-entry.dg-withclient .dg-mcp-entry-session {
-  grid-column: tool / client;
+/* wide layout only: the narrow templates have no [client] line */
+@container mcpl (width > 899px) {
+  .dg-mcp-entry.dg-withclient .dg-mcp-entry-session {
+    grid-column: tool / client;
+  }
 }
 .dg-mcp-client {
   grid-column: client;
@@ -1618,11 +1616,23 @@
   .dg-mcp-elapsed {
     display: none;
   }
+  /* the client chip gets a line of its own, under the summary */
   .dg-mcp-entry.dg-withclient .dg-mcp-entry-summary {
-    grid-column: tool / ds;
+    grid-column: tool / -1;
   }
   .dg-mcp-client {
-    grid-column: ds / -1;
+    grid-column: tool;
+    grid-row: 3;
+    justify-self: start;
+    width: auto;
+    max-width: 110px;
+    margin-top: 0;
+  }
+  .dg-mcp-entry.dg-withclient .dg-mcp-entry-sql {
+    grid-row: 4;
+  }
+  .dg-mcp-entry.dg-withclient.dg-session .dg-mcp-client {
+    grid-row: 2;
   }
   .dg-mcp-entry-session {
     grid-column: tool / -1;

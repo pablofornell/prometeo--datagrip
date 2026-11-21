@@ -6,7 +6,7 @@ import { loadLocal, saveUiState } from "../../state/persist";
 import { explorerDataSources } from "../explorer";
 import { confirmDialog } from "./confirm";
 import { EntryRow } from "./EntryRow";
-import { createFresh, createLogFeed } from "./feed";
+import { createFresh, createLogFeed, createScrollAnchor } from "./feed";
 import { type LogRange, RANGES, RETENTION_DAYS, dayKey, dayLabel, groupByDay, plural, rangeSince, startOfDay } from "./model";
 import { clearExplorerFilter, explorerFilter, openSession } from "./nav";
 import { clearLog, now, status } from "./store";
@@ -59,14 +59,16 @@ export function LogTab(): JSX.Element {
   });
   const filtered = () => !!(dsId() || statusF() !== "all" || textQ().trim());
 
-  let before: { h: number; top: number } | null = null;
+  const anchor = createScrollAnchor(() => scroller);
+  let scrolled = false;
   const feed = createLogFeed(query, {
-    // an entry that arrives above what is on screen must not push it down: keep the same rows under the pointer
+    // an entry that arrives above what is on screen must not push it down: keep the row being read where it was
     onLive: (phase, e) => {
-      if (phase === "before") before = { h: scroller.scrollHeight, top: scroller.scrollTop };
-      else if (before) {
-        if (before.top > 0) scroller.scrollTop = before.top + (scroller.scrollHeight - before.h);
-        before = null;
+      if (phase === "before") {
+        scrolled = scroller.scrollTop > 0;
+        if (scrolled) anchor.capture();
+      } else {
+        if (scrolled) anchor.restore(e.id);
         fresh.add(e.id);
       }
     },

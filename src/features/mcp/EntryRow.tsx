@@ -220,6 +220,7 @@ export function EntryRow(props: EntryRowProps): JSX.Element {
       }}
       data-kind={kind()}
       data-status={e().status}
+      data-entry-id={e().id}
     >
       <Show when={props.rail}>
         <div class="dg-mcp-rail">
@@ -284,7 +285,10 @@ export function EntryRow(props: EntryRowProps): JSX.Element {
             <Icon name={props.open ? "chevron-down" : "chevron-right"} />
           </span>
           <Show when={oneLine() && !props.open}>
-            <div class="dg-mcp-entry-sql">{oneLine()}</div>
+            {/* a preview for the eye: out of the accessible name of the button (the full SQL is in the opened body) */}
+            <div class="dg-mcp-entry-sql" aria-hidden="true">
+              {oneLine()}
+            </div>
           </Show>
         </div>
         <Show when={props.open && expandable()}>
