@@ -813,8 +813,9 @@ mod tests {
         let fa: Value = serde_json::from_str(&read(new.join("file-access.json"))).unwrap();
         assert_eq!(fa["files"][0], new_scratch);
         assert_eq!(read(new.join("notes.txt")), old_scratch);
-        // the old files are untouched
-        assert!(read(legacy.join("ui-state.json")).contains(&old_scratch));
+        // the old files are untouched (compared as JSON: on Windows the file holds the path with doubled backslashes)
+        let old: Value = serde_json::from_str(&read(legacy.join("ui-state.json"))).unwrap();
+        assert_eq!(old["tabs"]["list"][0]["data"]["path"], old_scratch);
     }
 
     #[test]
