@@ -22,6 +22,9 @@ export interface AboutInfo {
 
 export const APP_NAME = "Datum";
 
+/** Shown in the About dialog and in "Copy version info". */
+export const APP_AUTHOR = "Pablo Fornell";
+
 /** Operating system from a user agent string; `unknown` when it names none of the three. */
 export function platformName(userAgent: string): string {
   if (/Windows/i.test(userAgent)) return "Windows";
@@ -40,6 +43,7 @@ export function formatBuildDate(iso: string): string {
 export function aboutRows(info: AboutInfo): [string, string][] {
   return [
     ["Version", info.version],
+    ["Created by", APP_AUTHOR],
     ["Build date", formatBuildDate(info.buildDate)],
     ["Tauri", info.tauriVersion ?? "not available (running in a browser)"],
     ["Platform", info.platform],

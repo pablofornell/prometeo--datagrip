@@ -41,8 +41,8 @@ Outputs (the workspace `target/` directory is at the repository root):
 | Path | What it is |
 |---|---|
 | `target\release\datum.exe` | Standalone release binary |
-| `target\release\bundle\nsis\Datum_0.6.0_x64-setup.exe` | NSIS installer (per user) |
-| `target\release\bundle\msi\Datum_0.6.0_x64_en-US.msi` | MSI installer |
+| `target\release\bundle\nsis\Datum_1.0.0_x64-setup.exe` | NSIS installer (per user) |
+| `target\release\bundle\msi\Datum_1.0.0_x64_en-US.msi` | MSI installer |
 
 For a binary without installers:
 

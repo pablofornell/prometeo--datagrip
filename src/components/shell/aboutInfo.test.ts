@@ -19,6 +19,7 @@ describe("formatVersionInfo", () => {
       [
         "Datum",
         "Version: 1.2.3",
+        "Created by: Pablo Fornell",
         "Build date: 2026-11-16",
         "Tauri: 2.9.0",
         "Platform: Linux",

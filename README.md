@@ -83,7 +83,7 @@ publishes the release. CI builds no macOS installers; build them locally with `n
 
 ## Upgrading from 0.5
 
-The app was called Prometeo DataGrip up to 0.5.x. Its identifier changed, so 0.6 is not an in-place
+The app was called Prometeo DataGrip up to 0.5.x. Its identifier changed, so 1.0 is not an in-place
 upgrade: it installs as a separate app, "Datum", next to "Prometeo DataGrip". On the first start Datum copies
 the old install's data sources, settings, window geometry, consoles, scratches and history, and the
 WebView storage with the editor tabs and layout (Linux and Windows; on macOS the WebKit storage is copied on a

@@ -128,7 +128,7 @@ Database integration tests are not part of CI. Start the containers with `make d
 ## Upgrading from 0.5
 
 Datum was called Prometeo DataGrip up to 0.5.x. The identifier of the app changed
-(`dev.prometeo.datagrip` to `dev.datum.desktop`), so 0.6 is **not an in-place upgrade**: it installs as a
+(`dev.prometeo.datagrip` to `dev.datum.desktop`), so 1.0 is **not an in-place upgrade**: it installs as a
 separate app, "Datum", next to "Prometeo DataGrip", and the old app keeps working. On its first start Datum
 copies the data of the old install once. After checking that everything arrived, uninstall the old app (its
 folders and credential entries are not removed by Datum or by the uninstaller; delete them yourself when you no
