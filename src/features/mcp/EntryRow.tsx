@@ -209,7 +209,15 @@ export function EntryRow(props: EntryRowProps): JSX.Element {
   return (
     <article
       class="dg-mcp-entry"
-      classList={{ "dg-open": props.open, "dg-rail": props.rail, "dg-first": props.first, "dg-last": props.last, "dg-fresh": props.fresh }}
+      classList={{
+        "dg-open": props.open,
+        "dg-rail": props.rail,
+        "dg-first": props.first,
+        "dg-last": props.last,
+        "dg-fresh": props.fresh,
+        "dg-session": e().kind !== "tool",
+        "dg-withclient": !!props.onOpenSession,
+      }}
       data-kind={kind()}
       data-status={e().status}
     >
@@ -221,6 +229,8 @@ export function EntryRow(props: EntryRowProps): JSX.Element {
         </div>
       </Show>
       <div class="dg-mcp-entry-main">
+        {/* One grid (mcp.css): a column for each of time, tool, data source, summary, client, status, duration and twisty.
+            A column that has nothing to show stays empty instead of closing up, so the rows line up. */}
         <div
           class="dg-mcp-entry-head"
           role={expandable() ? "button" : undefined}
@@ -234,45 +244,49 @@ export function EntryRow(props: EntryRowProps): JSX.Element {
               <Icon name={meta().icon} />
             </span>
           </Show>
+          <time class="dg-mcp-time" datetime={new Date(e().tsMs).toISOString()} title={new Date(e().tsMs).toLocaleString()}>
+            {clock(e().tsMs)}
+          </time>
           <Show when={e().kind === "tool"} fallback={<span class="dg-mcp-entry-session">{e().summary || meta().label}</span>}>
-            <span class="dg-mcp-tool" data-kind={kind()}>
-              {meta().label}
+            <span class="dg-mcp-cell-tool">
+              <span class="dg-mcp-tool" data-kind={kind()}>
+                {meta().label}
+              </span>
             </span>
-            <DsChip id={e().dataSourceId} name={e().dataSourceName} />
-            <span class="dg-mcp-entry-summary">{e().summary}</span>
+            <span class="dg-mcp-cell-ds">
+              <DsChip id={e().dataSourceId} name={e().dataSourceName} />
+            </span>
+            <span class="dg-mcp-entry-summary" title={e().summary || undefined}>
+              {e().summary}
+            </span>
           </Show>
-          <span class="dg-mcp-entry-meta">
-            <Show when={props.onOpenSession}>
-              <button
-                type="button"
-                class="dg-mcp-client"
-                title="Show the session"
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                  props.onOpenSession!(e().sessionId);
-                }}
-                onKeyDown={(ev) => ev.stopPropagation()}
-              >
-                {e().clientName}
-              </button>
-            </Show>
-            <Show when={e().kind === "tool"}>
+          <Show when={props.onOpenSession}>
+            <button
+              type="button"
+              class="dg-mcp-client"
+              title="Show the session"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                props.onOpenSession!(e().sessionId);
+              }}
+              onKeyDown={(ev) => ev.stopPropagation()}
+            >
+              {e().clientName}
+            </button>
+          </Show>
+          <Show when={e().kind === "tool"}>
+            <span class="dg-mcp-cell-status">
               <StatusPill status={e().status} />
-              <span class="dg-mcp-elapsed">{duration(e().elapsedMs)}</span>
-            </Show>
-            <time class="dg-mcp-time" datetime={new Date(e().tsMs).toISOString()} title={new Date(e().tsMs).toLocaleString()}>
-              {clock(e().tsMs)}
-            </time>
-            <span class="dg-mcp-twisty" classList={{ "dg-hidden-twisty": !expandable() }}>
-              <Icon name={props.open ? "chevron-down" : "chevron-right"} />
             </span>
+            <span class="dg-mcp-elapsed">{duration(e().elapsedMs)}</span>
+          </Show>
+          <span class="dg-mcp-twisty" classList={{ "dg-hidden-twisty": !expandable() }}>
+            <Icon name={props.open ? "chevron-down" : "chevron-right"} />
           </span>
+          <Show when={oneLine() && !props.open}>
+            <div class="dg-mcp-entry-sql">{oneLine()}</div>
+          </Show>
         </div>
-        <Show when={oneLine() && !props.open}>
-          <div class="dg-mcp-entry-sql" onClick={() => props.onToggle()}>
-            {oneLine()}
-          </div>
-        </Show>
         <Show when={props.open && expandable()}>
           <Detail e={e()} />
         </Show>

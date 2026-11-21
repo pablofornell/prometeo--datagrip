@@ -32,7 +32,7 @@ pub(crate) enum RowAddr {
 }
 
 /// Name of the hidden column `table_data` appends to select the row locator.
-const LOCATOR_COL: &str = "__prometeo_row_locator";
+const LOCATOR_COL: &str = "__datum_row_locator";
 
 /// Runs the statements one after another on `$conn` (anything `&mut *$conn` can execute on). Stops at the
 /// first failure. Returns `(results, failed)`; transaction control is the caller's.
@@ -538,7 +538,7 @@ async fn run_on_conn(
     stmts: &[Stmt],
 ) -> Result<(Vec<ChangeResult>, bool)> {
     let open = if in_tx {
-        "savepoint prometeo_apply"
+        "savepoint datum_apply"
     } else if d == Driver::MySql {
         "start transaction"
     } else {
@@ -557,9 +557,9 @@ async fn run_on_conn(
     // Oracle has no RELEASE SAVEPOINT: the savepoint just stays until the transaction ends
     if failed {
         if in_tx {
-            conn_run(conn, "rollback to savepoint prometeo_apply").await?;
+            conn_run(conn, "rollback to savepoint datum_apply").await?;
             if d != Driver::Oracle {
-                conn_run(conn, "release savepoint prometeo_apply").await?;
+                conn_run(conn, "release savepoint datum_apply").await?;
             }
         } else if let Conn::Ora(c) = conn {
             let _ = c.rollback().await;
@@ -568,7 +568,7 @@ async fn run_on_conn(
         }
     } else if in_tx {
         if d != Driver::Oracle {
-            conn_run(conn, "release savepoint prometeo_apply").await?;
+            conn_run(conn, "release savepoint datum_apply").await?;
         }
     } else if let Conn::Ora(c) = conn {
         c.commit().await?;
@@ -770,7 +770,7 @@ pub(crate) fn ora_page_sql(sql: &str, offset: u64, fetch: u64, release: u32) -> 
         return format!("{sql} offset {offset} rows fetch next {fetch} rows only");
     }
     format!(
-        "select * from (select q.*, rownum prometeo_rn from ({sql}) q where rownum <= {}) where prometeo_rn > {offset}",
+        "select * from (select q.*, rownum datum_rn from ({sql}) q where rownum <= {}) where datum_rn > {offset}",
         offset.saturating_add(fetch)
     )
 }
@@ -1164,12 +1164,12 @@ mod tests {
         for old in [crate::oracle::release(10, 2), crate::oracle::release(11, 2)] {
             assert_eq!(
                 ora_page_sql(sql, 500, 501, old),
-                "select * from (select q.*, rownum prometeo_rn from (select * from DEMO.T order by A) q \
-                 where rownum <= 1001) where prometeo_rn > 500"
+                "select * from (select q.*, rownum datum_rn from (select * from DEMO.T order by A) q \
+                 where rownum <= 1001) where datum_rn > 500"
             );
         }
         assert!(ora_page_sql(sql, 0, 11, crate::oracle::release(10, 2))
-            .ends_with("rownum <= 11) where prometeo_rn > 0"));
+            .ends_with("rownum <= 11) where datum_rn > 0"));
     }
 
     fn change(kind: ChangeKind, key: &[(&str, Value)], values: &[(&str, Value)]) -> RowChange {

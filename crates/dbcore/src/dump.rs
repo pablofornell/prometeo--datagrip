@@ -660,7 +660,7 @@ async fn dump_pg<W: Write>(
     let d = Driver::Postgres;
 
     writeln!(w, "--")?;
-    writeln!(w, "-- Prometeo DataGrip dump")?;
+    writeln!(w, "-- Datum dump")?;
     writeln!(w, "-- {}", live.server_version)?;
     writeln!(w, "--")?;
     writeln!(w)?;
@@ -1258,7 +1258,7 @@ async fn dump_my<W: Write>(
     let target = opts.target_schema.as_deref().unwrap_or(schema);
 
     writeln!(w, "--")?;
-    writeln!(w, "-- Prometeo DataGrip dump")?;
+    writeln!(w, "-- Datum dump")?;
     writeln!(w, "-- {}", live.server_version)?;
     writeln!(w, "--")?;
     writeln!(w)?;
@@ -1450,7 +1450,7 @@ async fn dump_lite<W: Write>(
     };
 
     writeln!(w, "--")?;
-    writeln!(w, "-- Prometeo DataGrip dump")?;
+    writeln!(w, "-- Datum dump")?;
     writeln!(w, "-- {}", live.server_version)?;
     writeln!(w, "--")?;
     writeln!(w)?;
@@ -2699,7 +2699,7 @@ async fn dump_ora<W: Write>(
     };
 
     writeln!(w, "--")?;
-    writeln!(w, "-- Prometeo DataGrip dump")?;
+    writeln!(w, "-- Datum dump")?;
     writeln!(w, "-- {}", live.server_version)?;
     writeln!(w, "-- (SQL*Plus: run SET DEFINE OFF first)")?;
     writeln!(w, "--")?;

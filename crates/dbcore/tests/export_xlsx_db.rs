@@ -1,6 +1,6 @@
 //! Excel (xlsx) export of an Oracle query: NUMBER(38,10), DATE, TIMESTAMP, CLOB and NULL cells end up typed in the
 //! sheet XML. The table is named `XLX_T` in the login schema and dropped at the start and at the end. Run with:
-//!   PROMETEO_ORACLE_URL=oracle://demo:prometeo@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test export_xlsx_db -- --nocapture
+//!   DATUM_ORACLE_URL=oracle://demo:datum@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test export_xlsx_db -- --nocapture
 
 mod common;
 
@@ -42,7 +42,7 @@ fn number_of(sheet: &str, r: &str) -> f64 {
 #[tokio::test]
 async fn oracle_export_writes_the_typed_cells_of_a_query() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

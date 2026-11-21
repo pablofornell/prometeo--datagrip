@@ -2,11 +2,11 @@
 //! (the Database Explorer down to the columns, table data, the console) works and the text comes back unchanged.
 //! The driver asks for UTF-8 and the server converts, so a test against an AL32UTF8 server cannot show a fault
 //! here. Run with such a server:
-//!   PROMETEO_ORACLE_19C_URL=oracle://demo:prometeo@127.0.0.1:15319/ORCL cargo test -p dbcore --test oracle_charset
+//!   DATUM_ORACLE_19C_URL=oracle://demo:datum@127.0.0.1:15319/ORCL cargo test -p dbcore --test oracle_charset
 //! The account needs `CREATE TABLE` and a quota. The test makes its own tables (`CS19_*`); a server with another
 //! character set or release can also run it. A 19.3 server (community image built from oracle/docker-images; the
 //! first start creates the database, about 15 minutes; the service name is the SID):
-//!   docker run -d --name prometeo-oracle19 -p 127.0.0.1:15319:1521 -e ORACLE_SID=ORCL -e ORACLE_PWD=<sys password> \
+//!   docker run -d --name datum-oracle19 -p 127.0.0.1:15319:1521 -e ORACLE_SID=ORCL -e ORACLE_PWD=<sys password> \
 //!     -e ORACLE_CHARACTERSET=WE8MSWIN1252 doctorkirk/oracle-19c:19.3
 
 mod common;
@@ -21,7 +21,7 @@ const LATIN: &str = "Peña año € ü";
 const GREEK: &str = "Δέλτα";
 
 fn cfg() -> Option<DataSourceConfig> {
-    let mut cfg = oracle_cfg_from_env("PROMETEO_ORACLE_19C_URL")?;
+    let mut cfg = oracle_cfg_from_env("DATUM_ORACLE_19C_URL")?;
     cfg.id = "ora-19c".into();
     Some(cfg)
 }
@@ -66,7 +66,7 @@ fn fixture() -> String {
 #[tokio::test]
 async fn single_byte_charset_explorer_data_and_console() {
     let Some(cfg) = cfg() else {
-        eprintln!("PROMETEO_ORACLE_19C_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_19C_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

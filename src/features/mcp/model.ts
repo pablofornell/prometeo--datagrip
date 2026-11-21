@@ -1,7 +1,7 @@
 /** Pure logic of the MCP view: install snippets, permission rules and their display, day grouping, log filters, formatting. */
 import type { McpEffectivePerm, McpLogEntry, McpLogQuery, McpLogStatus, McpPerm, McpPolicyInput, McpSession } from "../../api/types";
 
-export const SERVER_NAME = "prometeo-datagrip";
+export const SERVER_NAME = "datum";
 export const DEFAULT_PORT = 7311;
 export const MIN_PORT = 1024;
 export const MAX_PORT = 65535;
@@ -24,26 +24,42 @@ export interface CodePart {
   cls?: "cmd" | "flag" | "str" | "url" | "key" | "punct";
 }
 
-/** The one-line `claude mcp add` command (a single line runs the same in bash, PowerShell and cmd), in colored pieces. */
-export const claudeCommandParts = (endpoint: string, token: string): CodePart[] => [
-  { text: "claude mcp add", cls: "cmd" },
-  { text: " " },
-  { text: "--transport", cls: "flag" },
-  { text: ` http ${SERVER_NAME} ` },
-  { text: endpoint, cls: "url" },
-  { text: " " },
-  { text: "--header", cls: "flag" },
-  { text: " " },
-  { text: `"Authorization: Bearer ${token}"`, cls: "str" },
-];
-
 /** Read-only is a read-only connection where the database has one; the hard guarantee is the database user. */
 export const READ_ONLY_NOTE =
   "Read-only is enforced by a read-only connection on PostgreSQL, MySQL and SQLite, but on Oracle it is a check made by the app, and a function with side effects can still write: for a hard guarantee, connect with a database user that only has SELECT rights.";
 
-export const claudeCommand = (endpoint: string, token: string): string => claudeCommandParts(endpoint, token).map((p) => p.text).join("");
+const joinParts = (parts: CodePart[]): string => parts.map((p) => p.text).join("");
 
-/** The project `.mcp.json` entry. */
+/** One word of a command: a flag, a URL, a string (written in double quotes) or a plain word. */
+type Arg = { flag: string } | { url: string } | { str: string } | { word: string };
+/** A one-line `<cli> mcp add …` command in colored pieces: one line runs the same in bash, PowerShell and cmd. */
+function commandParts(cmd: string, args: Arg[]): CodePart[] {
+  const out: CodePart[] = [{ text: cmd, cls: "cmd" }];
+  for (const a of args) {
+    out.push({ text: " " });
+    if ("flag" in a) out.push({ text: a.flag, cls: "flag" });
+    else if ("url" in a) out.push({ text: a.url, cls: "url" });
+    else if ("str" in a) out.push({ text: `"${a.str}"`, cls: "str" });
+    else out.push({ text: a.word });
+  }
+  return out;
+}
+
+/** The one-line `claude mcp add` command (local scope: this project, only for you), in colored pieces. */
+export const claudeCommandParts = (endpoint: string, token: string, global = false): CodePart[] =>
+  commandParts("claude mcp add", [
+    { flag: "--transport" },
+    { word: "http" },
+    ...(global ? [{ flag: "--scope" }, { word: "user" }] : []),
+    { word: SERVER_NAME },
+    { url: endpoint },
+    { flag: "--header" },
+    { str: `Authorization: Bearer ${token}` },
+  ]);
+
+export const claudeCommand = (endpoint: string, token: string, global = false): string => joinParts(claudeCommandParts(endpoint, token, global));
+
+/** The project `.mcp.json` entry of Claude Code. */
 export const mcpJson = (endpoint: string, token: string): string =>
   JSON.stringify({ mcpServers: { [SERVER_NAME]: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${token}` } } } }, null, 2);
 
@@ -63,6 +79,185 @@ export function jsonParts(text: string): CodePart[] {
   if (at < text.length) out.push({ text: text.slice(at) });
   return out;
 }
+
+/**
+ * The Codex `config.toml` tables: `http_headers` holds a static `Authorization` header (`bearer_token_env_var` would need an
+ * environment variable). Written as a sub-table rather than an inline one so that the lines stay short.
+ */
+export const codexToml = (endpoint: string, token: string): string =>
+  `[mcp_servers.${SERVER_NAME}]\nurl = "${endpoint}"\n\n[mcp_servers.${SERVER_NAME}.http_headers]\nAuthorization = "Bearer ${token}"\n`;
+
+/** Pieces of the small TOML texts made here: `[table]` headers, bare keys, strings and punctuation. */
+export function tomlParts(text: string): CodePart[] {
+  const out: CodePart[] = [];
+  const re = /^(\[[^\]\n]+\])|("(?:[^"\\]|\\.)*")(\s*=)?|^([A-Za-z0-9_-]+)(\s*=)|[{},=]/gm;
+  let at = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    if (m.index > at) out.push({ text: text.slice(at, m.index) });
+    if (m[1]) out.push({ text: m[1], cls: "key" });
+    else if (m[2]) {
+      out.push({ text: m[2], cls: m[3] ? "key" : "str" });
+      if (m[3]) out.push({ text: m[3], cls: "punct" });
+    } else if (m[4]) {
+      out.push({ text: m[4], cls: "key" });
+      out.push({ text: m[5], cls: "punct" });
+    } else out.push({ text: m[0], cls: "punct" });
+    at = m.index + m[0].length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
+/** The agents the Connect tab has instructions for (docs/MCP.md lists the sources). */
+export type AgentId = "claude" | "codex" | "gemini" | "cursor" | "copilot" | "opencode";
+export type InstallScope = "project" | "global";
+
+export const AGENTS: { id: AgentId; label: string }[] = [
+  { id: "claude", label: "Claude Code" },
+  { id: "codex", label: "Codex CLI" },
+  { id: "gemini", label: "Gemini CLI" },
+  { id: "cursor", label: "Cursor" },
+  { id: "copilot", label: "GitHub Copilot" },
+  { id: "opencode", label: "OpenCode" },
+];
+export const DEFAULT_AGENT: AgentId = "claude";
+export const isAgentId = (v: unknown): v is AgentId => AGENTS.some((a) => a.id === v);
+export const agentLabel = (id: AgentId): string => AGENTS.find((a) => a.id === id)!.label;
+
+/** Plain text with inline code: a string is text, `{ code }` is shown as code. */
+export type RichText = (string | { code: string })[];
+
+/** How to install Datum in one agent, for one scope. */
+export interface InstallSnippet {
+  /** A command to run, or a file entry to save. */
+  kind: "command" | "file";
+  /** The text to copy (with the token it was built with). */
+  text: string;
+  /** The same text in colored pieces. */
+  parts: CodePart[];
+  /** Language of a file entry, for the label of the code block. */
+  lang?: "json" | "toml";
+  /** Where a file entry goes: the path on Linux and macOS, and on Windows when it differs. */
+  path?: { posix: string; windows?: string };
+  /** Title of step 2 ("Run it in a terminal", "Save it in …"). */
+  title: string;
+  /** Text of step 2: where, what to merge, and how to check it. */
+  how: RichText;
+}
+
+const json = (v: unknown): string => JSON.stringify(v, null, 2).replace(/\[\n\s+("\*")\n\s+\]/g, "[$1]");
+const fileSnippet = (lang: "json" | "toml", text: string, path: InstallSnippet["path"] & {}, title: string, how: RichText): InstallSnippet => ({
+  kind: "file",
+  lang,
+  text,
+  parts: lang === "json" ? jsonParts(text) : tomlParts(text),
+  path,
+  title,
+  how,
+});
+const commandSnippet = (parts: CodePart[], how: RichText): InstallSnippet => ({ kind: "command", text: joinParts(parts), parts, title: "Run it in a terminal", how });
+const winPath = (rel: string) => "%USERPROFILE%\\" + rel.replace(/\//g, "\\");
+
+/**
+ * The install snippet of an agent for a scope, with `token` written in it: build it once with the masked token for the
+ * screen and once with the real one for the copy. `project` is this project only, `global` every project of the user.
+ */
+export function installSnippet(agent: AgentId, scope: InstallScope, endpoint: string, token: string): InstallSnippet {
+  const global = scope === "global";
+  const auth = `Bearer ${token}`;
+  switch (agent) {
+    case "claude":
+      return commandSnippet(
+        claudeCommandParts(endpoint, token, global),
+        global
+          ? ["From any folder: ", { code: "--scope user" }, " makes it available in all your projects. Check it with ", { code: "claude mcp list" }, "."]
+          : [
+              "In the project folder: only you get it, in this project. To share it with the team in ",
+              { code: ".mcp.json" },
+              ", add ",
+              { code: "--scope project" },
+              ". Check it with ",
+              { code: "claude mcp list" },
+              ".",
+            ],
+      );
+    case "gemini":
+      return commandSnippet(
+        commandParts("gemini mcp add", [
+          { flag: "--transport" },
+          { word: "http" },
+          ...(global ? [{ flag: "--scope" }, { word: "user" }] : []),
+          { flag: "--header" },
+          { str: `Authorization: ${auth}` },
+          { word: SERVER_NAME },
+          { url: endpoint },
+        ]),
+        global
+          ? ["From any folder: it is saved in ", { code: "~/.gemini/settings.json" }, " for all your projects. Check it with ", { code: "gemini mcp list" }, "."]
+          : ["In the project folder: it is saved in its ", { code: ".gemini/settings.json" }, ". Check it with ", { code: "gemini mcp list" }, "."],
+      );
+    case "opencode":
+      return commandSnippet(
+        commandParts("opencode mcp add", [
+          { word: SERVER_NAME },
+          ...(global ? [{ flag: "--global" }] : []),
+          { flag: "--url" },
+          { url: endpoint },
+          { flag: "--header" },
+          { str: `Authorization=${auth}` },
+        ]),
+        global
+          ? ["From any folder: ", { code: "--global" }, " makes it available in every project. Check it with ", { code: "opencode mcp list" }, "."]
+          : ["In the project folder: it is saved in the project config. Check it with ", { code: "opencode mcp list" }, "."],
+      );
+    case "codex": {
+      const text = codexToml(endpoint, token);
+      const check: RichText = ["Check it with ", { code: "codex mcp list" }, ", or ", { code: "/mcp" }, " in Codex."];
+      return global
+        ? fileSnippet("toml", text, { posix: "~/.codex/config.toml", windows: winPath(".codex/config.toml") }, "Save it in ~/.codex/config.toml", [
+            "Add it at the end of the file (Windows: ",
+            { code: winPath(".codex/config.toml") },
+            "). ",
+            ...check,
+          ])
+        : fileSnippet("toml", text, { posix: ".codex/config.toml" }, "Save it in .codex/config.toml", [
+            "In the project folder (add it to the file if it exists). Codex reads it only in projects you trust. ",
+            ...check,
+          ]);
+    }
+    case "cursor": {
+      const text = json({ mcpServers: { [SERVER_NAME]: { url: endpoint, headers: { Authorization: auth } } } });
+      const merge = "Merge it with the servers you already have, then check the server in Cursor's MCP settings.";
+      return global
+        ? fileSnippet("json", text, { posix: "~/.cursor/mcp.json", windows: winPath(".cursor/mcp.json") }, "Save it in ~/.cursor/mcp.json", [
+            "In your home folder (Windows: ",
+            { code: winPath(".cursor/mcp.json") },
+            "). ",
+            merge,
+          ])
+        : fileSnippet("json", text, { posix: ".cursor/mcp.json" }, "Save it in .cursor/mcp.json", ["In the project folder. ", merge]);
+    }
+    case "copilot": {
+      const text = json({ mcpServers: { [SERVER_NAME]: { type: "http", url: endpoint, headers: { Authorization: auth }, tools: ["*"] } } });
+      const check: RichText = ["Check it with ", { code: "copilot mcp list" }, ", or in VS Code under Chat: Open Customizations › MCP Servers."];
+      return global
+        ? fileSnippet("json", text, { posix: "~/.copilot/mcp-config.json", windows: winPath(".copilot/mcp-config.json") }, "Save it in ~/.copilot/mcp-config.json", [
+            "Copilot in VS Code and Copilot CLI read it in every project (Windows: ",
+            { code: winPath(".copilot/mcp-config.json") },
+            "). Merge it with the servers you already have. ",
+            ...check,
+          ])
+        : fileSnippet("json", text, { posix: ".mcp.json" }, "Save it as .mcp.json", [
+            "In the root of the project, merged with the servers you already have; Copilot in VS Code and Copilot CLI read it once you trust the folder. ",
+            ...check,
+          ]);
+    }
+  }
+}
+
+/** One line under the Global switch, saying what the current choice does. */
+export const scopeHint = (agent: AgentId, scope: InstallScope): string =>
+  scope === "global" ? `${agentLabel(agent)} can use Datum in every project you open.` : `Only in the project where you set it up.`;
 
 /** Valid listener port typed by the user (the backend runs unprivileged: no ports below 1024). */
 export const parsePort = (text: string): number | null => {

@@ -1,4 +1,4 @@
-# Building Prometeo DataGrip on Windows
+# Building Datum on Windows
 
 ## Requirements
 
@@ -19,8 +19,8 @@
 ## Install and run
 
 ```powershell
-git clone <repository-url> prometeo-datagrip
-cd prometeo-datagrip
+git clone <repository-url> datum
+cd datum
 npm ci
 npm run tauri dev
 ```
@@ -40,9 +40,9 @@ Outputs (the workspace `target/` directory is at the repository root):
 
 | Path | What it is |
 |---|---|
-| `target\release\prometeo-datagrip.exe` | Standalone release binary |
-| `target\release\bundle\nsis\Prometeo DataGrip_0.5.0_x64-setup.exe` | NSIS installer (per user) |
-| `target\release\bundle\msi\Prometeo DataGrip_0.5.0_x64_en-US.msi` | MSI installer |
+| `target\release\datum.exe` | Standalone release binary |
+| `target\release\bundle\nsis\Datum_0.6.0_x64-setup.exe` | NSIS installer (per user) |
+| `target\release\bundle\msi\Datum_0.6.0_x64_en-US.msi` | MSI installer |
 
 For a binary without installers:
 

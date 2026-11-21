@@ -1,6 +1,6 @@
 //! MySQL transaction tracking against the real server: nothing is sent between the user's statements (so
 //! `row_count()` / `show warnings` stay correct), and the tracker must still equal what the server thinks. Run with:
-//!   PROMETEO_MYSQL_URL=mysql://root:prometeo@localhost:33069/demo cargo test -p dbcore --test tx_mysql -- --nocapture
+//!   DATUM_MYSQL_URL=mysql://root:datum@localhost:33069/demo cargo test -p dbcore --test tx_mysql -- --nocapture
 
 mod common;
 
@@ -12,7 +12,7 @@ use std::time::Duration;
 macro_rules! setup {
     () => {{
         let Some(cfg) = mysql_cfg() else {
-            eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+            eprintln!("DATUM_MYSQL_URL not set: skipping");
             return;
         };
         seed_mysql(&cfg).await;

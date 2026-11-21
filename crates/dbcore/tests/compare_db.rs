@@ -5,7 +5,7 @@
 //! `CMPOA_` / `CMPOB_` / `CMPOR_` in the demo user's schema (the second schema cannot be created there), the PostgreSQL
 //! schemas `cmp_pg_a` / `cmp_pg_b`, the MySQL databases `cmp_my_a` / `cmp_my_b`.
 //!
-//!   PROMETEO_ORACLE_URL=oracle://demo:...@127.0.0.1:15219/FREEPDB1 PROMETEO_PG_URL=... \
+//!   DATUM_ORACLE_URL=oracle://demo:...@127.0.0.1:15219/FREEPDB1 DATUM_PG_URL=... \
 //!   cargo test -p dbcore --test compare_db -- --nocapture
 
 mod common;
@@ -120,7 +120,7 @@ const ORA_OBJECTS: [&str; 8] = [
 #[tokio::test]
 async fn oracle_model_of_two_prefixed_sets() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let owner = cfg.user.to_uppercase();
@@ -329,7 +329,7 @@ async fn ora_routine_hash(mgr: &ConnectionManager, ds: &str, owner: &str) -> Str
 #[tokio::test]
 async fn oracle_routine_fingerprint_ignores_layout_case_and_owner() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let owner = cfg.user.to_uppercase();
@@ -423,7 +423,7 @@ create function cmp_pg_b.f_double(a integer) returns integer language sql as 'se
 #[tokio::test]
 async fn postgres_model_of_two_schemas() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     seed_pg(&cfg).await;
@@ -604,7 +604,7 @@ create view cmp_my_b.v_orders as select id, name, total from cmp_my_b.orders;
 #[tokio::test]
 async fn mysql_model_of_two_databases() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     seed_mysql(&cfg).await;

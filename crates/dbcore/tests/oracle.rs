@@ -1,5 +1,5 @@
 //! Oracle integration tests. Run with:
-//!   PROMETEO_ORACLE_URL=oracle://demo:prometeo@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test oracle -- --nocapture
+//!   DATUM_ORACLE_URL=oracle://demo:datum@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test oracle -- --nocapture
 
 mod common;
 
@@ -16,7 +16,7 @@ mod dialect {
     macro_rules! setup {
         () => {{
             let Some(cfg) = oracle_cfg() else {
-                eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+                eprintln!("DATUM_ORACLE_URL not set: skipping");
                 return;
             };
             seed_oracle(&cfg).await;
@@ -1259,7 +1259,7 @@ mod runtime {
     macro_rules! setup {
         () => {{
             let Some(cfg) = oracle_cfg() else {
-                eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+                eprintln!("DATUM_ORACLE_URL not set: skipping");
                 return;
             };
             let mgr = connected(&cfg).await;
@@ -1778,7 +1778,7 @@ mod runtime {
         let mut sys = cfg.clone();
         sys.id = "ora-system".into();
         sys.user = "system".into();
-        sys.password = Some("prometeo".into());
+        sys.password = Some("datum".into());
         let admin = ConnectionManager::new();
         if admin.connect(&sys).await.is_err() {
             eprintln!("cannot log in as SYSTEM: skipping");
@@ -2374,11 +2374,11 @@ mod runtime {
 /// re-passworded on 12c+ servers). Needs a server with `SQLNET.ALLOWED_LOGON_VERSION_SERVER=11`
 /// and such an account (`create user .. identified by values 'S:<sha1(pw||salt)><salt>'`); see
 /// vendor/oracledb/PATCHES.md. Run with
-///   PROMETEO_ORACLE_11G_URL=oracle://legacy11g:Legacy11g@127.0.0.1:15219/FREEPDB1
+///   DATUM_ORACLE_11G_URL=oracle://legacy11g:Legacy11g@127.0.0.1:15219/FREEPDB1
 #[tokio::test]
 async fn logon_with_11g_password_verifier() {
-    let Some(mut cfg) = oracle_cfg_from_env("PROMETEO_ORACLE_11G_URL") else {
-        eprintln!("PROMETEO_ORACLE_11G_URL not set: skipping");
+    let Some(mut cfg) = oracle_cfg_from_env("DATUM_ORACLE_11G_URL") else {
+        eprintln!("DATUM_ORACLE_11G_URL not set: skipping");
         return;
     };
     cfg.id = "ora-11g".into();

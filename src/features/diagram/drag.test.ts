@@ -128,7 +128,7 @@ describe("Router.moveBox", () => {
   });
 });
 
-// ---------------------------------------------------------------- benchmark-style (ratios always, absolute budgets under PROMETEO_BENCH=1)
+// ---------------------------------------------------------------- benchmark-style (ratios always, absolute budgets under DATUM_BENCH=1)
 
 describe("drag performance", () => {
   it("routes a drag frame in a small fraction of a full routing at 300 tables", () => {
@@ -160,7 +160,7 @@ describe("drag performance", () => {
     const note = `best frame ${best.toFixed(1)} ms, median ${median.toFixed(1)} ms (p90 ${p90.toFixed(1)} ms, build ${build.toFixed(1)} ms, full route ${fullMs.toFixed(0)} ms)`;
     expect(best * 5, note).toBeLessThan(fullMs);
     expect(median * 2, note).toBeLessThan(fullMs);
-    // target < 16 ms a frame: absolute budgets only on a quiet machine (PROMETEO_BENCH=1)
+    // target < 16 ms a frame: absolute budgets only on a quiet machine (DATUM_BENCH=1)
     expect(median, note).toBeLessThan(budget(40));
     expect(p90, note).toBeLessThan(budget(120));
     expect(build, note).toBeLessThan(budget(400));

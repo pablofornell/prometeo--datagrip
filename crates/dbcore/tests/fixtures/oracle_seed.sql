@@ -1,4 +1,4 @@
--- Prometeo DataGrip test fixture for Oracle Database 23ai (schema DEMO). Idempotent.
+-- Datum test fixture for Oracle Database 23ai (schema DEMO). Idempotent.
 -- Statements end with ';', PL/SQL units and blocks with a line holding only '/'.
 
 BEGIN

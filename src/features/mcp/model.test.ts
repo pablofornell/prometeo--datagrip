@@ -2,7 +2,15 @@
 import { describe, expect, it } from "vitest";
 import type { McpLogEntry, McpPolicyInput, McpSession } from "../../api/types";
 import {
+  AGENTS,
+  type AgentId,
+  type InstallScope,
   type PermSource,
+  codexToml,
+  installSnippet,
+  isAgentId,
+  scopeHint,
+  tomlParts,
   claudeCommand,
   capEntries,
   claudeCommandParts,
@@ -67,7 +75,7 @@ const entry = (p: Partial<McpLogEntry> = {}): McpLogEntry => ({
 describe("install snippets", () => {
   it("builds the claude command with the endpoint and the token", () => {
     expect(claudeCommand("http://127.0.0.1:7311/mcp", "tok")).toBe(
-      'claude mcp add --transport http prometeo-datagrip http://127.0.0.1:7311/mcp --header "Authorization: Bearer tok"',
+      'claude mcp add --transport http datum http://127.0.0.1:7311/mcp --header "Authorization: Bearer tok"',
     );
   });
 
@@ -77,7 +85,7 @@ describe("install snippets", () => {
 
   it("builds the .mcp.json entry", () => {
     expect(JSON.parse(mcpJson("http://x/mcp", "t"))).toEqual({
-      mcpServers: { "prometeo-datagrip": { type: "http", url: "http://x/mcp", headers: { Authorization: "Bearer t" } } },
+      mcpServers: { "datum": { type: "http", url: "http://x/mcp", headers: { Authorization: "Bearer t" } } },
     });
   });
 
@@ -85,8 +93,116 @@ describe("install snippets", () => {
     const text = mcpJson("http://x/mcp", "t");
     const parts = jsonParts(text);
     expect(parts.map((p) => p.text).join("")).toBe(text);
-    expect(parts.filter((p) => p.cls === "key").map((p) => p.text)).toEqual(['"mcpServers"', '"prometeo-datagrip"', '"type"', '"url"', '"headers"', '"Authorization"']);
+    expect(parts.filter((p) => p.cls === "key").map((p) => p.text)).toEqual(['"mcpServers"', '"datum"', '"type"', '"url"', '"headers"', '"Authorization"']);
     expect(parts.filter((p) => p.cls === "str").map((p) => p.text)).toEqual(['"http"', '"http://x/mcp"', '"Bearer t"']);
+  });
+
+  it("adds --scope user to the global claude command", () => {
+    expect(claudeCommand("http://x/mcp", "tok", true)).toBe('claude mcp add --transport http --scope user datum http://x/mcp --header "Authorization: Bearer tok"');
+  });
+
+  it("splits the codex TOML into keys, values and punctuation without losing a character", () => {
+    const text = codexToml("http://x/mcp", "t");
+    expect(text).toBe('[mcp_servers.datum]\nurl = "http://x/mcp"\n\n[mcp_servers.datum.http_headers]\nAuthorization = "Bearer t"\n');
+    const parts = tomlParts(text);
+    expect(parts.map((p) => p.text).join("")).toBe(text);
+    expect(parts.filter((p) => p.cls === "key").map((p) => p.text)).toEqual(["[mcp_servers.datum]", "url", "[mcp_servers.datum.http_headers]", "Authorization"]);
+    expect(parts.filter((p) => p.cls === "str").map((p) => p.text)).toEqual(['"http://x/mcp"', '"Bearer t"']);
+  });
+
+  it("knows its agents", () => {
+    expect(AGENTS.map((a) => a.id)).toEqual(["claude", "codex", "gemini", "cursor", "copilot", "opencode"]);
+    expect(isAgentId("cursor")).toBe(true);
+    expect(isAgentId("vim")).toBe(false);
+    expect(scopeHint("cursor", "global")).toContain("Cursor");
+    expect(scopeHint("cursor", "project")).not.toBe(scopeHint("cursor", "global"));
+  });
+
+  const EP = "http://127.0.0.1:7311/mcp";
+  const TOKEN = "pdg_0123456789abcdef";
+  const expected: Record<AgentId, Record<InstallScope, string>> = {
+    claude: {
+      project: `claude mcp add --transport http datum ${EP} --header "Authorization: Bearer ${TOKEN}"`,
+      global: `claude mcp add --transport http --scope user datum ${EP} --header "Authorization: Bearer ${TOKEN}"`,
+    },
+    gemini: {
+      project: `gemini mcp add --transport http --header "Authorization: Bearer ${TOKEN}" datum ${EP}`,
+      global: `gemini mcp add --transport http --scope user --header "Authorization: Bearer ${TOKEN}" datum ${EP}`,
+    },
+    opencode: {
+      project: `opencode mcp add datum --url ${EP} --header "Authorization=Bearer ${TOKEN}"`,
+      global: `opencode mcp add datum --global --url ${EP} --header "Authorization=Bearer ${TOKEN}"`,
+    },
+    codex: { project: codexToml(EP, TOKEN), global: codexToml(EP, TOKEN) },
+    cursor: {
+      project: JSON.stringify({ mcpServers: { datum: { url: EP, headers: { Authorization: `Bearer ${TOKEN}` } } } }, null, 2),
+      global: JSON.stringify({ mcpServers: { datum: { url: EP, headers: { Authorization: `Bearer ${TOKEN}` } } } }, null, 2),
+    },
+    copilot: {
+      project: JSON.stringify({ mcpServers: { datum: { type: "http", url: EP, headers: { Authorization: `Bearer ${TOKEN}` }, tools: ["*"] } } }),
+      global: JSON.stringify({ mcpServers: { datum: { type: "http", url: EP, headers: { Authorization: `Bearer ${TOKEN}` }, tools: ["*"] } } }),
+    },
+  };
+  const paths: Partial<Record<AgentId, Record<InstallScope, { posix: string; windows?: string }>>> = {
+    codex: { project: { posix: ".codex/config.toml" }, global: { posix: "~/.codex/config.toml", windows: "%USERPROFILE%\\.codex\\config.toml" } },
+    cursor: { project: { posix: ".cursor/mcp.json" }, global: { posix: "~/.cursor/mcp.json", windows: "%USERPROFILE%\\.cursor\\mcp.json" } },
+    copilot: { project: { posix: ".mcp.json" }, global: { posix: "~/.copilot/mcp-config.json", windows: "%USERPROFILE%\\.copilot\\mcp-config.json" } },
+  };
+  const richText = (r: (string | { code: string })[]) => r.map((x) => (typeof x === "string" ? x : x.code)).join("");
+
+  for (const { id } of AGENTS)
+    for (const scope of ["project", "global"] as const)
+      describe(`${id} / ${scope}`, () => {
+        const real = installSnippet(id, scope, EP, TOKEN);
+        const shown = installSnippet(id, scope, EP, maskToken(TOKEN));
+
+        it("copies the expected text with the real token", () => {
+          if (id === "copilot") {
+            expect(JSON.parse(real.text)).toEqual(JSON.parse(expected[id][scope]));
+            expect(real.text).toContain('"tools": ["*"]');
+          }
+          else expect(real.text).toBe(expected[id][scope]);
+          expect(real.text).toContain(TOKEN);
+          expect(real.text).toContain(EP);
+        });
+
+        it("shows the masked token and the same text otherwise", () => {
+          const shownText = shown.parts.map((p) => p.text).join("");
+          expect(shownText).toBe(shown.text);
+          expect(shownText).not.toContain(TOKEN);
+          expect(shownText).toContain(maskToken(TOKEN));
+          expect(shownText).toBe(real.text.replace(TOKEN, maskToken(TOKEN)));
+        });
+
+        it("colors the same text it copies", () => {
+          expect(real.parts.map((p) => p.text).join("")).toBe(real.text);
+          expect(real.parts.some((p) => p.cls === "url" || p.cls === "str")).toBe(true);
+        });
+
+        it("is one line when it is a command, and a file with its path otherwise", () => {
+          if (real.kind === "command") {
+            expect(real.text).not.toContain("\n");
+            expect(real.title).toBe("Run it in a terminal");
+            expect(real.path).toBeUndefined();
+          } else {
+            expect(real.path).toEqual(paths[id]![scope]);
+            expect(real.title).toContain(real.path!.posix);
+            if (real.path!.windows) expect(richText(real.how)).toContain(real.path!.windows);
+          }
+        });
+
+        it("says how to check it, and which scope it is", () => {
+          expect(richText(real.how)).toMatch(/Check it|check the server/);
+          expect(real.how).toEqual(shown.how);
+        });
+      });
+
+  it("differs between the scopes for every agent", () => {
+    for (const { id } of AGENTS) {
+      const p = installSnippet(id, "project", EP, TOKEN);
+      const g = installSnippet(id, "global", EP, TOKEN);
+      expect(p.text !== g.text || p.path?.posix !== g.path?.posix).toBe(true);
+    }
   });
 
   it("masks a token but keeps its ends", () => {

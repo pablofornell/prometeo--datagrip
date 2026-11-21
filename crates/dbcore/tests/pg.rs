@@ -1,5 +1,5 @@
 //! PostgreSQL integration tests. Run with:
-//!   PROMETEO_PG_URL=postgres://postgres:prometeo@localhost:54329/postgres cargo test -p dbcore --test pg -- --nocapture
+//!   DATUM_PG_URL=postgres://postgres:datum@localhost:54329/postgres cargo test -p dbcore --test pg -- --nocapture
 
 mod common;
 
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 macro_rules! setup {
     () => {{
         let Some(cfg) = pg_cfg() else {
-            eprintln!("PROMETEO_PG_URL not set: skipping");
+            eprintln!("DATUM_PG_URL not set: skipping");
             return;
         };
         seed_pg(&cfg).await;

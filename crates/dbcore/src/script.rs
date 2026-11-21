@@ -48,7 +48,7 @@ const CUT_BACKOFF_BYTES: usize = 1 << 20;
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 /// How long closing an abandoned connection may take.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
-const SAVEPOINT: &str = "prometeo_script";
+const SAVEPOINT: &str = "datum_script";
 
 // ---------------------------------------------------------------- options / progress / result
 

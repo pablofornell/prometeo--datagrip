@@ -7,7 +7,7 @@
  */
 import { getUiState, setUiState } from "../api/db";
 
-const PREFIX = "prometeo.ui.";
+const PREFIX = "datum.ui.";
 
 export function loadLocal<T>(key: string, fallback: T): T {
   try {

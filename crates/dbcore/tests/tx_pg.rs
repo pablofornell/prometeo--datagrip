@@ -1,6 +1,6 @@
 //! PostgreSQL transaction tracking against the real server: the tracker (`session_tx_status`) must equal
 //! what the server thinks after every statement, cancel inside a transaction, and lost connections. Run with:
-//!   PROMETEO_PG_URL=postgres://postgres:prometeo@localhost:54329/postgres cargo test -p dbcore --test tx_pg -- --nocapture
+//!   DATUM_PG_URL=postgres://postgres:datum@localhost:54329/postgres cargo test -p dbcore --test tx_pg -- --nocapture
 
 mod common;
 
@@ -13,7 +13,7 @@ use std::time::Duration;
 macro_rules! setup {
     () => {{
         let Some(cfg) = pg_cfg() else {
-            eprintln!("PROMETEO_PG_URL not set: skipping");
+            eprintln!("DATUM_PG_URL not set: skipping");
             return;
         };
         let mgr = connected(&cfg).await;
@@ -25,10 +25,10 @@ macro_rules! setup {
 /// outside a transaction and with 25P02 in an aborted one; in a healthy one it works (and is released).
 /// Neither the server state nor the tracker changes by asking (the errors map to the state they report).
 async fn truth(mgr: &ConnectionManager, s: &SessionId) -> TxStatus {
-    let ev = run(mgr, s, "savepoint prometeo_truth").await;
+    let ev = run(mgr, s, "savepoint datum_truth").await;
     match errors(&ev).first() {
         None => {
-            assert_ok(&run(mgr, s, "release savepoint prometeo_truth").await);
+            assert_ok(&run(mgr, s, "release savepoint datum_truth").await);
             TxStatus::Active
         }
         Some(m) if m.starts_with("[25P01]") => TxStatus::Idle,

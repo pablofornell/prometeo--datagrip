@@ -1,4 +1,4 @@
--- Prometeo DataGrip test fixture for old Oracle servers (10g / 11g): only SQL that 10.2 knows (no identity
+-- Datum test fixture for old Oracle servers (10g / 11g): only SQL that 10.2 knows (no identity
 -- columns, no JSON, no virtual columns). Objects are named LG_*. Idempotent: the objects are dropped first.
 -- Statements end with ';', PL/SQL units and blocks with a line holding only '/'.
 

@@ -490,7 +490,7 @@ export async function updateDataSource(dsId: string, change: (cfg: Omit<DataSour
   const next = change(cfg);
   if (reconnectsOnSave(cfg, next) && !(await confirmEndTransactions({ dsId, reason: "reconnecting with the new settings" }))) return false;
   await saveDataSource(next);
-  window.dispatchEvent(new CustomEvent("prometeo:datasources-changed"));
+  window.dispatchEvent(new CustomEvent("datum:datasources-changed"));
   await reloadDataSources();
   return true;
 }

@@ -1,6 +1,6 @@
 //! SQL the app generates for awkward tables: names that need quotes, generated and identity columns, defaults,
-//! comments. SQLite always runs; PostgreSQL and MySQL run with `PROMETEO_PG_URL` / `PROMETEO_MYSQL_URL`
-//! (`PROMETEO_PG_URL=postgres://postgres:pw@localhost:5432/postgres cargo test -p dbcore --test sql_generation`).
+//! comments. SQLite always runs; PostgreSQL and MySQL run with `DATUM_PG_URL` / `DATUM_MYSQL_URL`
+//! (`DATUM_PG_URL=postgres://postgres:pw@localhost:5432/postgres cargo test -p dbcore --test sql_generation`).
 
 mod common;
 
@@ -203,7 +203,7 @@ insert into __S__.plain (label) values ('a'), ('b');
 #[tokio::test]
 async fn pg_dump_restores_identity_generated_columns_and_comments() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -356,7 +356,7 @@ newline 😀', 2.5);
 #[tokio::test]
 async fn mysql_index_ddl_keeps_prefix_length_desc_expression_and_kind() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;

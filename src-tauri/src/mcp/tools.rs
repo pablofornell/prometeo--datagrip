@@ -34,11 +34,10 @@ const INTROSPECT_TIMEOUT: Duration = Duration::from_secs(60);
 const UNAUTHORIZED_SESSION: &str = "unauthorized";
 const UNAUTHORIZED_CLIENT: &str = "unauthorized caller";
 
-const FIX_PERMISSIONS: &str =
-    "The user grants permissions in Prometeo DataGrip > MCP > Permissions.";
-const UNAUTHORIZED: &str = "Missing or invalid bearer token for the Prometeo DataGrip MCP server. Copy the current token \
-from Prometeo DataGrip > MCP and reconnect with the header `Authorization: Bearer <token>` \
-(Claude Code: `claude mcp remove prometeo-datagrip`, then `claude mcp add --transport http prometeo-datagrip <url> --header \"Authorization: Bearer <token>\"`).";
+const FIX_PERMISSIONS: &str = "The user grants permissions in Datum > MCP > Permissions.";
+const UNAUTHORIZED: &str = "Missing or invalid bearer token for the Datum MCP server. Copy the current token \
+from Datum > MCP and reconnect with the header `Authorization: Bearer <token>` \
+(Claude Code: `claude mcp remove datum`, then `claude mcp add --transport http datum <url> --header \"Authorization: Bearer <token>\"`).";
 
 /// A failed tool call. `denied` is for calls the policy or the token refused.
 pub struct ToolErr {

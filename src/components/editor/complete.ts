@@ -29,7 +29,7 @@ function mkOpt(c: Completion, hint?: string): Completion {
 }
 
 /** The popup's `⋮` menu: `Sort by name` and `Show types`, kept across sessions. */
-const PREFS_KEY = "prometeo.completion";
+const PREFS_KEY = "datum.completion";
 export const completionPrefs = (() => {
   let saved: { sortByName?: boolean; showTypes?: boolean } = {};
   try {

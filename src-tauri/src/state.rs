@@ -44,7 +44,8 @@ pub struct AppInfo {
     /// something needed the keyring (a password was saved or migrated): the app does not probe it at every launch.
     pub password_storage: Option<PasswordStorage>,
     /// Files that were corrupt at startup and set aside (`<file>.corrupt-<ts>`); the app started with an
-    /// empty one. Show them once. Empty in the normal case.
+    /// empty one. Also the failed copy of the 0.5.x data (`file` is `migration`). Show them once. Empty in the
+    /// normal case.
     pub startup_warnings: Vec<StartupNotice>,
 }
 
@@ -257,6 +258,8 @@ pub struct AppState {
     dumped: Mutex<Vec<PathBuf>>,
     /// script id -> cancellation token of a running SQL script (`run_sql_file`).
     scripts: Mutex<HashMap<String, CancellationToken>>,
+    /// Startup notices that do not come from a store, see [`AppState::add_startup_notice`].
+    extra_notices: Mutex<Vec<StartupNotice>>,
 }
 
 /// Run blocking work (file IO, keyring) off the async workers.
@@ -362,9 +365,9 @@ fn redact_for(cfg: &DataSourceConfig, msg: &str) -> String {
 }
 
 impl AppState {
-    /// Production state: the OS keyring unless `PROMETEO_NO_KEYRING` is set.
+    /// Production state: the OS keyring unless `DATUM_NO_KEYRING` (or the 0.5.x name `PROMETEO_NO_KEYRING`) is set.
     pub fn open(config_dir: PathBuf, data_dir: PathBuf) -> Result<Self, String> {
-        let secrets: Arc<dyn SecretStore> = if std::env::var_os("PROMETEO_NO_KEYRING").is_some() {
+        let secrets: Arc<dyn SecretStore> = if crate::legacy::env_os("NO_KEYRING").is_some() {
             Arc::new(NoKeyring)
         } else {
             Arc::new(OsKeyring)
@@ -408,14 +411,20 @@ impl AppState {
             dumps: Mutex::new(HashMap::new()),
             dumped: Mutex::new(Vec::new()),
             scripts: Mutex::new(HashMap::new()),
+            extra_notices: Mutex::new(Vec::new()),
         })
+    }
+
+    /// Adds a notice of the startup that did not come from a store (a failed 0.5.x migration), for `app_info`.
+    pub fn add_startup_notice(&self, notice: StartupNotice) {
+        self.extra_notices.lock().unwrap().push(notice);
     }
 
     pub async fn app_info(&self) -> Result<AppInfo, String> {
         let sources = self.sources.clone();
         let password_storage = blocking(move || Ok(sources.known_storage())).await?;
         Ok(AppInfo {
-            name: "Prometeo DataGrip".into(),
+            name: "Datum".into(),
             version: env!("CARGO_PKG_VERSION").into(),
             config_dir: self.config_dir.display().to_string(),
             data_dir: self.data_dir.display().to_string(),
@@ -428,6 +437,7 @@ impl AppState {
     pub fn startup_warnings(&self) -> Vec<StartupNotice> {
         let mut w = self.sources.notices();
         w.extend(self.ui.notices());
+        w.extend(self.extra_notices.lock().unwrap().iter().cloned());
         w
     }
 

@@ -1,6 +1,6 @@
 # Security: where secrets live
 
-Prometeo DataGrip keeps data source passwords out of its configuration files whenever the
+Datum keeps data source passwords out of its configuration files whenever the
 operating system offers a credential store. This page says where each secret goes, what happens
 when no store is available, and what the export files contain.
 
@@ -8,7 +8,7 @@ when no store is available, and what the export files contain.
 
 | OS | Store | Entry |
 |---|---|---|
-| Windows | Credential Manager (Generic credential) | service `dev.prometeo.datagrip`, user `data-source:<data source id>` |
+| Windows | Credential Manager (Generic credential) | service `dev.datum.desktop`, user `data-source:<data source id>` |
 | macOS | Keychain | same service and account |
 | Linux | Secret Service (GNOME Keyring, KWallet) over D-Bus | same service and attribute |
 
@@ -18,9 +18,9 @@ typed into a connection URL (`user:pass@host`, `?password=`, Oracle `user/pass@h
 the store on save and removed from the URL, so neither the file nor the UI ever show it again.
 Error messages and the log have passwords masked.
 
-Configuration folder: `%APPDATA%\dev.prometeo.datagrip` (Windows),
-`~/Library/Application Support/dev.prometeo.datagrip` (macOS), `~/.config/dev.prometeo.datagrip`
-(Linux). `PROMETEO_CONFIG_DIR` overrides it.
+Configuration folder: `%APPDATA%\dev.datum.desktop` (Windows),
+`~/Library/Application Support/dev.datum.desktop` (macOS), `~/.config/dev.datum.desktop`
+(Linux). `DATUM_CONFIG_DIR` overrides it.
 
 ## When the OS store is not available
 
@@ -86,7 +86,7 @@ every connection (at most 5 s); an Oracle session also rolls back before it logs
 
 *Data Sources dialog > More (...) > Export Data Sources / Import Data Sources.*
 
-An export is a JSON file: `{ "format": "prometeo-datagrip/data-sources", "version": 1, ... }`.
+An export is a JSON file: `{ "format": "datum/data-sources", "version": 1, ... }`.
 
 It contains, per data source: name, driver, host, port, database, user name, SQLite file path,
 connection URL, options (SSL mode and the **paths** of the CA, client certificate and client key
@@ -120,7 +120,7 @@ web view cannot make it touch any other path.
 
 *File > Manage IDE Settings > Export Settings / Import Settings.*
 
-One JSON file (`"format": "prometeo-datagrip/settings"`) with the UI settings, keymap, editor
+One JSON file (`"format": "datum/settings"`) with the UI settings, keymap, editor
 colour scheme, theme and tool window layout. It holds no data source, no password, no history
 and no console text. Import asks for confirmation, ignores values it does not understand, and
 refuses files from a newer version.
@@ -134,9 +134,9 @@ with the path. Likewise an unreadable file becomes `<name>.corrupt-<unix seconds
 in the store stay there, so going back to the newer version with the renamed file restores
 everything.
 
-## `PROMETEO_NO_KEYRING`
+## `DATUM_NO_KEYRING`
 
-Setting `PROMETEO_NO_KEYRING=1` in the environment makes the app behave as if no store existed:
+Setting `DATUM_NO_KEYRING=1` in the environment makes the app behave as if no store existed:
 passwords go to `data-sources.json` (with the warning above). It exists for automated tests and
 demos with throw-away configuration folders; do not use it with real credentials unless you
 accept the plain-text file.

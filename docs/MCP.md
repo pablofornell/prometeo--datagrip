@@ -1,7 +1,7 @@
 # MCP server
 
-Prometeo DataGrip contains a built-in [Model Context Protocol](https://modelcontextprotocol.io) server.
-AI agents (for example Claude Code) connect to it. They can list the data sources that you allow, read
+Datum contains a built-in [Model Context Protocol](https://modelcontextprotocol.io) server.
+AI agents (for example Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot or OpenCode) connect to it. They can list the data sources that you allow, read
 their schemas, run queries and, if you allow it, change data. All agent actions are recorded in a log
 that the app keeps for 30 days. You see and examine them in the **MCP** view (View ▸ MCP, `Ctrl+Shift+M`).
 
@@ -75,14 +75,57 @@ database).
 | `run_query` | read | `dataSourceId`, `sql`, `maxRows?` (default 200, max 1000) — read statements only |
 | `execute_statement` | write | `dataSourceId`, `sql` — one statement, committed when it succeeds |
 
-## Install in Claude Code
+## Connect an agent
+
+The **Connect** tab of the MCP view gives the install snippet for the chosen agent, with the port and
+the token filled in (the screen masks the token, the copy has the real one). The **Global** switch
+(off by default) installs it for all your projects instead of only the current one. Both choices are
+remembered. One-line commands run the same in bash, PowerShell and cmd; file entries are merged into
+the file at the given path (on Windows `~` is `%USERPROFILE%`).
+
+| Agent | This project (Global off) | All projects (Global on) | Check |
+|---|---|---|---|
+| Claude Code | `claude mcp add --transport http datum <url> --header "Authorization: Bearer <token>"` (local scope: only you, this project; add `--scope project` to share it in `.mcp.json`) | same with `--scope user` | `claude mcp list` |
+| Codex CLI | `.codex/config.toml` (read only in trusted projects) | `~/.codex/config.toml` | `codex mcp list`, `/mcp` |
+| Gemini CLI | `gemini mcp add --transport http --header "Authorization: Bearer <token>" datum <url>` (writes `.gemini/settings.json`) | same with `--scope user` (`~/.gemini/settings.json`) | `gemini mcp list` |
+| Cursor | `.cursor/mcp.json` | `~/.cursor/mcp.json` | Cursor MCP settings |
+| GitHub Copilot (VS Code, Copilot CLI) | `.mcp.json` at the workspace root | `~/.copilot/mcp-config.json` | `copilot mcp list`, VS Code *Chat: Open Customizations › MCP Servers* |
+| OpenCode | `opencode mcp add datum --url <url> --header "Authorization=Bearer <token>"` | same with `--global` | `opencode mcp list` |
+
+Codex has no command-line flag for a static header, so it gets a file entry:
+
+```toml
+[mcp_servers.datum]
+url = "http://127.0.0.1:7311/mcp"
+
+[mcp_servers.datum.http_headers]
+Authorization = "Bearer <token>"
+```
+
+Cursor uses `{"mcpServers": {"datum": {"url": …, "headers": {"Authorization": "Bearer <token>"}}}}`;
+GitHub Copilot the same with `"type": "http"` and `"tools": ["*"]`. Codex and GitHub Copilot do not get a
+command because their `mcp add` cannot set the header (Codex) or has no project scope (Copilot CLI).
+
+Sources (checked November 2026):
+[Claude Code](https://code.claude.com/docs/en/mcp),
+[Codex](https://learn.chatgpt.com/docs/extend/mcp?surface=cli),
+[Gemini CLI](https://geminicli.com/docs/tools/mcp-server/),
+[Cursor](https://cursor.com/docs/context/mcp),
+[VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration),
+[Copilot CLI](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers),
+[OpenCode](https://opencode.ai/docs/mcp-servers/).
+
+Upgrading from 0.5.x (when the app was called Prometeo DataGrip): the server is now called `datum`.
+Remove the old registration and add the new one:
 
 ```sh
-claude mcp add --transport http prometeo-datagrip http://127.0.0.1:7311/mcp \
+claude mcp remove prometeo-datagrip
+claude mcp add --transport http datum http://127.0.0.1:7311/mcp \
   --header "Authorization: Bearer <token>"
 ```
 
-The MCP view has a copy button that fills in the port and token.
+The permissions, the token and the port are kept. A `.mcp.json` entry named `prometeo-datagrip`
+must be renamed to `datum` too.
 
 ## Log
 

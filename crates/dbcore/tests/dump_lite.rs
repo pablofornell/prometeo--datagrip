@@ -127,7 +127,7 @@ async fn rows_of(mgr: &ConnectionManager, ds: &str, table: &str, pk: &str) -> Ve
 async fn dump_writes_the_expected_sections() {
     let (_d, _mgr, dump) = setup().await;
     for needle in [
-        "-- Prometeo DataGrip dump",
+        "-- Datum dump",
         "PRAGMA foreign_keys = OFF;",
         "PRAGMA foreign_keys = ON;",
         "Name: parents; Type: TABLE",

@@ -59,7 +59,7 @@ const DIRECTION_LABEL: Record<Direction, string> = { LR: "Left to Right", TB: "T
 /** From this many tables on, the columns start out as keys only (a full box per table is unreadable at that size). */
 const KEYS_ONLY_FROM = 60;
 const MINIMAP_MAX = { width: 200, height: 140 };
-const PREFS_KEY = "prometeo.diagram.prefs";
+const PREFS_KEY = "datum.diagram.prefs";
 
 interface Prefs {
   direction: Direction;

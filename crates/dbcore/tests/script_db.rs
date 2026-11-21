@@ -1,7 +1,7 @@
 //! Running SQL script files (`run_sql_file`) on PostgreSQL, MySQL and Oracle: DDL + inserts + one failing statement under
 //! every combination of `stopOnError` x `singleTransaction`, routines (`$$`, `DELIMITER`, PL/SQL with `/`) and the restore of
 //! a real dump. Run with:
-//!   PROMETEO_PG_URL=... PROMETEO_MYSQL_URL=... PROMETEO_ORACLE_URL=... cargo test -p dbcore --test script_db -- --nocapture
+//!   DATUM_PG_URL=... DATUM_MYSQL_URL=... DATUM_ORACLE_URL=... cargo test -p dbcore --test script_db -- --nocapture
 //! A test skips when the URL of its database is not set.
 
 mod common;
@@ -193,7 +193,7 @@ async fn same_counts(
 #[tokio::test]
 async fn pg_every_combination_of_the_options() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -220,7 +220,7 @@ async fn pg_every_combination_of_the_options() {
 #[tokio::test]
 async fn pg_dollar_quoted_function_and_a_dump_restore() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -322,7 +322,7 @@ async fn pg_dollar_quoted_function_and_a_dump_restore() {
 #[tokio::test]
 async fn mysql_every_combination_of_the_options() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -349,7 +349,7 @@ async fn mysql_every_combination_of_the_options() {
 #[tokio::test]
 async fn mysql_delimiter_procedure_and_a_dump_restore() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -446,7 +446,7 @@ async fn mysql_delimiter_procedure_and_a_dump_restore() {
 #[tokio::test]
 async fn oracle_every_combination_of_the_options() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -463,7 +463,7 @@ async fn oracle_every_combination_of_the_options() {
 #[tokio::test]
 async fn oracle_plsql_blocks_procedures_and_a_dump_restore() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

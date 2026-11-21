@@ -54,7 +54,7 @@ export function selectedNodes(): import("./model").ExplorerNodeInfo[] {
 }
 
 /** Dispatched on `window` by the Data Sources dialog after it saved / deleted a data source. */
-export const DATA_SOURCES_CHANGED = "prometeo:datasources-changed";
+export const DATA_SOURCES_CHANGED = "datum:datasources-changed";
 
 let started = false;
 function start(): void {

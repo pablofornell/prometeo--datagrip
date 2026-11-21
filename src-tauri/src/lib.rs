@@ -1,5 +1,6 @@
 mod commands;
 pub mod files;
+mod legacy;
 pub mod mcp;
 pub mod state;
 pub mod store;
@@ -15,19 +16,21 @@ pub use state::AppState;
 /// Daily log files kept in `<data dir>/logs` (about a week of history).
 const LOG_FILES_KEPT: usize = 7;
 
-/// Starts the file logger: `<data dir>/logs/prometeo.<date>.log`, INFO unless `PROMETEO_LOG` says otherwise
-/// (`PROMETEO_LOG=debug`, or a full `tracing` filter such as `info,prometeo_datagrip=debug`).
+/// Starts the file logger: `<data dir>/logs/datum.<date>.log`, INFO unless `DATUM_LOG` (or the 0.5.x name
+/// `PROMETEO_LOG`) says otherwise (`DATUM_LOG=debug`, or a full `tracing` filter such as `info,datum_lib=debug`).
 fn init_logging(log_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(log_dir)
         .map_err(|e| format!("Cannot create the log folder {}: {e}", log_dir.display()))?;
     let appender = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
-        .filename_prefix("prometeo")
+        .filename_prefix("datum")
         .filename_suffix("log")
         .max_log_files(LOG_FILES_KEPT)
         .build(log_dir)
         .map_err(|e| format!("Cannot open a log file in {}: {e}", log_dir.display()))?;
-    let filter = EnvFilter::try_from_env("PROMETEO_LOG").unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_env("DATUM_LOG")
+        .or_else(|_| EnvFilter::try_from_env("PROMETEO_LOG"))
+        .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_writer(appender)
@@ -74,6 +77,12 @@ fn install_panic_hook(log_dir: &Path) {
 }
 
 pub fn run() {
+    let context = tauri::generate_context!();
+    // 0.5.x (Prometeo DataGrip) hands its settings and data over to the folders of this app, copied once and never
+    // touching the old ones. It has to happen before the Builder: the window-state plugin loads its file while it is
+    // set up, and the WebView creates its data folder as soon as the window exists. The outcome is logged from
+    // `.setup`, once the logger is up, and a failure is shown to the user as a startup notice.
+    let adopted = legacy::adopt_all(&context.config().identifier);
     let app = tauri::Builder::default()
         // must be the first plugin: a second launch has to reach the first instance before it creates windows
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -95,37 +104,49 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .setup(|app| {
+        .setup(move |app| {
             let paths = app.path();
-            // PROMETEO_CONFIG_DIR / PROMETEO_DATA_DIR override the OS locations (demos, tests).
-            let config_dir = std::env::var_os("PROMETEO_CONFIG_DIR")
-                .map(Into::into)
-                .unwrap_or(paths.app_config_dir()?);
-            let data_dir = std::env::var_os("PROMETEO_DATA_DIR")
-                .map(Into::into)
-                .unwrap_or(paths.app_data_dir()?);
+            // DATUM_CONFIG_DIR / DATUM_DATA_DIR (or the 0.5.x PROMETEO_* names) override the OS locations (demos,
+            // tests)
+            let config_dir = match legacy::env_os("CONFIG_DIR") {
+                Some(d) => d.into(),
+                None => paths.app_config_dir()?,
+            };
+            let data_dir = match legacy::env_os("DATA_DIR") {
+                Some(d) => d.into(),
+                None => paths.app_data_dir()?,
+            };
             // Logging must not keep the app from starting: a failure is reported on stderr (visible in dev builds).
             let log_dir = data_dir.join("logs");
             if let Err(e) = init_logging(&log_dir) {
                 eprintln!("cannot start logging: {e}");
             }
             install_panic_hook(&log_dir);
+            for (outcome, dir) in &adopted {
+                outcome.log(dir);
+            }
             // one line per start, so a log sent from another machine tells the version and the OS
             tracing::info!(
-                "Prometeo DataGrip {} started ({} {})",
+                "Datum {} started ({} {})",
                 env!("CARGO_PKG_VERSION"),
                 std::env::consts::OS,
                 std::env::consts::ARCH
             );
             // The WebView keeps its own storage (localStorage: explorer state, tabs, layout). Under an overridden
             // data / config dir it must live there too, or the state of one profile leaks into another.
-            let webview_dir = std::env::var_os("PROMETEO_DATA_DIR")
+            let webview_dir = legacy::env_os("DATA_DIR")
                 .map(|d| std::path::PathBuf::from(d).join("webview"))
                 .or_else(|| {
-                    std::env::var_os("PROMETEO_CONFIG_DIR")
+                    legacy::env_os("CONFIG_DIR")
                         .map(|d| std::path::PathBuf::from(d).join("webview"))
                 });
             let state = AppState::open(config_dir, data_dir)?;
+            // a failed copy of the 0.5.x data is told to the user (once, with the other startup notices)
+            for (outcome, dir) in &adopted {
+                if let Some(notice) = outcome.notice(dir) {
+                    state.add_startup_notice(notice);
+                }
+            }
             // the MCP server is off by default; start it when the user turned it on in an earlier run
             tauri::async_runtime::block_on(state.mcp.start_if_enabled());
             app.manage(state);
@@ -237,8 +258,8 @@ pub fn run() {
             commands::mcp_subscribe,
             commands::mcp_unsubscribe,
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building Prometeo DataGrip");
+        .build(context)
+        .expect("error while building Datum");
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {

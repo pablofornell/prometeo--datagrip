@@ -98,7 +98,7 @@ if (typeof document !== "undefined") {
 export const AGGREGATORS = ["SUM", "AVG", "COUNT", "MAX", "MIN"] as const;
 export type Aggregator = (typeof AGGREGATORS)[number];
 
-const AGG_KEY = "prometeo.ui.aggregator";
+const AGG_KEY = "datum.ui.aggregator";
 const readAggregator = (): Aggregator => {
   try {
     const v = localStorage.getItem(AGG_KEY);

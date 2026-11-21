@@ -964,7 +964,7 @@ fn ora_ddl_indexes(o: &str, n: &str) -> String {
 /// constraint creates) and comments; packages their body. Older servers use [`ora_ddl_steps`].
 fn ora_ddl_sql(object_type: &str, name: &str, owner: &str) -> String {
     format!(
-        "with function prometeo_ddl(t varchar2, n varchar2, o varchar2) return clob is \
+        "with function datum_ddl(t varchar2, n varchar2, o varchar2) return clob is \
            r clob; \
          begin \
            {ORA_DDL_TRANSFORMS} \
@@ -981,7 +981,7 @@ fn ora_ddl_sql(object_type: &str, name: &str, owner: &str) -> String {
            end if; \
            return r; \
          end; \
-         select prometeo_ddl({}, {}, {}) from dual",
+         select datum_ddl({}, {}, {}) from dual",
         oq(object_type),
         oq(name),
         oq(owner),
@@ -1193,7 +1193,7 @@ mod tests {
     #[test]
     fn oracle_ddl_with_function_from_12_1_steps_before() {
         let sql = ora_ddl_sql("TABLE", "T", "DEMO");
-        assert!(sql.starts_with("with function prometeo_ddl("), "{sql}");
+        assert!(sql.starts_with("with function datum_ddl("), "{sql}");
         assert!(
             sql.contains("'TABLESPACE', false); r := dbms_metadata.get_ddl(t, n, o);"),
             "{sql}"
@@ -1203,7 +1203,7 @@ mod tests {
             "{sql}"
         );
         assert!(
-            sql.ends_with("select prometeo_ddl('TABLE', 'T', 'DEMO') from dual"),
+            sql.ends_with("select datum_ddl('TABLE', 'T', 'DEMO') from dual"),
             "{sql}"
         );
 

@@ -1,21 +1,43 @@
-/** Connect tab: the install command for Claude Code, the endpoint and token, and what the agents can reach. */
+/** Connect tab: how to install Datum in an agent (per project or global), the endpoint and token, and what the agents can reach. */
 import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
-import { Button, CopyButton, Icon, TextField, Tabs, tip } from "../../components/ui";
+import { Button, ComboBox, CopyButton, Icon, TextField, tip } from "../../components/ui";
+import { loadLocal, saveUiState } from "../../state/persist";
 import { confirmDialog } from "./confirm";
-import { type CodePart, DEFAULT_PORT, claudeCommand, claudeCommandParts, jsonParts, maskToken, mcpJson, parsePort, plural, READ_ONLY_NOTE, summarize } from "./model";
+import {
+  AGENTS,
+  type AgentId,
+  type CodePart,
+  DEFAULT_AGENT,
+  DEFAULT_PORT,
+  type InstallScope,
+  type RichText,
+  installSnippet,
+  isAgentId,
+  maskToken,
+  parsePort,
+  plural,
+  READ_ONLY_NOTE,
+  scopeHint,
+  summarize,
+} from "./model";
 import { type McpTab } from "./nav";
 import { busy, configure, effectiveOf, permSources, regenerateToken, status } from "./store";
-import { Chip, DsChip, EmptyState } from "./widgets";
+import { Chip, DsChip, EmptyState, Toggle } from "./widgets";
 
-function Code(props: { parts: CodePart[]; label: string }): JSX.Element {
+function Code(props: { parts: CodePart[]; label: string; kind: "command" | "file" }): JSX.Element {
   return (
-    <pre class="dg-mcp-code-text" aria-label={props.label}>
+    <pre class="dg-mcp-code-text" data-kind={props.kind} aria-label={props.label}>
       <For each={props.parts}>{(p) => (p.cls ? <span class={"dg-mcp-c-" + p.cls}>{p.text}</span> : p.text)}</For>
     </pre>
   );
 }
 
-type Snippet = "claude" | "json";
+function Rich(props: { text: RichText }): JSX.Element {
+  return <For each={props.text}>{(x) => (typeof x === "string" ? x : <code>{x.code}</code>)}</For>;
+}
+
+const AGENT_KEY = "mcp.connect.agent";
+const GLOBAL_KEY = "mcp.connect.global";
 
 /** The server is off: say what it is and how it stays safe, and offer to start it. */
 export function EnableHero(): JSX.Element {
@@ -35,7 +57,7 @@ export function EnableHero(): JSX.Element {
       </div>
       <h2 class="dg-mcp-hero-title">Let AI agents work with your databases</h2>
       <p class="dg-mcp-hero-text">
-        Prometeo runs a local MCP server. Agents such as Claude Code connect to it to read schemas, run queries and, only where you allow it, change data. Every
+        Datum runs a local MCP server. Agents such as Claude Code, Codex, Gemini CLI, Cursor, GitHub Copilot or OpenCode connect to it to read schemas, run queries and, only where you allow it, change data. Every
         action is recorded in this view for {status()?.logRetentionDays ?? 30} days.
       </p>
       <ul class="dg-mcp-safety">
@@ -79,13 +101,29 @@ export function EnableHero(): JSX.Element {
 
 export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
   const st = () => status()!;
-  const [snippet, setSnippet] = createSignal<Snippet>("claude");
+  const storedAgent = loadLocal<unknown>(AGENT_KEY, DEFAULT_AGENT);
+  const [agent, setAgentSignal] = createSignal<AgentId>(isAgentId(storedAgent) ? storedAgent : DEFAULT_AGENT);
+  // installing for every project is a choice the user makes on purpose: off unless they switched it on before
+  const [global, setGlobalSignal] = createSignal(loadLocal<unknown>(GLOBAL_KEY, false) === true);
+  const setAgent = (a: AgentId) => {
+    setAgentSignal(a);
+    saveUiState(AGENT_KEY, a);
+  };
+  const setGlobal = (on: boolean) => {
+    setGlobalSignal(on);
+    saveUiState(GLOBAL_KEY, on);
+  };
+  const scope = (): InstallScope => (global() ? "global" : "project");
   const [reveal, setReveal] = createSignal(false);
   const [portText, setPortText] = createSignal<string | null>(null);
 
   const shownToken = () => (reveal() ? st().token : maskToken(st().token));
-  const parts = createMemo<CodePart[]>(() => (snippet() === "claude" ? claudeCommandParts(st().endpoint, shownToken()) : jsonParts(mcpJson(st().endpoint, shownToken()))));
-  const text = () => (snippet() === "claude" ? claudeCommand(st().endpoint, st().token) : mcpJson(st().endpoint, st().token));
+  // the screen shows the masked token (unless revealed); the copy always has the real one
+  const shown = createMemo(() => installSnippet(agent(), scope(), st().endpoint, shownToken()));
+  const parts = (): CodePart[] => shown().parts;
+  const text = () => installSnippet(agent(), scope(), st().endpoint, st().token).text;
+  const isCommand = () => shown().kind === "command";
+  const codeLabel = () => (isCommand() ? "Install command" : `${shown().path!.posix} entry`);
 
   const summary = () => summarize(permSources().map((s) => ({ eff: effectiveOf(s) })));
   const exposed = createMemo(() =>
@@ -120,24 +158,27 @@ export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
         <section class="dg-mcp-card dg-mcp-card-main">
           <header class="dg-mcp-card-head">
             <h3 class="dg-mcp-card-title">Connect an agent</h3>
-            <Tabs
-              variant="dialog"
-              class="dg-mcp-snippet-tabs"
-              active={snippet()}
-              onSelect={(id) => setSnippet(id as Snippet)}
-              items={[
-                { id: "claude", title: "Claude Code", closeable: false },
-                { id: "json", title: ".mcp.json", closeable: false },
-              ]}
-            />
+            <label class="dg-mcp-agent">
+              <span>Agent</span>
+              <ComboBox<AgentId> class="dg-mcp-combo" width={170} value={agent()} onChange={setAgent} options={AGENTS.map((a) => ({ value: a.id, label: a.label }))} />
+            </label>
           </header>
+          <div class="dg-mcp-scope">
+            <Toggle checked={global()} onChange={setGlobal} label="Global, for all projects" />
+            <div class="dg-mcp-scope-text">
+              <button type="button" class="dg-mcp-scope-label" onClick={() => setGlobal(!global())}>
+                Global — for all projects
+              </button>
+              <span class="dg-mcp-scope-hint">{scopeHint(agent(), scope())}</span>
+            </div>
+          </div>
           <ol class="dg-mcp-steps">
             <li>
               <span class="dg-mcp-step">1</span>
               <div>
-                <div class="dg-mcp-step-title">{snippet() === "claude" ? "Copy the command" : "Copy the entry"}</div>
+                <div class="dg-mcp-step-title">{isCommand() ? "Copy the command" : "Copy the entry"}</div>
                 <div class="dg-mcp-code">
-                  <Code parts={parts()} label={snippet() === "claude" ? "Install command" : ".mcp.json entry"} />
+                  <Code parts={parts()} label={codeLabel()} kind={shown().kind} />
                   <div class="dg-mcp-code-actions">
                     <button
                       type="button"
@@ -149,7 +190,7 @@ export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
                     >
                       <Icon name={reveal() ? "hide" : "show"} />
                     </button>
-                    <CopyButton text={text} tooltip={snippet() === "claude" ? "Copy the command" : "Copy the JSON"} />
+                    <CopyButton text={text} tooltip={isCommand() ? "Copy the command" : shown().lang === "toml" ? "Copy the TOML" : "Copy the JSON"} />
                   </div>
                 </div>
                 <div class="dg-mcp-step-text">The copy has the real token; keep it private like a password.</div>
@@ -158,15 +199,9 @@ export function ConnectTab(props: { goto: (t: McpTab) => void }): JSX.Element {
             <li>
               <span class="dg-mcp-step">2</span>
               <div>
-                <div class="dg-mcp-step-title">{snippet() === "claude" ? "Run it in a terminal" : "Save it as .mcp.json"}</div>
+                <div class="dg-mcp-step-title">{shown().title}</div>
                 <div class="dg-mcp-step-text">
-                  {snippet() === "claude" ? (
-                    <>
-                      In the project where you use Claude Code. Check it with <code>claude mcp list</code>.
-                    </>
-                  ) : (
-                    <>In the root of the project (merge it with the servers you already have), then restart Claude Code.</>
-                  )}
+                  <Rich text={shown().how} />
                 </div>
               </div>
             </li>

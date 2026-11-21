@@ -1,4 +1,4 @@
--- Prometeo DataGrip test fixture for MySQL 8 (database "demo"). Idempotent.
+-- Datum test fixture for MySQL 8 (database "demo"). Idempotent.
 SET FOREIGN_KEY_CHECKS = 0;
 DROP VIEW IF EXISTS v_order_totals;
 DROP TABLE IF EXISTS order_items, orders, customers, products, categories, all_types, big_table;

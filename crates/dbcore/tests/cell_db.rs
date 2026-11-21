@@ -1,5 +1,5 @@
 //! Full value of one table cell (`ConnectionManager::fetch_cell`), round trip and truncation, per driver. Run with:
-//!   PROMETEO_PG_URL=... PROMETEO_MYSQL_URL=... PROMETEO_ORACLE_URL=... cargo test -p dbcore --test cell_db -- --nocapture
+//!   DATUM_PG_URL=... DATUM_MYSQL_URL=... DATUM_ORACLE_URL=... cargo test -p dbcore --test cell_db -- --nocapture
 //! Each driver skips when its variable is not set. Objects are named `cv_*` / `CV_*`.
 
 mod common;
@@ -72,7 +72,7 @@ mod pg {
     macro_rules! setup {
         () => {{
             let Some(cfg) = pg_cfg() else {
-                eprintln!("PROMETEO_PG_URL not set: skipping");
+                eprintln!("DATUM_PG_URL not set: skipping");
                 return;
             };
             let mgr = connected(&cfg).await;
@@ -209,7 +209,7 @@ mod mysql {
     macro_rules! setup {
         () => {{
             let Some(cfg) = mysql_cfg() else {
-                eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+                eprintln!("DATUM_MYSQL_URL not set: skipping");
                 return;
             };
             let mgr = connected(&cfg).await;
@@ -405,7 +405,7 @@ mod oracle {
     macro_rules! setup {
         () => {{
             let Some(cfg) = oracle_cfg() else {
-                eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+                eprintln!("DATUM_ORACLE_URL not set: skipping");
                 return;
             };
             let mgr = connected(&cfg).await;

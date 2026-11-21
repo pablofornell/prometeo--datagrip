@@ -35,10 +35,10 @@ describe("Oracle URL only", () => {
     const s = createSession();
     s.addNew("oracle");
     s.setOracleConnType("url");
-    s.setPassword("prometeo");
+    s.setPassword("datum");
     s.setField("user", "demo");
     await s.test();
-    expect(sent.at(-1)).toMatchObject({ user: "demo", password: "prometeo" });
+    expect(sent.at(-1)).toMatchObject({ user: "demo", password: "datum" });
   });
 
   it("typing a URL updates the Service / SID fields, in either connection type", () => {
@@ -58,10 +58,10 @@ describe("Oracle URL only", () => {
   it("credentials typed in the URL fill User and Password", () => {
     const s = createSession();
     s.addNew("oracle");
-    s.setUrl("jdbc:oracle:thin:demo/prometeo@//h:1521/svc");
+    s.setUrl("jdbc:oracle:thin:demo/datum@//h:1521/svc");
     const d = s.current()!;
     expect(d.form.user).toBe("demo");
-    expect(d.password.value).toBe("prometeo");
+    expect(d.password.value).toBe("datum");
     expect(d.form.database).toBe("svc");
   });
 });

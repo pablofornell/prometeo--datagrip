@@ -4,7 +4,7 @@ import pkg from "../../../package.json";
 import { type AboutInfo, aboutRows, formatBuildDate, formatVersionInfo, platformName } from "./aboutInfo";
 
 const INFO: AboutInfo = {
-  name: "Prometeo DataGrip",
+  name: "Datum",
   version: "1.2.3",
   buildDate: "2026-11-16T09:30:00.000Z",
   tauriVersion: "2.9.0",
@@ -17,7 +17,7 @@ describe("formatVersionInfo", () => {
   it("lists the product, every row and the webview", () => {
     expect(formatVersionInfo(INFO)).toBe(
       [
-        "Prometeo DataGrip",
+        "Datum",
         "Version: 1.2.3",
         "Build date: 2026-11-16",
         "Tauri: 2.9.0",

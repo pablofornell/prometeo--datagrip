@@ -1,6 +1,6 @@
-# Prometeo DataGrip: user guide
+# Datum: user guide
 
-Prometeo DataGrip is a desktop SQL client for PostgreSQL, MySQL/MariaDB, SQLite and Oracle.
+Datum is a desktop SQL client for PostgreSQL, MySQL/MariaDB, SQLite and Oracle.
 It follows the DataGrip (New UI) layout: Database Explorer on the left, editor tabs in the
 middle, results and Database Output at the bottom, and the status bar along the bottom edge.
 
@@ -129,11 +129,13 @@ A data source can have a color (**Data Sources > Color**). The tint of tree rows
 
 ## MCP server for AI agents
 
-The **MCP** view (View ▸ MCP, `Ctrl+Shift+M`, or the toolbar button) lets AI agents such as Claude Code
+The **MCP** view (View ▸ MCP, `Ctrl+Shift+M`, or the toolbar button) lets AI agents such as Claude Code, Codex or Cursor
 use your data sources. Only the Database Explorer stays on the left; the rest of the window shows the view.
 
-- **Connect**: switch the server on, then copy the `claude mcp add` command (or the `.mcp.json` snippet).
-  The server listens on `127.0.0.1` only and needs the token in the command.
+- **Connect**: switch the server on, choose your agent (Claude Code, Codex CLI, Gemini CLI, Cursor,
+  GitHub Copilot or OpenCode) and copy its command or config entry. Switch on **Global** to install it
+  for all your projects instead of only the current one. The server listens on `127.0.0.1` only and
+  needs the token in the snippet.
 - **Permissions**: give **read**, **write**, both or none to a folder or to one data source.
   A data-source rule wins over its folder rule. Without a rule an agent sees nothing.
 - **Sessions**: each agent session with a timeline of its actions: the SQL, the result preview, errors and refused calls.
@@ -156,17 +158,17 @@ The app writes a daily log to its data directory:
 
 | OS | Log folder |
 |---|---|
-| Windows | `%APPDATA%\dev.prometeo.datagrip\logs` |
-| macOS | `~/Library/Application Support/dev.prometeo.datagrip/logs` |
-| Linux | `~/.local/share/dev.prometeo.datagrip/logs` |
+| Windows | `%APPDATA%\dev.datum.desktop\logs` |
+| macOS | `~/Library/Application Support/dev.datum.desktop/logs` |
+| Linux | `~/.local/share/dev.datum.desktop/logs` |
 
-Files are named `prometeo.YYYY-MM-DD.log`; the last 7 days are kept. **Help > Open Log Folder**
+Files are named `datum.YYYY-MM-DD.log`; the last 7 days are kept. **Help > Open Log Folder**
 opens the folder in the file manager. Panics are written to `panic.log` in the same folder,
 flushed before the process exits.
 
-Logging defaults to `INFO`. Set the `PROMETEO_LOG` environment variable before launching the app
-to change it, for example `PROMETEO_LOG=debug` or
-`PROMETEO_LOG=info,prometeo_datagrip=debug`. Invalid filter strings fall back to `INFO`.
+Logging defaults to `INFO`. Set the `DATUM_LOG` environment variable before launching the app
+to change it, for example `DATUM_LOG=debug` or
+`DATUM_LOG=info,datum=debug`. Invalid filter strings fall back to `INFO`.
 
 ## Single instance
 

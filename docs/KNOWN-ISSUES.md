@@ -67,7 +67,7 @@ where it helps, what to do instead. Update the list when an item is fixed.
   connects to its root (`CDB$ROOT`), where the tables of the pluggable databases are not visible.
 - **Tested live** on Oracle Database 19c EE 19.3, non-CDB, image `doctorkirk/oracle-19c:19.3` (built from
   oracle/docker-images), database character sets WE8MSWIN1252 and WE8ISO8859P15 (national AL16UTF16):
-  `tests/oracle_charset.rs` (`PROMETEO_ORACLE_19C_URL`) passes. It also passes on 23 Free (AL32UTF8). The
+  `tests/oracle_charset.rs` (`DATUM_ORACLE_19C_URL`) passes. It also passes on 23 Free (AL32UTF8). The
   old-server tests (`tests/oracle_legacy.rs`) pass on 19.3 with both character sets, except the check of a 10g /
   11g banner. The Oracle integration tests (`tests/oracle.rs`, run with WE8ISO8859P15 only) pass on 19.3 except
   four that depend on the test server: the 23ai `BOOLEAN`
@@ -164,7 +164,7 @@ where it helps, what to do instead. Update the list when an item is fixed.
   See [SECURITY.md](SECURITY.md).
 - The release build aborts on a panic (`panic = "abort"`): the panic and its backtrace are written to
   `<data dir>/logs/panic.log`, which is not rotated.
-- Only one copy of the app runs per user, also when `PROMETEO_DATA_DIR` / `PROMETEO_CONFIG_DIR` point a second copy
+- Only one copy of the app runs per user, also when `DATUM_DATA_DIR` / `DATUM_CONFIG_DIR` point a second copy
   at another profile (the single-instance lock does not look at them).
 - Copy / preview of a result as text (`export_query_to_string`, `export_to_string`) is refused above 64 MB; export to
   a file instead.

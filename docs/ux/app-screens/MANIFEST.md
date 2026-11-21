@@ -1,6 +1,6 @@
-# App screenshots manifest (Prometeo DataGrip clone vs DataGrip 2026.3)
+# App screenshots manifest (Datum clone vs DataGrip 2026.3)
 
-Captured 2026-11-07 from the real release binary (`target/release/prometeo-datagrip`, HEAD `d95fc56`) on a private Xvfb `:9`, no window manager, window 1600x1000 at 0,0, private `PROMETEO_CONFIG_DIR`/`PROMETEO_DATA_DIR` under `/tmp/claude-1000/app-shots/`, `PROMETEO_NO_KEYRING=1`.
+Captured 2026-11-07 from the real release binary (`target/release/datum`, HEAD `d95fc56`) on a private Xvfb `:9`, no window manager, window 1600x1000 at 0,0, private `DATUM_CONFIG_DIR`/`DATUM_DATA_DIR` under `/tmp/claude-1000/app-shots/`, `DATUM_NO_KEYRING=1`.
 Data: SQLite `/tmp/claude-1000/ux-sample.db` and PostgreSQL `127.0.0.1:54329` (data source host `localhost`, user `postgres`). I created the schemas `sales` (clients, invoices, v_unpaid, client_total(), clients_id_seq, invoices_id_seq, ticket_seq) and `inventory` (items) to match the DataGrip reference. The schema `shop` was already there. I left it in place and hid it with the schema selector ("3 of 6").
 
 How the crops were made:

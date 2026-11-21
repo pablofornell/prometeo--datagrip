@@ -635,7 +635,7 @@ Every value below is the effective value after the parent chain and wildcard rul
 ## 10. Colour system v2 (richer UI, semantic colour)
 
 Sections 2 and 8 document the JetBrains values. The app now layers a colour system on top (modelled on the sibling
-Prometeo deepgit prototype): the surfaces and metrics stay the Islands ones, but every state that carries meaning
+Datum deepgit prototype): the surfaces and metrics stay the Islands ones, but every state that carries meaning
 (selection, hover, focus, active tab, success / warning / error, object types) takes its colour from one of seven hue
 families. Where a section 2 / 8 token is listed below, the new definition replaces the JetBrains value.
 

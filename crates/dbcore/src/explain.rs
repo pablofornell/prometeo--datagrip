@@ -671,7 +671,7 @@ fn cell_doc(c: &Cell) -> Value {
 }
 
 /// Savepoint that marks the user's transaction before `EXPLAIN PLAN` writes into `PLAN_TABLE`.
-const EXPLAIN_SAVEPOINT: &str = "prometeo_explain";
+const EXPLAIN_SAVEPOINT: &str = "datum_explain";
 
 impl ConnectionManager {
     /// Explain the first statement of `sql` on the session. `analyze` actually runs it (not available on SQLite).

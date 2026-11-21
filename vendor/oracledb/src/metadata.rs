@@ -69,7 +69,7 @@ pub struct Metadata {
     object_type: Option<MetadataObjectType>,
     domain: Option<(String, String)>,
     annotations: Vec<(String, String)>,
-    // PATCH (Prometeo): the column type before a LOB was redefined as LONG / LONG RAW
+    // PATCH (Datum): the column type before a LOB was redefined as LONG / LONG RAW
     declared_type: Option<&'static DbType>,
 }
 
@@ -476,7 +476,7 @@ impl Metadata {
         }
     }
 
-    /// PATCH (Prometeo): like [`data_type`](Self::data_type) but a CLOB / BLOB / NCLOB column that is fetched as
+    /// PATCH (Datum): like [`data_type`](Self::data_type) but a CLOB / BLOB / NCLOB column that is fetched as
     /// a string / bytes still reports its declared type (`db_type()` says LONG / LONG RAW then).
     pub fn declared_data_type(&self) -> String {
         match self.declared_type {

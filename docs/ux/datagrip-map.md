@@ -1,4 +1,4 @@
-# DataGrip 2026.3: pixel-level UX map for the Prometeo rebuild
+# DataGrip 2026.3: pixel-level UX map for the Datum rebuild
 
 Reference build: **DataGrip 2026.3** (snap rev 326), Linux/X11, **New UI** with the default theme **"Islands Dark"** (also checked: "Islands Light"), keymap **XWin** (Linux default, same IDs as `$default`).
 

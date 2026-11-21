@@ -13,11 +13,13 @@ import { clearLog, now, status } from "./store";
 import { EmptyState, FilterChip, Segmented } from "./widgets";
 
 const RANGE_KEY = "mcp.logRange";
-const storedRange = loadLocal<unknown>(RANGE_KEY, "7d");
+/** The log opens on today: what an agent did a moment ago is what the user comes to check. */
+const DEFAULT_RANGE: LogRange = "today";
+const storedRange = loadLocal<unknown>(RANGE_KEY, DEFAULT_RANGE);
 const isRange = (r: unknown): r is LogRange => RANGES.some((x) => x.id === r);
 
 export function LogTab(): JSX.Element {
-  const [range, setRangeSignal] = createSignal<LogRange>(isRange(storedRange) ? storedRange : "7d");
+  const [range, setRangeSignal] = createSignal<LogRange>(isRange(storedRange) ? storedRange : DEFAULT_RANGE);
   const [statusF, setStatusF] = createSignal<McpLogStatus | "all">("all");
   const [dsF, setDsF] = createSignal("all");
   const [text, setText] = createSignal("");

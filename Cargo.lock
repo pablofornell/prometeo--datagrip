@@ -968,8 +968,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "datum"
+version = "0.6.0"
+dependencies = [
+ "dbcore",
+ "dirs",
+ "embed-resource",
+ "keyring",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-window-state",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "dbcore"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "encoding_rs",
  "futures-util",
@@ -3650,31 +3676,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "prometeo-datagrip"
-version = "0.5.0"
-dependencies = [
- "dbcore",
- "embed-resource",
- "keyring",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-window-state",
- "tempfile",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "uuid",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

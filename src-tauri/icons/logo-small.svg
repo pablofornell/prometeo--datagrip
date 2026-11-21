@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- Prometeo DataGrip mark: a 3x3 data grid with an iris (spectrum ring) in the middle cell. Same tile and palette as DeepGit. -->
+  <!-- Datum mark: a 3x3 data grid with an iris (spectrum ring) in the middle cell. Same tile and palette as DeepGit. -->
   <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="#191A1C"/>
   <g fill="none" stroke="#F4F5F7" stroke-linecap="round" stroke-linejoin="round">
     <rect x="150" y="150" width="724" height="724" rx="100" ry="100" stroke-width="84"/>

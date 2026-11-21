@@ -21,7 +21,7 @@ const range = (n: number) => ({ start: 0, end: n, startChar: 0, endChar: n, star
 function answer(sid: string, sql: string): ExecEvent[] {
   const ev: ExecEvent[] = [];
   const set = (s: TxStatus) => (be.tx.set(sid, s), ev.push({ kind: "txStatus", status: s }));
-  const statements = sql.replace(/\/\*prometeo:internal\*\//g, "").split(";").map((x) => x.trim()).filter(Boolean);
+  const statements = sql.replace(/\/\*datum:internal\*\//g, "").split(";").map((x) => x.trim()).filter(Boolean);
   let i = 0;
   for (const st of statements) {
     ev.push({ kind: "statement", index: i, sql: st, range: range(st.length) });
@@ -70,7 +70,7 @@ vi.mock("../../api/db", () => ({
   }),
   executeCollect: vi.fn(async (sid: string, sql: string) => {
     if (!be.sessions.has(sid)) throw gone(sid);
-    be.ran.push(sql.replace(/\/\*prometeo:internal\*\//g, "").trim());
+    be.ran.push(sql.replace(/\/\*datum:internal\*\//g, "").trim());
     return answer(sid, sql);
   }),
   execute: vi.fn(async (sid: string, sql: string, handlers: Record<string, (e: ExecEvent) => void>) => {

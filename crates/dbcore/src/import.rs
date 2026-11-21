@@ -1024,7 +1024,7 @@ async fn release(conn: &mut Conn, d: Driver, cancel: &CancellationToken) -> Resu
     if d == Driver::Oracle {
         return Ok(());
     }
-    run_c(conn, "release savepoint prometeo_import", cancel).await
+    run_c(conn, "release savepoint datum_import", cancel).await
 }
 
 /// `drop table if exists` (Oracle: an anonymous block that ignores the error, `IF EXISTS` is 23ai only).
@@ -1348,7 +1348,7 @@ impl ConnectionManager {
                     break;
                 }
                 // ---- insert it: whole batch in a savepoint, row by row when it fails
-                run_c(&mut conn, "savepoint prometeo_import", cancel).await?;
+                run_c(&mut conn, "savepoint datum_import", cancel).await?;
                 let branches: Vec<String> = if oracle {
                     let rows: Vec<&[String]> = batch.iter().map(|p| p.parts.as_slice()).collect();
                     oracle_union_branches(&rows, &cats)
@@ -1365,10 +1365,10 @@ impl ConnectionManager {
                         return Err(e)
                     }
                     Err(_) => {
-                        run_c(&mut conn, "rollback to savepoint prometeo_import", cancel).await?;
+                        run_c(&mut conn, "rollback to savepoint datum_import", cancel).await?;
                         release(&mut conn, d, cancel).await?;
                         for p in &batch {
-                            run_c(&mut conn, "savepoint prometeo_import", cancel).await?;
+                            run_c(&mut conn, "savepoint datum_import", cancel).await?;
                             match run_c(&mut conn, &format!("{head}{}", p.tuple), cancel).await {
                                 Ok(()) => {
                                     release(&mut conn, d, cancel).await?;
@@ -1381,12 +1381,8 @@ impl ConnectionManager {
                                     return Err(e)
                                 }
                                 Err(e) => {
-                                    run_c(
-                                        &mut conn,
-                                        "rollback to savepoint prometeo_import",
-                                        cancel,
-                                    )
-                                    .await?;
+                                    run_c(&mut conn, "rollback to savepoint datum_import", cancel)
+                                        .await?;
                                     release(&mut conn, d, cancel).await?;
                                     log.add(
                                         p.row,

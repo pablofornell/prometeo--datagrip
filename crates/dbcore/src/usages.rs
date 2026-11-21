@@ -608,7 +608,7 @@ fn ora_view_texts_sql(filter: &str, user_owners: &str, with_vc: bool) -> String 
         );
     }
     format!(
-        "with function prometeo_view_text(o varchar2, n varchar2) return clob is r clob; \
+        "with function datum_view_text(o varchar2, n varchar2) return clob is r clob; \
          begin dbms_lob.createtemporary(r, true); \
            for x in (select text from all_views where owner = o and view_name = n) loop \
              dbms_lob.writeappend(r, length(x.text), x.text); \
@@ -616,7 +616,7 @@ fn ora_view_texts_sql(filter: &str, user_owners: &str, with_vc: bool) -> String 
            return r; \
          end; \
          select owner, view_name, \
-                case when text_vc is null or length(text_vc) >= 4000 then prometeo_view_text(owner, view_name) else to_clob(text_vc) end \
+                case when text_vc is null or length(text_vc) >= 4000 then datum_view_text(owner, view_name) else to_clob(text_vc) end \
          from all_views where {filter} and {user_owners}"
     )
 }
@@ -1165,10 +1165,7 @@ mod tests {
     #[test]
     fn oracle_view_texts_without_text_vc_read_the_long_column() {
         let new = ora_view_texts_sql("(owner = 'A')", "owner <> 'SYS'", true);
-        assert!(
-            new.starts_with("with function prometeo_view_text("),
-            "{new}"
-        );
+        assert!(new.starts_with("with function datum_view_text("), "{new}");
         assert!(new.contains("length(text_vc) >= 4000"), "{new}");
         let old = ora_view_texts_sql("(owner = 'A')", "owner <> 'SYS'", false);
         assert_eq!(

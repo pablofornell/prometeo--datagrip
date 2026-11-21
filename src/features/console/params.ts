@@ -124,7 +124,7 @@ export function substitute(sql: string, refs: ParamRef[], values: Record<string,
 
 // ---------------------------------------------------------------- remembered values
 
-const storeKey = (dsId: string, consoleName: string): string => `prometeo.params.${dsId}.${consoleName}`;
+const storeKey = (dsId: string, consoleName: string): string => `datum.params.${dsId}.${consoleName}`;
 
 /** The values entered earlier in this console, by parameter key. */
 export function loadValues(dsId: string, consoleName: string): Record<string, ParamValue> {

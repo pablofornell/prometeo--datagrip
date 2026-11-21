@@ -1,4 +1,4 @@
-# Prometeo DataGrip: developer commands.
+# Datum: developer commands.
 # Run `make` or `make help` to see the targets.
 
 SHELL := /bin/bash
@@ -25,29 +25,33 @@ endif
 
 # Test databases (Docker). The integration tests load their own seed data
 # (crates/dbcore/tests/fixtures), so the containers only need to run.
-PG_CONTAINER    ?= prometeo-pg
+PG_CONTAINER    ?= datum-pg
 PG_IMAGE        ?= postgres:16
 PG_PORT         ?= 54329
-PG_PASSWORD     ?= prometeo
-MYSQL_CONTAINER ?= prometeo-mysql
+PG_PASSWORD     ?= datum
+MYSQL_CONTAINER ?= datum-mysql
 MYSQL_IMAGE     ?= mysql:8
 MYSQL_PORT      ?= 33069
-MYSQL_PASSWORD  ?= prometeo
-ORACLE_CONTAINER ?= prometeo-oracle
+MYSQL_PASSWORD  ?= datum
+ORACLE_CONTAINER ?= datum-oracle
 ORACLE_IMAGE     ?= gvenzl/oracle-free:23-slim-faststart
 ORACLE_PORT      ?= 15219
-ORACLE_PASSWORD  ?= prometeo
+ORACLE_PASSWORD  ?= datum
 # Optional old server (Oracle Database 10g XE 10.2.0.1) for the old-server tests (tests/oracle_legacy.rs):
 #   make db-up-oracle-legacy
-#   PROMETEO_ORACLE_10G_URL=oracle://demo:prometeo@127.0.0.1:15210/XE cargo test -p dbcore --test oracle_legacy -- --test-threads=1
-ORACLE_LEGACY_CONTAINER ?= prometeo-oracle10g
+#   DATUM_ORACLE_10G_URL=oracle://demo:datum@127.0.0.1:15210/XE cargo test -p dbcore --test oracle_legacy -- --test-threads=1
+ORACLE_LEGACY_CONTAINER ?= datum-oracle10g
 ORACLE_LEGACY_IMAGE     ?= chameleon82/oracle-xe-10g:universal
 ORACLE_LEGACY_PORT      ?= 15210
+# Containers of 0.5.x (Prometeo DataGrip) publish the same ports as the datum-* ones: db-down / db-reset also clean
+# them up (errors ignored when they do not exist), and db-up warns while one of them is still running.
+OLD_CONTAINERS        := prometeo-pg prometeo-mysql prometeo-oracle
+OLD_ORACLE_LEGACY     := prometeo-oracle10g
 
-DB_ENV := PROMETEO_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
-          PROMETEO_MYSQL_URL=mysql://root:$(MYSQL_PASSWORD)@127.0.0.1:$(MYSQL_PORT)/demo \
-          PROMETEO_ORACLE_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_PORT)/FREEPDB1 \
-          PROMETEO_NO_KEYRING=1
+DB_ENV := DATUM_PG_URL=postgres://postgres:$(PG_PASSWORD)@127.0.0.1:$(PG_PORT)/postgres \
+          DATUM_MYSQL_URL=mysql://root:$(MYSQL_PASSWORD)@127.0.0.1:$(MYSQL_PORT)/demo \
+          DATUM_ORACLE_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_PORT)/FREEPDB1 \
+          DATUM_NO_KEYRING=1
 
 .PHONY: help install dev build bundle run \
         test test-ui test-rust test-rust-db test-all \
@@ -79,7 +83,7 @@ dist/index.html: $(FRONTEND_SRC)
 
 build: dist/index.html ## Build the optimized release binary (no installer bundles)
 	$(NPX) tauri build --no-bundle $(NO_BEFORE_BUILD)
-	@echo "Binary: target/release/prometeo-datagrip$(EXE)"
+	@echo "Binary: target/release/datum$(EXE)"
 
 bundle: dist/index.html ## Build the release binary and the installer bundles for the host OS
 	$(NPX) tauri build $(NO_BEFORE_BUILD)
@@ -87,8 +91,8 @@ bundle: dist/index.html ## Build the release binary and the installer bundles fo
 # `run` uses the fast-release profile (thin LTO, parallel codegen, incremental): close to release
 # speed, but a code change rebuilds in seconds instead of minutes. `build`/`bundle` stay fully optimized.
 run: dist/index.html ## Build a fast-release binary (only if something changed) and start the app
-	$(CARGO) build --profile fast-release --bins --features tauri/custom-protocol -p prometeo-datagrip
-	./target/fast-release/prometeo-datagrip$(EXE)
+	$(CARGO) build --profile fast-release --bins --features tauri/custom-protocol -p datum
+	./target/fast-release/datum$(EXE)
 
 ## ---- Tests ----
 
@@ -98,7 +102,7 @@ test-ui: ## Run the frontend tests (vitest)
 	$(NPM) test
 
 test-rust: ## Run the Rust tests; database tests skip without the DB env
-	PROMETEO_NO_KEYRING=1 $(CARGO) test --workspace
+	DATUM_NO_KEYRING=1 $(CARGO) test --workspace
 
 test-rust-db: db-up ## Run the Rust tests against the PostgreSQL, MySQL and Oracle containers
 	$(DB_ENV) $(CARGO) test --workspace --no-fail-fast
@@ -130,6 +134,9 @@ ci: lint test-all ## Everything a CI run does: lint, all tests with databases, f
 
 db-up: ## Start the PostgreSQL, MySQL and Oracle test containers (and wait until ready)
 	@set -euo pipefail; \
+	for old in $(OLD_CONTAINERS); do \
+	  if docker ps --format '{{.Names}}' | grep -qx "$$old"; then echo "[db] warning: the 0.5.x container $$old is still running and may hold the same port: run 'make db-down' or 'make db-reset'"; fi; \
+	done; \
 	start() { \
 	  name=$$1; shift; \
 	  if docker ps --format '{{.Names}}' | grep -qx "$$name"; then echo "[db] $$name is running"; \
@@ -150,11 +157,13 @@ db-up: ## Start the PostgreSQL, MySQL and Oracle test containers (and wait until
 	docker logs $(ORACLE_CONTAINER) 2>&1 | grep -q "DATABASE IS READY TO USE!" || { echo "[db] Oracle is not ready"; exit 1; }; \
 	echo "[db] ready: PostgreSQL 127.0.0.1:$(PG_PORT), MySQL 127.0.0.1:$(MYSQL_PORT), Oracle 127.0.0.1:$(ORACLE_PORT)/FREEPDB1"
 
-db-down: ## Stop the test containers (data is kept)
+db-down: ## Stop the test containers, and any 0.5.x prometeo-* ones (data is kept)
 	-docker stop $(PG_CONTAINER) $(MYSQL_CONTAINER) $(ORACLE_CONTAINER)
+	-docker stop $(OLD_CONTAINERS) 2>/dev/null
 
-db-reset: ## Remove the test containers and their data, then start new ones
+db-reset: ## Remove the test containers (and any 0.5.x prometeo-* ones) and their data, then start new ones
 	-docker rm -f $(PG_CONTAINER) $(MYSQL_CONTAINER) $(ORACLE_CONTAINER)
+	-docker rm -f $(OLD_CONTAINERS) 2>/dev/null
 	$(MAKE) db-up
 
 db-status: ## Show the state of the test containers
@@ -186,10 +195,11 @@ db-up-oracle-legacy: ## Start the optional Oracle 10g XE test container (old-ser
 	  "/" \
 	  "grant connect, resource, create view, create synonym, create materialized view, create type, create sequence, create trigger, create procedure, select_catalog_role to demo;" \
 	  | sys >/dev/null; \
-	echo "[db] ready: Oracle 10g 127.0.0.1:$(ORACLE_LEGACY_PORT)/XE (PROMETEO_ORACLE_10G_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_LEGACY_PORT)/XE)"
+	echo "[db] ready: Oracle 10g 127.0.0.1:$(ORACLE_LEGACY_PORT)/XE (DATUM_ORACLE_10G_URL=oracle://demo:$(ORACLE_PASSWORD)@127.0.0.1:$(ORACLE_LEGACY_PORT)/XE)"
 
 db-down-oracle-legacy: ## Stop and remove the Oracle 10g XE test container
 	-docker rm -f $(ORACLE_LEGACY_CONTAINER)
+	-docker rm -f $(OLD_ORACLE_LEGACY) 2>/dev/null
 
 ## ---- Cleanup ----
 

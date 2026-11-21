@@ -1,15 +1,17 @@
 //! Integration test of the embedded MCP server (`docs/MCP.md`): a real SQLite data source, the HTTP endpoint on a
 //! free port, and a hand-written HTTP client over a TCP socket.
 
+mod common;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use datum_lib::mcp::log::{McpLogQuery, McpLogStatus};
+use datum_lib::mcp::policy::{McpPerm, McpPolicyInput};
+use datum_lib::mcp::McpEvent;
+use datum_lib::store::NoKeyring;
+use datum_lib::AppState;
 use dbcore::{DataSourceConfig, Driver, ExecEvent, ExecOptions};
-use prometeo_datagrip_lib::mcp::log::{McpLogQuery, McpLogStatus};
-use prometeo_datagrip_lib::mcp::policy::{McpPerm, McpPolicyInput};
-use prometeo_datagrip_lib::mcp::McpEvent;
-use prometeo_datagrip_lib::store::NoKeyring;
-use prometeo_datagrip_lib::AppState;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -290,7 +292,7 @@ async fn mcp_server_end_to_end() {
     let mut c = Client::new(port, Some(&token));
     let init = c.initialize("claude-test").await;
     assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
-    assert_eq!(init["result"]["serverInfo"]["name"], "prometeo-datagrip");
+    assert_eq!(init["result"]["serverInfo"]["name"], "datum");
     assert_eq!(
         init["result"]["capabilities"]["tools"]["listChanged"],
         false
@@ -1123,9 +1125,7 @@ async fn mcp_rechecks_the_permission_after_waiting_for_the_connection() {
 }
 
 fn pg_ds() -> Option<DataSourceConfig> {
-    let url = std::env::var("PROMETEO_PG_URL")
-        .ok()
-        .filter(|u| !u.is_empty())?;
+    let url = common::env_url("DATUM_PG_URL")?;
     // postgres://user:pass@host:port/db
     let rest = url.split("://").nth(1)?;
     let (auth, tail) = rest.split_once('@')?;
@@ -1144,13 +1144,13 @@ fn pg_ds() -> Option<DataSourceConfig> {
     })
 }
 
-/// `PROMETEO_PG_URL=postgres://postgres:prometeo@127.0.0.1:54329/postgres cargo test -p prometeo-datagrip --test mcp`
+/// `DATUM_PG_URL=postgres://postgres:datum@127.0.0.1:54329/postgres cargo test -p datum --test mcp`
 /// A statement cannot switch the read-only connection to read-write: `set_config` is turned off by the
 /// classifier, and a quoted name that gets past it still cannot write because the query runs in `BEGIN READ ONLY`.
 #[tokio::test]
 async fn postgres_read_connection_cannot_be_made_read_write() {
     let Some(cfg) = pg_ds() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let dir = tempfile::tempdir().unwrap();
@@ -1297,9 +1297,7 @@ async fn postgres_read_connection_cannot_be_made_read_write() {
 }
 
 fn oracle_ds() -> Option<DataSourceConfig> {
-    let url = std::env::var("PROMETEO_ORACLE_URL")
-        .ok()
-        .filter(|u| !u.is_empty())?;
+    let url = common::env_url("DATUM_ORACLE_URL")?;
     // oracle://user:password@host:port/service
     let rest = url.strip_prefix("oracle://")?;
     let (cred, target) = rest.rsplit_once('@')?;
@@ -1319,12 +1317,12 @@ fn oracle_ds() -> Option<DataSourceConfig> {
     })
 }
 
-/// `PROMETEO_ORACLE_URL=oracle://demo:prometeo@127.0.0.1:15219/FREEPDB1 cargo test -p prometeo-datagrip --test mcp`
+/// `DATUM_ORACLE_URL=oracle://demo:datum@127.0.0.1:15219/FREEPDB1 cargo test -p datum --test mcp`
 /// `EXPLAIN PLAN` is refused, a read leaves no transaction (and no row lock) behind, writes are committed.
 #[tokio::test]
 async fn oracle_reads_leave_no_transaction_and_writes_commit() {
     let Some(cfg) = oracle_ds() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let dir = tempfile::tempdir().unwrap();

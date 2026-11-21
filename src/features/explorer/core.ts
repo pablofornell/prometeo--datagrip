@@ -130,7 +130,7 @@ interface Saved {
   sortAlphabetically?: boolean;
 }
 
-const LS_KEY = "prometeo.ui.explorer.state";
+const LS_KEY = "datum.ui.explorer.state";
 const EMPTY: Saved = { expanded: [], selected: null, badges: {}, showSystem: false, nodeColors: {} };
 export let saved: Saved = { ...EMPTY };
 

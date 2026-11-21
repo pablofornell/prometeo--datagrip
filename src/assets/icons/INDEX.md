@@ -53,7 +53,7 @@ Naming: `<name>.svg` = light theme variant, `<name>_dark.svg` = dark theme varia
 | `project@20x20` | `intellij-community/platform/icons/src/expui/toolwindows/project@20x20` | light+dark | Project/Files tool window stripe 20px |
 | `services` | `intellij-community/platform/icons/src/expui/toolwindows/services` | light+dark | Services tool window 16px |
 | `services@20x20` | `intellij-community/platform/icons/src/expui/toolwindows/services@20x20` | light+dark | Services tool window stripe 20px |
-| `mcp`, `mcp@20x20` | drawn for Prometeo (a hub with two links: an agent connected to the app), in the stroke style of the set | light+dark | MCP view (main toolbar button 20px, view header 16px) |
+| `mcp`, `mcp@20x20` | drawn for Datum (a plug: the connector an AI agent plugs into the app), in the stroke style of the set | light+dark | MCP view (main toolbar button 20px, view header 16px) |
 | `notifications` | `intellij-community/platform/icons/src/expui/toolwindows/notifications` | light+dark | Notifications (bell) 16px |
 | `notifications@20x20` | `intellij-community/platform/icons/src/expui/toolwindows/notifications@20x20` | light+dark | Notifications (bell) stripe 20px |
 | `structure@20x20` | `intellij-community/platform/icons/src/expui/toolwindows/structure@20x20` | light+dark | Structure tool window stripe 20px |
@@ -186,4 +186,4 @@ Naming: `<name>.svg` = light theme variant, `<name>_dark.svg` = dark theme varia
 | `dg/editor-output` | `DataGrip 2026.3 intellij.database.jar!/icons/expui/editorOutput` | light+dark | Output in editor |
 | `dg/dbms-output` | `DataGrip 2026.3 intellij.database.jar!/icons/expui/dbmsOutput` | light+dark | DBMS output |
 | `dg/locked` | `DataGrip 2026.3 intellij.database.jar!/icons/expui/locked` | light+dark | Read-only / locked |
-| `explain-plan` | original artwork (Prometeo DataGrip) | light+dark | Query Plan result tab (Explain Plan) |
+| `explain-plan` | original artwork (Datum) | light+dark | Query Plan result tab (Explain Plan) |

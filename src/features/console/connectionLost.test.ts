@@ -22,7 +22,7 @@ const range = (n: number) => ({ start: 0, end: n, startChar: 0, endChar: n, star
 /** What the backend answers to one statement on session `sid`. */
 function answer(sid: string, sql: string): ExecEvent[] {
   const s = be.sessions.get(sid)!;
-  const clean = sql.replace(/\/\*prometeo:internal\*\//g, "").trim();
+  const clean = sql.replace(/\/\*datum:internal\*\//g, "").trim();
   const ev: ExecEvent[] = [{ kind: "statement", index: 0, sql: clean, range: range(clean.length) }];
   if (s.killed || s.dead) {
     const wasTx = s.tx !== "idle" && !s.dead;
@@ -53,7 +53,7 @@ vi.mock("../../api/db", () => ({
   closeSession: vi.fn(async (sid: string) => void (be.closed.push(sid), be.sessions.delete(sid))), // succeeds on a dead session too
   sessionTxStatus: vi.fn(async (sid: string) => be.sessions.get(sid)?.tx ?? "idle"),
   executeCollect: vi.fn(async (sid: string, sql: string) => {
-    be.ran.push(sql.replace(/\/\*prometeo:internal\*\//g, "").trim());
+    be.ran.push(sql.replace(/\/\*datum:internal\*\//g, "").trim());
     return answer(sid, sql);
   }),
   execute: vi.fn(async (sid: string, sql: string, handlers: Record<string, (e: ExecEvent) => void>) => {

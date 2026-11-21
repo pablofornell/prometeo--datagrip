@@ -2,19 +2,21 @@
 //!
 //! SQLite tests always run. The PostgreSQL test (and the timing numbers, printed with
 //! `--nocapture`, lines start with `BENCH`) needs:
-//!   PROMETEO_PG_URL=postgres://postgres:prometeo@127.0.0.1:54329/postgres cargo test -p prometeo-datagrip --test commands -- --nocapture
+//!   DATUM_PG_URL=postgres://postgres:datum@127.0.0.1:54329/postgres cargo test -p datum --test commands -- --nocapture
 //! The PG fixture (`shop` schema with the 100k-row `big_table`) is loaded by
 //! `cargo test -p dbcore` (see crates/dbcore/README.md).
+
+mod common;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use datum_lib::store::{NoKeyring, OsKeyring, SecretStore};
+use datum_lib::AppState;
 use dbcore::{
     DataSourceConfig, Driver, ExecEvent, ExecOptions, NodeKind, ObjectRef, RowChange,
     TableDataRequest,
 };
-use prometeo_datagrip_lib::store::{NoKeyring, OsKeyring, SecretStore};
-use prometeo_datagrip_lib::AppState;
 use serde_json::{json, Value};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::sync::Notify;
@@ -88,9 +90,7 @@ fn first_rs(ev: &[ExecEvent]) -> (usize, usize, bool) {
 }
 
 fn pg_ds() -> Option<DataSourceConfig> {
-    let url = std::env::var("PROMETEO_PG_URL")
-        .ok()
-        .filter(|u| !u.is_empty())?;
+    let url = common::env_url("DATUM_PG_URL")?;
     // postgres://user:pass@host:port/db
     let rest = url.split("://").nth(1)?;
     let (auth, tail) = rest.split_once('@')?;
@@ -112,7 +112,7 @@ fn pg_ds() -> Option<DataSourceConfig> {
 #[tokio::test]
 async fn postgres_end_to_end() {
     let Some(cfg) = pg_ds() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let dir = tempfile::tempdir().unwrap();
@@ -446,7 +446,7 @@ async fn bench_500x20_through_a_channel() {
         "BENCH pg execute -> 500x20 resultset event on the Channel: {:?} after execute() returned, payload {} KiB",
         at, size / 1024
     );
-    if let Ok(p) = std::env::var("PROMETEO_BENCH_DUMP") {
+    if let Some(p) = common::env_url("DATUM_BENCH_DUMP") {
         std::fs::write(p, json).unwrap();
     }
     st.disconnect(&ds).await.unwrap();
@@ -1057,7 +1057,7 @@ async fn data_source_and_settings_files_go_through_granted_paths_only() {
 
     // more than 8 MB is refused, as a file and as text
     let big = dir.path().join("big.json");
-    let size = prometeo_datagrip_lib::store::MAX_EXPORT_FILE as usize + 1;
+    let size = datum_lib::store::MAX_EXPORT_FILE as usize + 1;
     std::fs::write(&big, vec![b' '; size]).unwrap();
     st.allow_import_path(big.clone());
     let e = st
@@ -1101,5 +1101,5 @@ async fn data_source_and_settings_files_go_through_granted_paths_only() {
         .import_settings(&out.display().to_string())
         .await
         .unwrap_err();
-    assert!(e.contains("not a Prometeo settings"), "{e}");
+    assert!(e.contains("not a Datum settings"), "{e}");
 }

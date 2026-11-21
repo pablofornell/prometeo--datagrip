@@ -102,8 +102,10 @@ export function leadingComment(sql: string): string | null {
 }
 
 /** Marks SQL the console sends on its own (BEGIN, SET search_path, ...) so the history can hide it. */
-export const INTERNAL_MARK = "/*prometeo:internal*/";
-export const isInternalSql = (sql: string): boolean => sql.includes(INTERNAL_MARK);
+export const INTERNAL_MARK = "/*datum:internal*/";
+/** The mark 0.5.x wrote: history entries saved by that version keep it, and stay hidden. */
+const LEGACY_INTERNAL_MARK = "/*prometeo:internal*/";
+export const isInternalSql = (sql: string): boolean => sql.includes(INTERNAL_MARK) || sql.includes(LEGACY_INTERNAL_MARK);
 
 /**
  * Where the editor underlines a server error: `positionUtf16` (1-based, inside the statement). PostgreSQL points a

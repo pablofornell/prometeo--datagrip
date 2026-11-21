@@ -1,7 +1,7 @@
 //-----------------------------------------------------------------------------
 // cancel.rs
 //
-// PATCH (Prometeo): handle that interrupts the call running on a connection
+// PATCH (Datum): handle that interrupts the call running on a connection
 // from another thread, by writing a break marker packet to the socket.
 //-----------------------------------------------------------------------------
 

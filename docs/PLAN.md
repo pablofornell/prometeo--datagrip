@@ -1,4 +1,4 @@
-# Prometeo DataGrip — Plan and architecture contract
+# Datum — Plan and architecture contract
 
 Goal: a desktop database client that replicates JetBrains DataGrip (New UI, Dark theme
 by default, Light theme also), built with Rust + Tauri 2. It must be fast and use little memory.

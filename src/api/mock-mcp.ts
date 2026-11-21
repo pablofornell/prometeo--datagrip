@@ -142,7 +142,7 @@ export function mcpMockHandlers({ sources, load, save }: Deps): Record<string, M
       dataSourceId: c,
       sql: "SELECT * FROM billing.invoices WHERE paid = false",
       status: "denied",
-      error: "No read access to this data source. Grant it in Prometeo DataGrip: MCP > Permissions.",
+      error: "No read access to this data source. Grant it in Datum: MCP > Permissions.",
       summary: "Denied: no read permission",
       elapsedMs: 1,
     });
@@ -185,7 +185,7 @@ export function mcpMockHandlers({ sources, load, save }: Deps): Record<string, M
       dataSourceId: a,
       sql: "DELETE FROM public.sessions WHERE expires_at < now()",
       status: "denied",
-      error: "No write access to this data source. Grant it in Prometeo DataGrip: MCP > Permissions.",
+      error: "No write access to this data source. Grant it in Datum: MCP > Permissions.",
       summary: "Denied: no write permission",
       elapsedMs: 1,
     });
@@ -202,6 +202,20 @@ export function mcpMockHandlers({ sources, load, save }: Deps): Record<string, M
       preview: { columns: ["?column?"], rows: [["1"]] },
     });
     add(s3, 4 * DAY + 3 * HOUR - 3 * MIN, "end", { summary: "Session ended" });
+
+    // a busier session: enough rows to scroll, a data source that is not in the explorer (long name), a long summary, an unknown tool
+    const s4 = newSession("cursor", "1.7.3", 3 * HOUR, false);
+    const long = "analytics-warehouse-production-eu-west-1";
+    let ago = 3 * HOUR;
+    for (let i = 0; i < 36; i++) {
+      ago -= i % 9 === 8 ? 9 * MIN : 70_000;
+      if (i % 12 === 5) add(s4, ago, "execute_statement", { dataSourceId: a, sql: `INSERT INTO audit_log(event, at) VALUES ('sync ${i}', now())`, summary: "Inserted 1 row into audit_log", rowsAffected: 1, elapsedMs: 14 });
+      else if (i % 7 === 3) add(s4, ago, "run_query", { dataSourceId: "ds-gone", dataSourceName: long, sql: "SELECT * FROM events", status: "error", error: "connection refused", summary: "Query failed: connection refused by the server", elapsedMs: 5012 });
+      else if (i % 5 === 0) add(s4, ago, "list_tables", { dataSourceId: "ds-gone", dataSourceName: long, summary: "Listed 120 tables in the analytics schema, including partitions and materialized views", rowCount: 120, elapsedMs: 1850 });
+      else if (i % 11 === 4) add(s4, ago, "explain_plan_for_a_really_long_tool_name", { dataSourceId: b, summary: "Planned the query", elapsedMs: 95_000 });
+      else add(s4, ago, "run_query", { dataSourceId: i % 2 ? a : b, sql: `SELECT id, name, created_at FROM customers WHERE id > ${i * 100} ORDER BY id LIMIT 50`, summary: `Returned ${50 - i} rows from customers`, rowCount: 50 - i, elapsedMs: 8 + i * 3 });
+    }
+    add(s4, ago - MIN, "end", { summary: "Session ended" });
 
     log.sort((x, y) => y.tsMs - x.tsMs);
     sessions.sort((x, y) => y.lastSeenMs - x.lastSeenMs);

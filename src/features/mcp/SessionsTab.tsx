@@ -52,10 +52,13 @@ function SessionCard(props: { s: McpSession; selected: boolean; onSelect: () => 
 
 type TlFilter = "all" | "writes" | "problems";
 
-/** The activity strip: one tick per action, colored by what it was; a click brings the action into view. */
+/**
+ * The activity strip: one tick per action, colored by what it was; a click brings the action into view. It is a time axis
+ * (oldest on the left, newest on the right) whatever the order of the list below it: that is how a strip of ticks reads.
+ */
 function Strip(props: { entries: McpLogEntry[]; onPick: (e: McpLogEntry) => void }): JSX.Element {
   return (
-    <div class="dg-mcp-strip" role="list" aria-label="Actions of the session">
+    <div class="dg-mcp-strip" role="list" aria-label="Actions of the session, oldest to newest">
       <For each={props.entries}>
         {(e) => (
           <button
@@ -83,32 +86,41 @@ function Timeline(props: { id: string }): JSX.Element {
   const fresh = createFresh();
   const [unseen, setUnseen] = createSignal(0);
   const [mode, setMode] = createSignal<TlFilter>("all");
-  let followed = true;
 
-  const nearBottom = () => !scroller || scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48;
-  const toBottom = (smooth: boolean) => requestAnimationFrame(() => scroller?.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? "smooth" : "auto" }));
+  // newest first: the latest action is at the top, where the list starts, and older ones are paged in at the bottom
+  const nearTop = () => !scroller || scroller.scrollTop < 48;
+  const toTop = (smooth: boolean) => requestAnimationFrame(() => scroller?.scrollTo({ top: 0, behavior: smooth ? "smooth" : "auto" }));
+  const matches = (e: McpLogEntry) => {
+    const m = mode();
+    return m === "all" ? true : m === "writes" ? entryKind(e) === "write" : e.status !== "ok";
+  };
 
+  let before: { h: number; top: number; follow: boolean } | null = null;
   const feed = createLogFeed(query, {
     onLive: (phase, e) => {
       if (phase === "before") {
-        followed = nearBottom();
+        before = { h: scroller.scrollHeight, top: scroller.scrollTop, follow: nearTop() };
         return;
       }
+      const b = before;
+      before = null;
       fresh.add(e.id);
-      if (followed) toBottom(true);
-      else setUnseen((n) => n + 1);
+      if (!b || b.follow) {
+        // reading the top: the new action appears there
+        if (b && b.top > 0) toTop(true);
+        return;
+      }
+      // scrolled down: the entry arrives above what is on screen, keep the same rows under the pointer and say so
+      scroller.scrollTop = b.top + (scroller.scrollHeight - b.h);
+      if (matches(e)) setUnseen((n) => n + 1);
     },
   });
 
-  // the newest action is what one wants to see first: start at the bottom
-  createEffect(on(() => feed.loading(), (l, was) => l === false && was !== false && toBottom(false)));
   createEffect(on(() => props.id, () => setUnseen(0)));
 
-  const ordered = createMemo(() => [...feed.entries()].reverse());
-  const visible = createMemo(() => {
-    const m = mode();
-    return ordered().filter((e) => (m === "all" ? true : m === "writes" ? entryKind(e) === "write" : e.status !== "ok"));
-  });
+  const visible = createMemo(() => feed.entries().filter(matches));
+  /** The strip is a time axis: oldest on the left. */
+  const chronological = createMemo(() => [...feed.entries()].reverse());
   const toggle = (id: string) =>
     setOpen((o) => {
       const n = new Set(o);
@@ -165,17 +177,25 @@ function Timeline(props: { id: string }): JSX.Element {
             { id: "problems", label: "Problems" },
           ]}
         />
-        <Strip entries={ordered()} onPick={pick} />
+        <Strip entries={chronological()} onPick={pick} />
         <Button class="dg-mcp-small" disabled={open().size === 0} onClick={() => setOpen(new Set())}>
           Collapse all
         </Button>
       </div>
       <div class="dg-mcp-scroll dg-mcp-tl-scroll" ref={scroller} data-focus-target tabindex={-1}>
-        <Show when={feed.hasMore()}>
-          <div class="dg-mcp-more-row">
-            <Button class="dg-mcp-small" disabled={feed.loadingMore()} onClick={feed.loadMore}>
-              {feed.loadingMore() ? "Loading…" : "Load earlier actions"}
-            </Button>
+        <Show when={unseen() > 0}>
+          <div class="dg-mcp-newpill-anchor">
+            <button
+              type="button"
+              class="dg-mcp-newpill"
+              onClick={() => {
+                setUnseen(0);
+                toTop(true);
+              }}
+            >
+              <Icon name="chevron-up" />
+              {plural(unseen(), "new action")}
+            </button>
           </div>
         </Show>
         <Show when={!feed.loading()} fallback={<Loading />}>
@@ -191,10 +211,11 @@ function Timeline(props: { id: string }): JSX.Element {
               <div class="dg-mcp-tl-list">
                 <For each={visible()}>
                   {(e, i) => {
-                    const gap = () => (i() > 0 ? gapBetween(visible()[i() - 1].tsMs, e.tsMs) : null);
+                    // the list runs from the newest to the oldest: the row above is the later one
+                    const gap = () => (i() > 0 ? gapBetween(e.tsMs, visible()[i() - 1].tsMs) : null);
                     return (
                       <>
-                        <Show when={gap()}>{(g) => <div class="dg-mcp-gap">{duration(g())} later</div>}</Show>
+                        <Show when={gap()}>{(g) => <div class="dg-mcp-gap">{duration(g())} earlier</div>}</Show>
                         <div data-entry-id={e.id}>
                           <EntryRow rail entry={e} open={open().has(e.id)} onToggle={() => toggle(e.id)} first={i() === 0} last={i() === visible().length - 1} fresh={fresh.has(e.id)} />
                         </div>
@@ -206,20 +227,14 @@ function Timeline(props: { id: string }): JSX.Element {
             </Show>
           </Show>
         </Show>
+        <Show when={!feed.loading() && !feed.error() && feed.hasMore()}>
+          <div class="dg-mcp-more-row">
+            <Button class="dg-mcp-small" disabled={feed.loadingMore()} onClick={feed.loadMore}>
+              {feed.loadingMore() ? "Loading…" : "Load older actions"}
+            </Button>
+          </div>
+        </Show>
       </div>
-      <Show when={unseen() > 0}>
-        <button
-          type="button"
-          class="dg-mcp-newpill"
-          onClick={() => {
-            setUnseen(0);
-            toBottom(true);
-          }}
-        >
-          <Icon name="chevron-down" />
-          {plural(unseen(), "new action")}
-        </button>
-      </Show>
     </div>
   );
 }
@@ -286,7 +301,7 @@ export function SessionsTab(props: { goto: (t: McpTab) => void }): JSX.Element {
           keyed
           fallback={
             <EmptyState icon="history" title={list().length ? "Select a session" : "Nothing to follow yet"}>
-              Its actions, in order, appear here: the queries it ran, what they returned and what it changed.
+              Its actions, newest first, appear here: the queries it ran, what they returned and what it changed.
             </EmptyState>
           }
         >

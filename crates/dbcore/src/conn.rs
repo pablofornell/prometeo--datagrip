@@ -226,7 +226,7 @@ pub(crate) fn build_opts(cfg: &DataSourceConfig) -> Result<ConnOpts> {
                 o = o.ssl_mode(PgSslMode::from_str(m).map_err(bad)?);
             }
             o = o.application_name(
-                opt(cfg, &["application_name", "applicationName"]).unwrap_or("Prometeo DataGrip"),
+                opt(cfg, &["application_name", "applicationName"]).unwrap_or("Datum"),
             );
             if let Some(p) = file_opt(cfg, "sslrootcert", "SSL CA")? {
                 o = o.ssl_root_cert(p);
@@ -311,7 +311,7 @@ pub(crate) fn build_opts(cfg: &DataSourceConfig) -> Result<ConnOpts> {
                 // same database: a named shared-cache in-memory one, unique per `build_opts`
                 None if is_memory(cfg) => SqliteConnectOptions::new()
                     .filename(format!(
-                        "file:prometeo-{}-{}?mode=memory&cache=shared",
+                        "file:datum-{}-{}?mode=memory&cache=shared",
                         uri_safe(&cfg.id),
                         uuid::Uuid::new_v4().simple()
                     ))

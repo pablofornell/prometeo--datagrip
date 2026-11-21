@@ -1,4 +1,4 @@
-//! MySQL whole-database dump / restore round-trip. Needs PROMETEO_MYSQL_URL (see `make test-rust-db`):
+//! MySQL whole-database dump / restore round-trip. Needs DATUM_MYSQL_URL (see `make test-rust-db`):
 //!   cargo test -p dbcore --test dump_mysql -- --nocapture
 
 mod common;
@@ -44,7 +44,7 @@ async fn tables(mgr: &ConnectionManager, s: &SessionId, db: &str) -> Vec<String>
 #[tokio::test]
 async fn dump_restore_round_trip() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -188,7 +188,7 @@ async fn dump_with(
 #[tokio::test]
 async fn drop_if_exists_twice_subset_and_data_only() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;

@@ -20,7 +20,7 @@ export interface AboutInfo {
   userAgent: string;
 }
 
-export const APP_NAME = "Prometeo DataGrip";
+export const APP_NAME = "Datum";
 
 /** Operating system from a user agent string; `unknown` when it names none of the three. */
 export function platformName(userAgent: string): string {

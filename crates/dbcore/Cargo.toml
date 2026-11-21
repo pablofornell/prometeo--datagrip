@@ -3,7 +3,7 @@ name = "dbcore"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Database core for Prometeo DataGrip: connections, introspection, execution, editing, DDL, export"
+description = "Database core for Datum: connections, introspection, execution, editing, DDL, export"
 
 [dependencies]
 oracledb = { path = "../../vendor/oracledb" }

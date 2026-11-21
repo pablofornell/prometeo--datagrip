@@ -1,6 +1,6 @@
 //! The User/Schema selector: `list_schemas` and `set_session_schema` on SQLite (always runs, temp file), PostgreSQL,
 //! MySQL and Oracle (each skips when its URL is not set). Run with:
-//!   PROMETEO_PG_URL=... PROMETEO_MYSQL_URL=... PROMETEO_ORACLE_URL=oracle://demo:<password>@127.0.0.1:15219/FREEPDB1 \
+//!   DATUM_PG_URL=... DATUM_MYSQL_URL=... DATUM_ORACLE_URL=oracle://demo:<password>@127.0.0.1:15219/FREEPDB1 \
 //!     cargo test -p dbcore --test schema_select_db -- --nocapture
 
 mod common;

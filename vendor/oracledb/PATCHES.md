@@ -6,7 +6,7 @@ guide (`doc/`), tests, examples and helper binaries of the upstream crate were l
 trimmed accordingly. The crate is a path dependency of `crates/dbcore` and is **not** a workspace member
 (`exclude = ["vendor"]` in the root `Cargo.toml`), so `cargo clippy --workspace` does not lint it.
 
-Why: Prometeo DataGrip needs to cancel a running statement (the console's Stop button), and the public API of
+Why: Datum needs to cancel a running statement (the console's Stop button), and the public API of
 the crate has no way to do it from another thread.
 
 | file | change |
@@ -36,15 +36,15 @@ The 10g / 11g protocol is the one of go-ora (https://github.com/sijms/go-ora, a 
 10.2): the field version checks follow it, and every change was checked with packet dumps
 (`RSO_DEBUG_PACKETS=1`) against Oracle Database 10g XE 10.2.0.1 (TNS 313, SDU 2048, field version 4); Oracle
 Database 11g XE 11.2.0.2 (TNS 314, SDU 8192, field version 6, no big chunks) was tested the same way. The live tests are
-`crates/dbcore/tests/oracle_legacy.rs` (`PROMETEO_ORACLE_10G_URL`, `make db-up-oracle-legacy`); the 12.1+ paths
+`crates/dbcore/tests/oracle_legacy.rs` (`DATUM_ORACLE_10G_URL`, `make db-up-oracle-legacy`); the 12.1+ paths
 stay as upstream wrote them and are covered by the Oracle 23 Free tests.
 
 Oracle Database 19c 19.3 (TNS 318, SDU 8192, field version 12, big chunks, 32k strings, no fast authentication)
 with the single-byte database character sets WE8MSWIN1252 and WE8ISO8859P15 was checked the same way: it gets
 none of the 10g / 11g paths, the accepted SDU limits nothing, and text (also NCHAR text and names outside ASCII)
 comes back unchanged, because the client asks for UTF-8 and the server converts. No driver change was necessary
-for it. The live test is `crates/dbcore/tests/oracle_charset.rs` (`PROMETEO_ORACLE_19C_URL`).
+for it. The live test is `crates/dbcore/tests/oracle_charset.rs` (`DATUM_ORACLE_19C_URL`).
 
 The 11G logon is tested by `logon_with_11g_password_verifier` in `crates/dbcore/tests/oracle.rs`
-(`PROMETEO_ORACLE_11G_URL`). It needs `SQLNET.ALLOWED_LOGON_VERSION_SERVER=11` in the server's `sqlnet.ora`
+(`DATUM_ORACLE_11G_URL`). It needs `SQLNET.ALLOWED_LOGON_VERSION_SERVER=11` in the server's `sqlnet.ora`
 and an account whose `dba_users.password_versions` is `11G` only.

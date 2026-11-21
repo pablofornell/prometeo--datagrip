@@ -1,5 +1,5 @@
 //! PostgreSQL whole-schema dump / restore round-trip. Run with:
-//!   PROMETEO_PG_URL=postgres://postgres:prometeo@localhost:54329/postgres cargo test -p dbcore --test dump_pg -- --nocapture
+//!   DATUM_PG_URL=postgres://postgres:datum@localhost:54329/postgres cargo test -p dbcore --test dump_pg -- --nocapture
 
 mod common;
 
@@ -105,7 +105,7 @@ async fn tables(mgr: &ConnectionManager, s: &SessionId, schema: &str) -> Vec<Str
 #[tokio::test]
 async fn dump_restore_round_trip() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -226,7 +226,7 @@ async fn dump_restore_round_trip() {
 #[tokio::test]
 async fn schema_only_dump_omits_data() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -313,7 +313,7 @@ async fn cleanup(mgr: &ConnectionManager, s: &SessionId, schemas: &[&str]) {
 #[tokio::test]
 async fn drop_if_exists_restore_twice_and_serial_sequences_without_include_sequences() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -393,7 +393,7 @@ async fn drop_if_exists_restore_twice_and_serial_sequences_without_include_seque
 #[tokio::test]
 async fn table_subset_data_only_commits_and_progress_table() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -508,7 +508,7 @@ async fn table_subset_data_only_commits_and_progress_table() {
 #[tokio::test]
 async fn partitioned_table_round_trip() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;
@@ -617,7 +617,7 @@ async fn partitioned_table_round_trip() {
 #[tokio::test]
 async fn foreign_table_is_skipped_with_a_warning() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = &connected(&cfg).await;

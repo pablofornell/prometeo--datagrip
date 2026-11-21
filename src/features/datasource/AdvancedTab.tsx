@@ -20,7 +20,7 @@ const MYSQL: KnownProp[] = [
 
 const KNOWN: Record<Dbms, KnownProp[]> = {
   postgres: [
-    { name: "application_name", description: "Name of the client shown in pg_stat_activity. Default: Prometeo DataGrip." },
+    { name: "application_name", description: "Name of the client shown in pg_stat_activity. Default: Datum." },
     CONNECT_TIMEOUT,
     { name: "options", description: "Command-line options sent at start-up, like libpq: -c search_path=sales -c lock_timeout=5000." },
     { name: "statement_timeout", description: "Milliseconds after which the server cancels a statement. 0 = no limit. Default: the server's." },

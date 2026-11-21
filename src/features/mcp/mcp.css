@@ -49,13 +49,39 @@
   background: linear-gradient(90deg, var(--dg-accent-wash), var(--dg-special-wash-soft) 55%, transparent 90%);
   border-bottom-color: var(--dg-accent-border);
 }
+/* the view title: not a tab. An icon tile, a bold wide-tracked name and a divider before the tabs; no hover, no pointer */
 .dg-mcp-brand {
+  position: relative;
   display: flex;
   align-items: center;
   flex: none;
-  gap: 7px;
-  padding: 0 4px 0 14px;
-  font-weight: 600;
+  gap: 8px;
+  height: 100%;
+  padding: 0 16px 0 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: default;
+  user-select: none;
+}
+.dg-mcp-brand::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--dg-popup-border);
+}
+.dg-mcp-brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--dg-accent-border);
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--dg-accent-wash-strong), var(--dg-special-wash));
 }
 .dg-mcp-top .dg-mcp-tabs.dg-tabs-editor {
   flex: 1;
@@ -638,8 +664,61 @@
   font-size: var(--dg-font-size-h4);
   font-weight: 600;
 }
-.dg-mcp-snippet-tabs {
+.dg-mcp-agent {
+  display: flex;
   flex: none;
+  align-items: center;
+  gap: 8px;
+  color: var(--dg-text-secondary);
+}
+/* the Global switch and what it means, between the card title and the steps */
+.dg-mcp-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: -2px 0 14px;
+  padding: 9px 12px;
+  border: 1px solid var(--dg-mcp-line);
+  border-radius: 7px;
+}
+.dg-mcp-scope .dg-mcp-switch {
+  flex: none;
+  margin-top: 1px;
+}
+.dg-mcp-scope-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.dg-mcp-scope-label {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dg-mcp-scope-hint {
+  color: var(--dg-text-secondary);
+}
+/* switching agent or scope changes the snippet from one line to a file entry: keep the card from jumping much */
+.dg-mcp-card-main .dg-mcp-code-text {
+  min-height: calc(6 * 1.6em + 22px);
+}
+.dg-mcp-card-main .dg-mcp-steps li:nth-child(2) .dg-mcp-step-text {
+  min-height: calc(3 * 1.5em);
+}
+.dg-mcp-card-main .dg-mcp-step-text code {
+  white-space: nowrap;
+}
+/* a file entry keeps its indentation and scrolls sideways; a command wraps (it is one line to copy anyway) */
+.dg-mcp-code-text[data-kind="file"] {
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 .dg-mcp-steps {
   display: flex;
@@ -1122,20 +1201,30 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 2px 8px 2px 34px;
+  /* the label starts where the time column of the rows does: rail (36) + padding of the row head (8) */
+  height: 20px;
+  margin: 0 8px 0 44px;
   color: var(--dg-text-secondary);
   font-size: 11px;
+  white-space: nowrap;
 }
 .dg-mcp-gap::after {
   content: "";
   flex: 1;
   border-top: 1px dashed var(--dg-mcp-line);
 }
-.dg-mcp-newpill {
-  position: absolute;
-  bottom: 14px;
-  left: 50%;
+/* "N new actions": pinned to the top of the list (newest first), where they arrived; the anchor takes no room */
+.dg-mcp-newpill-anchor {
+  position: sticky;
+  top: 8px;
   z-index: 5;
+  display: flex;
+  justify-content: center;
+  height: 0;
+  overflow: visible;
+}
+.dg-mcp-newpill {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1146,7 +1235,6 @@
   background: var(--dg-accent-fill);
   color: var(--dg-text-over-accent);
   box-shadow: var(--dg-menu-shadow);
-  transform: translateX(-50%);
   font: inherit;
   font-size: 12px;
   animation: dg-mcp-pop 0.2s ease-out;
@@ -1157,7 +1245,7 @@
 @keyframes dg-mcp-pop {
   from {
     opacity: 0;
-    transform: translate(-50%, 6px);
+    transform: translateY(-6px);
   }
 }
 
@@ -1204,16 +1292,38 @@
 }
 
 /* ---------------------------------------------------------------- Entries (timeline and log) */
+/*
+ * The head of an entry is one grid, the same for every row of a list: time | tool | data source | summary | (client) | status |
+ * duration | twisty. The columns have fixed widths (the summary takes the rest), so nothing moves when the clock ticks, a
+ * value is missing (its cell stays empty) or a row opens. The width that decides the layout is the one of the list
+ * (`mcpl` container), not of the window: the timeline sits next to the sessions pane.
+ * Icons are drawn at their native 16 px (the art is a 16 px grid: any other size blurs the 1 px strokes) in boxes that are
+ * an even number of pixels bigger, so they land on whole pixels.
+ */
+.dg-mcp-tl-scroll,
+.dg-mcp-log-scroll {
+  container: mcpl / inline-size;
+}
 .dg-mcp-entry {
+  --e-gap: 8px;
+  --e-row: 32px;
+  --e-node: [node] 26px;
+  --e-client: ;
   display: flex;
   position: relative;
+}
+.dg-mcp-entry.dg-rail {
+  --e-node: ;
+}
+.dg-mcp-entry.dg-withclient {
+  --e-client: [client] 96px;
 }
 .dg-mcp-rail {
   display: flex;
   flex: none;
   justify-content: center;
   position: relative;
-  width: 34px;
+  width: 36px;
 }
 .dg-mcp-rail::before {
   content: "";
@@ -1225,12 +1335,13 @@
   margin-left: -1px;
   background: var(--dg-neutral-border);
 }
+/* the line starts / ends at the center of the first / last node: 2px of the main padding + half of the row */
 .dg-mcp-entry.dg-first .dg-mcp-rail::before {
-  top: 14px;
+  top: 18px;
 }
 .dg-mcp-entry.dg-last .dg-mcp-rail::before {
   bottom: auto;
-  height: 14px;
+  height: 18px;
 }
 .dg-mcp-entry.dg-first.dg-last .dg-mcp-rail::before {
   display: none;
@@ -1242,18 +1353,16 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-top: 4px;
-  border: 1.5px solid var(--dg-info-border);
+  box-sizing: border-box;
+  width: 26px;
+  height: 26px;
+  margin-top: 5px;
+  border: 1px solid var(--dg-info-border);
   border-radius: 50%;
   background: var(--dg-island-bg);
 }
-.dg-mcp-node .dg-icon {
-  width: 12px;
-  height: 12px;
-}
 .dg-mcp-node.dg-inline {
+  grid-column: node;
   margin: 0;
 }
 .dg-mcp-entry[data-kind="write"] .dg-mcp-node {
@@ -1269,7 +1378,7 @@
   background: var(--dg-danger-wash);
 }
 .dg-mcp-entry[data-status="denied"] .dg-mcp-node {
-  border: 1.5px dashed var(--dg-danger);
+  border: 1px dashed var(--dg-danger);
   background: var(--dg-danger-wash-soft);
 }
 .dg-mcp-entry-main {
@@ -1278,11 +1387,13 @@
   padding: 2px 0;
 }
 .dg-mcp-entry-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--e-node) [time] 58px [tool] 124px [ds] minmax(0, 150px) [sum] minmax(0, 1fr) var(--e-client) [status] 64px [el] 66px [tw] 16px;
+  grid-template-rows: var(--e-row);
   align-items: center;
-  gap: 8px;
-  min-height: 28px;
-  padding: 0 8px 0 8px;
+  column-gap: var(--e-gap);
+  row-gap: 0;
+  padding: 0 8px;
   border-radius: 6px;
   outline: none;
 }
@@ -1314,77 +1425,63 @@
 .dg-mcp-entry.dg-open[data-kind="write"] .dg-mcp-entry-head {
   background: var(--dg-warning-wash);
 }
-.dg-mcp-tool {
-  flex: none;
-  padding: 0 7px;
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  border-radius: 4px;
-  background: var(--dg-info-wash-soft);
-  color: var(--dg-info-fg);
-  font-size: 11px;
-  font-weight: 600;
+/* every cell sits in its own column (named lines of the template) and is centered on the first row */
+.dg-mcp-time {
+  grid-column: time;
+  grid-row: 1;
+  color: var(--dg-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.dg-mcp-tool[data-kind="write"] {
-  background: var(--dg-warning-wash);
-  color: var(--dg-warning-fg);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+.dg-mcp-cell-tool {
+  grid-column: tool;
+  grid-row: 1;
+  display: flex;
+  min-width: 0;
 }
-.dg-mcp-tool[data-kind="meta"] {
-  background: var(--dg-neutral-wash);
-  color: var(--dg-neutral-fg);
+.dg-mcp-cell-ds {
+  grid-column: ds;
+  grid-row: 1;
+  display: flex;
+  min-width: 0;
 }
 .dg-mcp-entry-summary {
-  flex: 1;
+  grid-column: sum;
+  grid-row: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dg-mcp-entry-session {
-  flex: 1;
+  grid-column: tool / status;
+  grid-row: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--dg-text-secondary);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dg-mcp-entry-meta {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  gap: 8px;
-  color: var(--dg-text-secondary);
-  font-size: 12px;
-}
-.dg-mcp-elapsed,
-.dg-mcp-time {
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.dg-mcp-elapsed {
-  min-width: 52px;
-  text-align: right;
-}
-.dg-mcp-entry-meta .dg-mcp-status {
-  justify-content: center;
-  width: 62px;
+.dg-mcp-entry.dg-withclient .dg-mcp-entry-session {
+  grid-column: tool / client;
 }
 .dg-mcp-client {
-  width: 100px;
-  max-width: 100px;
-  padding: 0 7px;
-  height: 18px;
+  grid-column: client;
+  grid-row: 1;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 8px;
   overflow: hidden;
   border: 1px solid var(--dg-mcp-line);
-  border-radius: 9px;
+  border-radius: 10px;
   background: transparent;
   color: var(--dg-text);
   font: inherit;
   font-size: 11px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1392,89 +1489,167 @@
   border-color: var(--dg-accent-border);
   background: var(--dg-accent-wash-soft);
 }
+.dg-mcp-cell-status {
+  grid-column: status;
+  grid-row: 1;
+  display: flex;
+}
+.dg-mcp-elapsed {
+  grid-column: el;
+  grid-row: 1;
+  color: var(--dg-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
 .dg-mcp-twisty {
-  display: inline-flex;
+  grid-column: tw;
+  grid-row: 1;
+  display: flex;
   width: 16px;
+  height: 16px;
 }
 .dg-mcp-twisty.dg-hidden-twisty {
   visibility: hidden;
 }
-@container mcp (max-width: 880px) {
-  .dg-mcp-elapsed {
-    display: none;
-  }
-}
-@container mcp (max-width: 800px) {
-  /* narrow: the summary moves to a line of its own under the tool, the data source and the outcome */
-  .dg-mcp-entry-head {
-    flex-wrap: wrap;
-    row-gap: 2px;
-    padding-top: 4px;
-    padding-bottom: 4px;
-  }
-  .dg-mcp-entry-meta {
-    order: 5;
-    margin-left: auto;
-  }
-  .dg-mcp-entry-summary {
-    order: 10;
-    flex: 1 0 100%;
-    padding-left: 28px;
-    white-space: normal;
-    overflow: visible;
-  }
-  .dg-mcp-entry.dg-rail .dg-mcp-entry-summary {
-    padding-left: 0;
-  }
-  .dg-mcp-rail {
-    width: 28px;
-  }
-  .dg-mcp-entry-head,
-  .dg-mcp-entry-meta {
-    gap: 6px;
-  }
-  .dg-mcp-tl-scroll {
-    padding-right: 6px;
-  }
-  .dg-mcp-entry.dg-rail .dg-mcp-ds-name {
-    display: none;
-  }
-  .dg-mcp-entry.dg-rail .dg-mcp-ds {
-    padding-right: 5px;
-  }
-  .dg-mcp-tool[data-kind="write"] {
-    text-transform: none;
-    letter-spacing: 0;
-  }
-  .dg-mcp-tl-id,
-  .dg-mcp-tl-title .dg-copy-btn {
-    display: none;
-  }
-}
-@container mcp (max-width: 700px) {
-  .dg-mcp-entry-meta .dg-mcp-status {
-    width: auto;
-    padding: 0 3px;
-    font-size: 0;
-    gap: 0;
-  }
-  .dg-mcp-ds {
-    max-width: 130px;
-  }
-  .dg-mcp-client {
-    width: 80px;
-    max-width: 80px;
-  }
-}
+/* the one-line SQL under the summary, aligned with the tool column */
 .dg-mcp-entry-sql {
-  margin: -1px 8px 3px 8px;
+  grid-column: tool / -1;
+  grid-row: 2;
+  min-width: 0;
+  margin-top: -3px;
+  padding-bottom: 5px;
   overflow: hidden;
   color: var(--dg-text-secondary);
   font-family: var(--dg-font-mono);
   font-size: 11.5px;
+  line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+}
+.dg-mcp-tool {
+  display: block;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 7px;
+  line-height: 20px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--dg-info-wash-soft);
+  color: var(--dg-info-fg);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dg-mcp-tool[data-kind="write"] {
+  background: var(--dg-warning-wash);
+  color: var(--dg-warning-fg);
+}
+.dg-mcp-tool[data-kind="meta"] {
+  background: var(--dg-neutral-wash);
+  color: var(--dg-neutral-fg);
+}
+/* the status and data source chips of a row: 16 px icons in 22 px chips */
+.dg-mcp-entry-head .dg-mcp-status {
+  box-sizing: border-box;
+  justify-content: flex-start; /* centered text would put the icon on a half pixel */
+  width: 100%;
+  height: 22px;
+  padding: 0 8px 0 4px;
+  gap: 4px;
+}
+.dg-mcp-entry-head .dg-mcp-ds {
+  box-sizing: border-box;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px 0 3px;
+  border-radius: 11px;
+}
+.dg-mcp-entry-head .dg-mcp-ds.dg-colored {
+  padding-left: 7px;
+}
+
+/* narrower list: the summary moves under the tool and the data source */
+@container mcpl (max-width: 899px) {
+  .dg-mcp-entry-head {
+    grid-template-columns: var(--e-node) [time] 58px [tool] 124px [ds] minmax(0, 1fr) [status] 64px [el] 52px [tw] 16px;
+    padding-bottom: 4px;
+  }
+  .dg-mcp-entry-summary {
+    grid-column: tool / -1;
+    grid-row: 2;
+    min-height: 18px;
+    line-height: 18px;
+    margin-top: -3px;
+  }
+  .dg-mcp-entry.dg-withclient .dg-mcp-entry-summary {
+    grid-column: tool / status;
+  }
+  .dg-mcp-client {
+    grid-column: status / -1;
+    grid-row: 2;
+    justify-self: end;
+    width: 100%;
+    max-width: 96px;
+    margin-top: -3px;
+  }
+  .dg-mcp-entry-session {
+    grid-column: tool / el;
+  }
+  .dg-mcp-entry-sql {
+    grid-row: 3;
+    margin-top: 0;
+    padding-bottom: 1px;
+  }
+  .dg-mcp-entry.dg-session .dg-mcp-entry-sql {
+    grid-row: 2;
+  }
+}
+/* narrow: no duration column and the status is its icon */
+@container mcpl (max-width: 600px) {
+  .dg-mcp-entry-head {
+    grid-template-columns: var(--e-node) [time] 58px [tool] 124px [ds] minmax(0, 1fr) [status] 26px [tw] 16px;
+    column-gap: 6px;
+  }
+  .dg-mcp-elapsed {
+    display: none;
+  }
+  .dg-mcp-entry.dg-withclient .dg-mcp-entry-summary {
+    grid-column: tool / ds;
+  }
+  .dg-mcp-client {
+    grid-column: ds / -1;
+  }
+  .dg-mcp-entry-session {
+    grid-column: tool / -1;
+  }
+  .dg-mcp-entry-head .dg-mcp-status {
+    justify-content: center;
+    padding: 0;
+    gap: 0;
+    font-size: 0;
+  }
+}
+/* very narrow: the data source is its icon (the name is in the tooltip) */
+@container mcpl (max-width: 400px) {
+  .dg-mcp-entry-head {
+    grid-template-columns: var(--e-node) [time] 58px [tool] minmax(0, 1fr) [ds] 28px [status] 26px [tw] 16px;
+  }
+  .dg-mcp-entry-head .dg-mcp-ds-name {
+    display: none;
+  }
+  .dg-mcp-entry-head .dg-mcp-ds,
+  .dg-mcp-entry-head .dg-mcp-ds.dg-colored {
+    width: 100%;
+    padding: 0 0 0 3px;
+  }
+  .dg-mcp-entry-head .dg-mcp-ds.dg-colored {
+    padding-left: 5px;
+  }
 }
 
 .dg-mcp-detail {
@@ -1635,6 +1810,10 @@
 }
 .dg-mcp-log-scroll .dg-mcp-entry {
   padding: 0 10px 0 6px;
+}
+/* the day label starts where the icons of the rows do: entry padding (6) + head padding (8) */
+.dg-mcp-log-scroll .dg-mcp-day {
+  padding-left: 14px;
 }
 .dg-mcp-logfoot {
   display: flex;

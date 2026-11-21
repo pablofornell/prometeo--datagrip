@@ -61,8 +61,10 @@ export function McpView(): JSX.Element {
   return (
     <section class="dg-island dg-mcp-host dg-mcp" data-mcp tabindex={-1} aria-label="MCP">
       <header class="dg-mcp-top">
-        <div class="dg-mcp-brand">
-          <Icon name="mcp" />
+        <div class="dg-mcp-brand" title="Model Context Protocol server">
+          <span class="dg-mcp-brand-mark">
+            <Icon name="mcp" />
+          </span>
           <span class="dg-mcp-brand-text">MCP</span>
         </div>
         <Tabs variant="editor" class="dg-mcp-tabs" items={TAB_ITEMS} active={mcpTab()} onSelect={(id) => setMcpTab(id as McpTab)} />
@@ -96,7 +98,7 @@ export function McpView(): JSX.Element {
         <SolidSwitch>
           <Match when={unavailable()}>
             <EmptyState icon="error" title="The MCP server is not available">
-              This build of Prometeo has no MCP support.
+              This build of Datum has no MCP support.
             </EmptyState>
           </Match>
           <Match when={!status()}>

@@ -16,7 +16,7 @@ import { setThemePref, themePref } from "../../state/theme";
 import { askChoice } from "../table/dialogs";
 import { buildBundle, parseBundle } from "./bundle";
 
-export const SETTINGS_FILE_NAME = "prometeo-settings.json";
+export const SETTINGS_FILE_NAME = "datum-settings.json";
 
 export async function exportSettings(): Promise<void> {
   try {

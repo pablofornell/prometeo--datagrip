@@ -77,7 +77,7 @@ export async function openEntry(e: Entry, mode: "default" | "ddl" = "default"): 
 
 // ---------------------------------------------------------------- recent
 
-const KEY = "prometeo.nav.recent";
+const KEY = "datum.nav.recent";
 type Stored = Pick<Entry, "group" | "kind" | "name" | "dsId" | "schema" | "table" | "tableKind" | "signature" | "actionId" | "unique">;
 
 export function loadRecent(): Entry[] {

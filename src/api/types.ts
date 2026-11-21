@@ -619,11 +619,11 @@ export interface AppInfo {
 }
 
 export interface StartupNotice {
-  /** `data-sources.json` or `ui-state.json`. */
+  /** `data-sources.json` or `ui-state.json`; `migration` for a failed copy of the 0.5.x data. */
   file: string;
   /** Ready to show; says where the damaged file went. */
   message: string;
-  /** Full path of `<file>.corrupt-<unix seconds>`, when the backup could be made. */
+  /** Full path of `<file>.corrupt-<unix seconds>`, when the backup could be made (null for `migration`). */
   backup: string | null;
 }
 

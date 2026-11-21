@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Prometeo DataGrip",
-  "version": "0.5.0",
-  "identifier": "dev.prometeo.datagrip",
+  "productName": "Datum",
+  "version": "0.6.0",
+  "identifier": "dev.datum.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
       {
         "label": "main",
         "create": false,
-        "title": "Prometeo DataGrip",
+        "title": "Datum",
         "width": 1600,
         "height": 1000,
         "minWidth": 900,
@@ -33,11 +33,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "publisher": "Prometeo",
-    "copyright": "Copyright © 2026 Prometeo",
+    "publisher": "Datum",
+    "copyright": "Copyright © 2026 Datum",
     "category": "DeveloperTool",
     "shortDescription": "A fast DataGrip-style database client built with Rust and Tauri.",
-    "longDescription": "Prometeo DataGrip is a desktop database client for PostgreSQL, MySQL/MariaDB, SQLite and Oracle: SQL editor, schema explorer, virtualized data grid, export, import, query history and DDL view.",
+    "longDescription": "Datum is a desktop database client for PostgreSQL, MySQL/MariaDB, SQLite and Oracle: SQL editor, schema explorer, virtualized data grid, export, import, query history and DDL view.",
     "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",

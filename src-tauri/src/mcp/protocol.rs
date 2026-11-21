@@ -18,21 +18,21 @@ pub fn negotiate_version(client: Option<&str>) -> &'static str {
         .unwrap_or(SUPPORTED_VERSIONS[0])
 }
 
-const INSTRUCTIONS: &str = "Prometeo DataGrip gives access to the databases its user shares with agents. \
+const INSTRUCTIONS: &str = "Datum gives access to the databases its user shares with agents. \
 Call list_data_sources first: it lists only the data sources you may use and, for each one, whether you may read \
 (list_schemas, list_tables, describe_table, run_query) and/or write (execute_statement). \
 run_query accepts one read statement and runs it on a separate read-only connection with extra checks, but \
 read-only is best effort: a function with side effects can still write, and on Oracle the read-only gate is \
 a client-side keyword check. Do not rely on it for safety; the hard guarantee is a database user that only has \
 SELECT rights. execute_statement runs exactly one statement and commits it (no BEGIN / COMMIT / ROLLBACK). \
-The user sets the permissions in Prometeo DataGrip (MCP > Permissions) and sees every call in the MCP log. \
+The user sets the permissions in Datum (MCP > Permissions) and sees every call in the MCP log. \
 A tool error says what is missing and how to fix it.";
 
 pub fn initialize_result(client_version: Option<&str>) -> Value {
     json!({
         "protocolVersion": negotiate_version(client_version),
         "capabilities": { "tools": { "listChanged": false } },
-        "serverInfo": { "name": "prometeo-datagrip", "version": env!("CARGO_PKG_VERSION") },
+        "serverInfo": { "name": "datum", "version": env!("CARGO_PKG_VERSION") },
         "instructions": INSTRUCTIONS,
     })
 }
@@ -126,7 +126,7 @@ mod tests {
         let r = initialize_result(Some("2025-03-26"));
         assert_eq!(r["protocolVersion"], "2025-03-26");
         assert_eq!(r["capabilities"]["tools"]["listChanged"], false);
-        assert_eq!(r["serverInfo"]["name"], "prometeo-datagrip");
+        assert_eq!(r["serverInfo"]["name"], "datum");
         assert!(r["instructions"]
             .as_str()
             .unwrap()

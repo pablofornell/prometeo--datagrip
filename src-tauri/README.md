@@ -62,11 +62,11 @@ transaction was open `txEnded { committed: false, tag: "CONNECTION LOST" }` and 
 
 ## Persistence
 
-* `<app_config_dir>/data-sources.json` (Linux: `~/.config/dev.prometeo.datagrip/`)
+* `<app_config_dir>/data-sources.json` (Linux: `~/.config/dev.datum.desktop/`)
 * `<app_config_dir>/ui-state.json`
 * `<app_data_dir>/consoles/<dsId>/<name>.sql`, `<app_data_dir>/history.jsonl`
-  (Linux: `~/.local/share/dev.prometeo.datagrip/`)
-* Passwords: OS keyring (service `dev.prometeo.datagrip`, user `data-source:<id>`); if the
+  (Linux: `~/.local/share/dev.datum.desktop/`)
+* Passwords: OS keyring (service `dev.datum.desktop`, user `data-source:<id>`); if the
   keyring is unreachable they are stored in `data-sources.json` and flagged `"file"`.
 * `data-sources.json` and `ui-state.json` are written with mode `0600` (the first can hold the plain-text
   password fallback). A password typed into a connection URL (`user:pass@`, `?password=`) is moved to the
@@ -74,11 +74,11 @@ transaction was open `txEnded { committed: false, tag: "CONNECTION LOST" }` and 
   are scrubbed of it.
 * A corrupt `data-sources.json` / `ui-state.json` does not stop the app: it is renamed to
   `<file>.corrupt-<unix seconds>`, the app starts with an empty one and `app_info().startupWarnings` lists it.
-* Env overrides: `PROMETEO_CONFIG_DIR`, `PROMETEO_DATA_DIR`, `PROMETEO_NO_KEYRING=1`.
+* Env overrides: `DATUM_CONFIG_DIR`, `DATUM_DATA_DIR`, `DATUM_NO_KEYRING=1`.
 
 ## Tests
 
 ```sh
-PROMETEO_PG_URL=postgres://postgres:prometeo@127.0.0.1:54329/postgres \
-  cargo test -p prometeo-datagrip -- --nocapture     # BENCH lines = timings
+DATUM_PG_URL=postgres://postgres:datum@127.0.0.1:54329/postgres \
+  cargo test -p datum -- --nocapture     # BENCH lines = timings
 ```

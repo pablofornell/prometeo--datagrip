@@ -81,10 +81,11 @@ function guardQuit(): void {
 }
 guardQuit();
 
-/** Config files that were corrupt at startup were set aside by the backend: tell the user once. */
+/** Config files that were corrupt at startup were set aside by the backend, or the copy of the 0.5.x data failed (`file` is `migration`): tell the user once. */
 void appInfo()
   .then((info) => {
-    for (const w of info.startupWarnings ?? []) notify({ kind: "warning", title: "Configuration file could not be read", body: w.message, timeout: 0 });
+    for (const w of info.startupWarnings ?? [])
+      notify({ kind: "warning", title: w.file === "migration" ? "Settings from Prometeo DataGrip were not copied" : "Configuration file could not be read", body: w.message, timeout: 0 });
   })
   .catch(() => {});
 

@@ -1,7 +1,7 @@
 //! Oracle servers before 12.1 (10g, 11g): the SQL that these releases do not know is replaced (ROWNUM paging, no
 //! `WITH FUNCTION`, no `CROSS APPLY`, `XMLAGG` for `LISTAGG`, the `LONG` dictionary columns for the `*_VC` ones) and
 //! the driver speaks their older protocol. Run with a 10g or 11g server:
-//!   PROMETEO_ORACLE_10G_URL=oracle://demo:prometeo@127.0.0.1:15210/XE cargo test -p dbcore --test oracle_legacy -- --test-threads=1
+//!   DATUM_ORACLE_10G_URL=oracle://demo:datum@127.0.0.1:15210/XE cargo test -p dbcore --test oracle_legacy -- --test-threads=1
 //! (`make db-up-oracle-legacy` starts such a server.) The fixture is `fixtures/oracle_legacy_seed.sql` (objects
 //! `LG_*`), loaded once per run.
 
@@ -20,7 +20,7 @@ const LEGACY_SEED: &str = include_str!("fixtures/oracle_legacy_seed.sql");
 static SEEDED: OnceCell<()> = OnceCell::const_new();
 
 fn legacy_cfg() -> Option<DataSourceConfig> {
-    let mut cfg = oracle_cfg_from_env("PROMETEO_ORACLE_10G_URL")?;
+    let mut cfg = oracle_cfg_from_env("DATUM_ORACLE_10G_URL")?;
     cfg.id = "ora-old".into();
     Some(cfg)
 }
@@ -29,7 +29,7 @@ fn legacy_cfg() -> Option<DataSourceConfig> {
 macro_rules! setup {
     () => {{
         let Some(cfg) = legacy_cfg() else {
-            eprintln!("PROMETEO_ORACLE_10G_URL not set: skipping");
+            eprintln!("DATUM_ORACLE_10G_URL not set: skipping");
             return;
         };
         SEEDED

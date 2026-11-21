@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    prometeo_datagrip_lib::run()
+    datum_lib::run()
 }

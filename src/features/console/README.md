@@ -9,7 +9,7 @@
 * The schema button of the toolbar opens the User/Schema selector (`explorer/SchemaPicker.tsx`, loaded on demand by
   `openSchemaMenu`); `switchSchema(name)` calls the `set_session_schema` command, so the backend quotes the name.
 * Statements the console sends itself (BEGIN, COMMIT, `SET search_path`, `select current_schema()`) end with
-  `/*prometeo:internal*/` so the history popup hides them.
+  `/*datum:internal*/` so the history popup hides them.
 * Uses `ensureConnected` from the explorer module (`../explorer`).
 
 ## Editable results, Tx Manual (console + output + table editor)

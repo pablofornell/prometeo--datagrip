@@ -1097,7 +1097,7 @@ fn worker_main(
             .set_auth_mode(opts.auth_mode)
             .set_transport_connect_timeout(Some(Duration::from_secs(opts.connect_timeout_secs)));
         // the program name shows up in V$SESSION (the driver rejects blanks and parentheses)
-        let config = match config.clone().set_program("Prometeo-DataGrip") {
+        let config = match config.clone().set_program("Datum") {
             Ok(c) => c,
             Err(_) => config,
         };
@@ -2264,10 +2264,12 @@ mod tests {
         assert!(!may_print("create table t (a int)"));
     }
 
-    // ---- against the server (PROMETEO_ORACLE_URL); skipped without it
+    // ---- against the server (DATUM_ORACLE_URL); skipped without it
 
     fn env_opts() -> Option<OraOpts> {
-        let url = std::env::var("PROMETEO_ORACLE_URL").ok()?;
+        let url = ["DATUM_ORACLE_URL", "PROMETEO_ORACLE_URL"]
+            .iter()
+            .find_map(|v| std::env::var(v).ok().filter(|u| !u.is_empty()))?;
         build_opts(&DataSourceConfig {
             driver: Driver::Oracle,
             url_override: Some(url),

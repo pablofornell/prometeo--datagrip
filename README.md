@@ -1,6 +1,6 @@
-# Prometeo DataGrip
+# Datum
 
-A DataGrip (New UI) clone built with Rust, Tauri 2, SolidJS and CodeMirror 6.
+Datum is a DataGrip-style (New UI) database client built with Rust, Tauri 2, SolidJS and CodeMirror 6.
 See `docs/PLAN.md` for the architecture contract.
 
 ## Requirements
@@ -28,8 +28,8 @@ npm run dev            # frontend only, in a browser at http://localhost:1420
 ```sh
 npm run build          # type-check (tsc) + Vite production bundle into dist/
 npm run tauri build    # release binary and installers for the host OS
-cargo build -p prometeo-datagrip   # backend only
-cargo clippy -p prometeo-datagrip
+cargo build -p datum   # backend only
+cargo clippy -p datum
 ```
 
 Bundles are written to `target/release/bundle/` (NSIS and MSI on Windows, deb and AppImage on
@@ -60,7 +60,7 @@ Run `make help` to see all targets. The most used:
 | `make install` | Install the frontend dependencies (`npm ci` when a lockfile exists) |
 | `make run` | Build a fast-release binary (`target/fast-release/`, only if something changed) and start the app |
 | `make dev` | Run the app in development mode |
-| `make build` | Build the release binary (`target/release/prometeo-datagrip`) |
+| `make build` | Build the release binary (`target/release/datum`) |
 | `make bundle` | Build the release binary and the installers for the host OS |
 | `make check` | Type-check, clippy, Rust format check and unit tests (no databases needed) |
 | `make db-up` | Start the PostgreSQL (54329), MySQL (33069) and Oracle (15219) test containers |
@@ -81,10 +81,23 @@ make test-all    # everything, including the Docker-backed database tests
 build on Linux and Windows. Pushing a `v*` tag also builds the Linux and Windows installers and
 publishes the release. CI builds no macOS installers; build them locally with `npm run tauri build`.
 
+## Upgrading from 0.5
+
+The app was called Prometeo DataGrip up to 0.5.x. Its identifier changed, so 0.6 is not an in-place
+upgrade: it installs as a separate app, "Datum", next to "Prometeo DataGrip". On the first start Datum copies
+the old install's data sources, settings, window geometry, consoles, scratches and history, and the
+WebView storage with the editor tabs and layout (Linux and Windows; on macOS the WebKit storage is copied on a
+best-effort basis), and reads the saved passwords from the old credential entries. Nothing in the old app's
+folders is changed. Check that everything arrived, then uninstall Prometeo DataGrip; changes made in it after
+the copy are not copied again. If the copy fails, Datum shows a notice naming the old folder and tries again at
+the next start; symlinks are kept as links, and WebView caches and old logs are not copied. Details per OS:
+"Upgrading from 0.5" in `docs/TROUBLESHOOTING.md`.
+If you registered the MCP server in Claude Code, re-register it as `datum`: see `docs/MCP.md`.
+
 ## Logs and diagnostics
 
-The app keeps daily logs in `<data dir>/logs` (`prometeo.YYYY-MM-DD.log`, 7 days) plus
-`panic.log`. **Help > Open Log Folder** opens the folder. Set `PROMETEO_LOG=debug` (or a full
+The app keeps daily logs in `<data dir>/logs` (`datum.YYYY-MM-DD.log`, 7 days) plus
+`panic.log`. **Help > Open Log Folder** opens the folder. Set `DATUM_LOG=debug` (or a full
 `tracing` filter) before launching for more detail. The app is single-instance: launching it
-again focuses the existing window. `PROMETEO_CONFIG_DIR` and `PROMETEO_DATA_DIR` override the
+again focuses the existing window. `DATUM_CONFIG_DIR` and `DATUM_DATA_DIR` override the
 default per-user folders; see `docs/TROUBLESHOOTING.md`.

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { completedIn, firstKeyword, formatDuration, leadingComment, logTimestamp, reportsCount, rowsAffected, rowsRetrieved, summary, underlinePosition } from "./format";
+import { INTERNAL_MARK, completedIn, firstKeyword, formatDuration, isInternalSql, leadingComment, logTimestamp, reportsCount, rowsAffected, rowsRetrieved, summary, underlinePosition } from "./format";
 
 describe("output log wording", () => {
   it("formats the timestamp like DataGrip", () => {
@@ -65,5 +65,13 @@ describe("underlinePosition", () => {
   it("works after an emoji (UTF-16 positions)", () => {
     const sql = "select '😀' from s.t";
     expect(underlinePosition(sql, sql.indexOf("s.t") + 1, 'relation "s.t" does not exist')).toBe(sql.indexOf("t", sql.indexOf("s.t") + 2) + 1);
+  });
+});
+
+describe("internal SQL mark", () => {
+  it("hides the statements marked by this version and by 0.5.x", () => {
+    expect(isInternalSql(`begin ${INTERNAL_MARK}`)).toBe(true);
+    expect(isInternalSql("begin /*prometeo:internal*/")).toBe(true);
+    expect(isInternalSql("select 1")).toBe(false);
   });
 });

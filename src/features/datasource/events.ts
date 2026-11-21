@@ -3,7 +3,7 @@ type Listener = () => void;
 const listeners = new Set<Listener>();
 
 /** Name of the window event dispatched next to the listeners (for code that prefers DOM events). */
-export const DATA_SOURCES_CHANGED_EVENT = "prometeo:datasources-changed";
+export const DATA_SOURCES_CHANGED_EVENT = "datum:datasources-changed";
 
 /** `cb` runs after the dialog saved / deleted data sources. Returns the unsubscribe function. */
 export function onDataSourcesChanged(cb: Listener): () => void {

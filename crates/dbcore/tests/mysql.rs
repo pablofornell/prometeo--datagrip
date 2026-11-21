@@ -1,5 +1,5 @@
 //! MySQL integration tests. Run with:
-//!   PROMETEO_MYSQL_URL=mysql://root:prometeo@localhost:33069/demo cargo test -p dbcore --test mysql -- --nocapture
+//!   DATUM_MYSQL_URL=mysql://root:datum@localhost:33069/demo cargo test -p dbcore --test mysql -- --nocapture
 
 mod common;
 
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 macro_rules! setup {
     () => {{
         let Some(cfg) = mysql_cfg() else {
-            eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+            eprintln!("DATUM_MYSQL_URL not set: skipping");
             return;
         };
         seed_mysql(&cfg).await;
@@ -25,7 +25,7 @@ macro_rules! setup {
 fn parse_mysql_url(url: &str) -> (String, u16, String, String, String) {
     let rest = url
         .strip_prefix("mysql://")
-        .expect("PROMETEO_MYSQL_URL is mysql://...");
+        .expect("DATUM_MYSQL_URL is mysql://...");
     let (cred, target) = rest
         .rsplit_once('@')
         .expect("user:password@host in the URL");
@@ -54,7 +54,7 @@ async fn test_connection_ok_and_failures() {
     );
     println!("test_connection: {} in {} ms", r.message, r.elapsed_ms);
 
-    // host / port / user / password / database come from PROMETEO_MYSQL_URL: the test follows the server it runs on
+    // host / port / user / password / database come from DATUM_MYSQL_URL: the test follows the server it runs on
     let (host, port, user, password, database) =
         parse_mysql_url(cfg.url_override.as_deref().unwrap());
     let c2 = DataSourceConfig {

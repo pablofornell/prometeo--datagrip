@@ -66,8 +66,8 @@ const ls = (() => {
   const mem = new Map<string, string>();
   const ok = (() => {
     try {
-      localStorage.setItem("__prometeo_probe", "1");
-      localStorage.removeItem("__prometeo_probe");
+      localStorage.setItem("__datum_probe", "1");
+      localStorage.removeItem("__datum_probe");
       return true;
     } catch {
       return false;
@@ -80,7 +80,7 @@ const ls = (() => {
     keys: () => (ok ? Object.keys(localStorage) : [...mem.keys()]),
   };
 })();
-const P = "prometeo-mock:";
+const P = "datum-mock:";
 const loadJson = <T>(k: string, dflt: T): T => {
   try {
     const v = ls.get(P + k);
@@ -1565,7 +1565,7 @@ const h = (f: (a: A) => unknown | Promise<unknown>): MockHandler => (args) => f(
 
 export const mockHandlers: Record<string, MockHandler> = {
   app_info: h(() => ({
-    name: "Prometeo DataGrip (browser mock)",
+    name: "Datum (browser mock)",
     version: "0.0.0",
     configDir: null,
     dataDir: null,

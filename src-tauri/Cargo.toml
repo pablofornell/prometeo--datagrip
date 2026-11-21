@@ -1,13 +1,13 @@
 [package]
-name = "prometeo-datagrip"
+name = "datum"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Prometeo DataGrip - a DataGrip clone built with Tauri 2"
+description = "Datum - a DataGrip-style database client built with Rust, Tauri 2, SolidJS and CodeMirror 6"
 
 [lib]
-name = "prometeo_datagrip_lib"
+name = "datum_lib"
 # Desktop only: staticlib/cdylib are for Tauri mobile, and the MinGW linker cannot link a cdylib
 # with this many exports ("export ordinal too large").
 crate-type = ["rlib"]
@@ -18,6 +18,8 @@ embed-resource = "=3.0.12"
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# the same OS folders (and the same major version) Tauri's path resolver uses: the legacy migration runs before Tauri does
+dirs = "7"
 tauri-plugin-dialog = "2"
 tauri-plugin-clipboard-manager = "2"
 dbcore = { path = "../crates/dbcore" }

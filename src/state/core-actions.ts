@@ -61,7 +61,7 @@ export function registerCoreActions(): () => void {
     { id: "app.exit", title: "Exit", run: () => void closeWindow() },
     { id: "window.minimize", title: "Minimize", run: () => void minimizeWindow() },
     { id: "window.maximize", title: "Maximize / Restore", run: () => void toggleMaximizeWindow() },
-    { id: "help.about", title: "About Prometeo DataGrip", run: () => void setAboutOpen(true) },
+    { id: "help.about", title: "About Datum", run: () => void setAboutOpen(true) },
     { id: ACTION_IDS.menu, title: "Main Menu", shortcut: "Alt+\\", checked: () => menuBarOpen(), enabled: () => menuBarOpen() || !isModalOpen(), run: () => void setMenuBarOpen(!menuBarOpen()) },
     { id: "window.resetLayout", title: "Restore Default Layout", run: () => resetLayout() },
     stub(ACTION_IDS.settings, "Settings…", "Ctrl+Alt+S", "settings"),

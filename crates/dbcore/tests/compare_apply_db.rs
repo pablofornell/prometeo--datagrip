@@ -9,7 +9,7 @@
 //!
 //! Oracle, PostgreSQL and MySQL need the variables of the other integration tests and skip without them:
 //!
-//!   PROMETEO_ORACLE_URL=oracle://demo:...@127.0.0.1:15219/FREEPDB1 PROMETEO_PG_URL=... PROMETEO_MYSQL_URL=... \
+//!   DATUM_ORACLE_URL=oracle://demo:...@127.0.0.1:15219/FREEPDB1 DATUM_PG_URL=... DATUM_MYSQL_URL=... \
 //!   cargo test -p dbcore --test compare_apply_db -- --nocapture
 
 mod common;
@@ -143,7 +143,7 @@ fn assert_same_model(a: &SchemaModel, b: &SchemaModel) {
 #[tokio::test]
 async fn oracle_migration_makes_b_like_a() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let owner = cfg.user.to_uppercase();
@@ -173,7 +173,7 @@ async fn oracle_migration_makes_b_like_a() {
 #[tokio::test]
 async fn postgres_migration_makes_b_like_a() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -202,7 +202,7 @@ async fn postgres_migration_makes_b_like_a() {
 #[tokio::test]
 async fn mysql_migration_makes_b_like_a() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

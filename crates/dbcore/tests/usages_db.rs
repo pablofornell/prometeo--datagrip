@@ -1,6 +1,6 @@
 //! Find Usages (Alt+F7) integration tests: Oracle, PostgreSQL, MySQL and SQLite. Each test builds a small schema with
 //! its own name prefix and removes it at the start and at the end. Run with the same variables as the other DB tests:
-//!   PROMETEO_ORACLE_URL=oracle://demo:<password>@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test usages_db -- --nocapture
+//!   DATUM_ORACLE_URL=oracle://demo:<password>@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test usages_db -- --nocapture
 //! The SQLite test always runs (it uses a temp file).
 
 mod common;
@@ -108,7 +108,7 @@ fn ora_big_view() -> String {
 #[tokio::test]
 async fn oracle_usages() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -305,7 +305,7 @@ create trigger uf_orders_audit before insert on uf_usages.orders for each row ex
 #[tokio::test]
 async fn postgres_usages() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -435,7 +435,7 @@ DELIMITER ;
 #[tokio::test]
 async fn mysql_usages() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

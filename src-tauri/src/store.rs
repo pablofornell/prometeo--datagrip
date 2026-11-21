@@ -2,9 +2,10 @@
 //!
 //! * `<config_dir>/data-sources.json`: data sources, versioned (see [`SOURCES_VERSION`]; a file from a newer
 //!   version is set aside, never overwritten). Passwords live in the OS keyring (Credential Manager on
-//!   Windows, Keychain on macOS, Secret Service on Linux) under service `dev.prometeo.datagrip`; when the
-//!   keyring is not reachable the password is stored in the JSON file (owner only) and the data source is
-//!   flagged `passwordStorage: "file"`. Such passwords move to the keyring on the first start that has one.
+//!   Windows, Keychain on macOS, Secret Service on Linux) under service `dev.datum.desktop` (entries of 0.5.x, service
+//!   `dev.prometeo.datagrip`, are copied over when read); when the keyring is not reachable
+//!   the password is stored in the JSON file (owner only) and the data source is flagged
+//!   `passwordStorage: "file"`. Such passwords move to the keyring on the first start that has one.
 //!   Data sources can be exported / imported as a JSON file that never holds a password.
 //! * `<config_dir>/ui-state.json`: `{ key: any json }`, written debounced.
 //! * `<data_dir>/consoles/<dsId>/<name>.sql`: per data source console files.
@@ -280,7 +281,7 @@ fn set_aside_corrupt(path: &Path, reason: &str) -> StartupNotice {
     tracing::warn!("{file} is not valid ({reason}); starting empty");
     StartupNotice {
         message: format!(
-            "{file} could not be read ({reason}), so Prometeo started with an empty one. {tail}"
+            "{file} could not be read ({reason}), so Datum started with an empty one. {tail}"
         ),
         file,
         backup,
@@ -295,7 +296,7 @@ fn set_aside_newer(path: &Path, found: u32, understood: u32) -> StartupNotice {
     tracing::warn!("{file} has format version {found}, newer than {understood}; starting empty");
     StartupNotice {
         message: format!(
-            "{file} was written by a newer version of Prometeo (file format {found}; this version understands up to {understood}), so it could not be read and Prometeo started with an empty one. {tail}"
+            "{file} was written by a newer version of Datum (file format {found}; this version understands up to {understood}), so it could not be read and Datum started with an empty one. {tail}"
         ),
         file,
         backup,
@@ -593,39 +594,86 @@ pub trait SecretStore: Send + Sync {
 }
 
 /// The OS keyring through the `keyring` crate.
+///
+/// Reads fall back to the entries of 0.5.x (service [`LEGACY_KEYRING_SERVICE`]) and adopt them, see
+/// [`adopt_legacy_secret`]; writes and deletes only go to the current service.
 pub struct OsKeyring;
 
-const KEYRING_SERVICE: &str = "dev.prometeo.datagrip";
+const KEYRING_SERVICE: &str = "dev.datum.desktop";
+/// The service the app used as Prometeo DataGrip (0.5.x).
+const LEGACY_KEYRING_SERVICE: &str = "dev.prometeo.datagrip";
 
-impl OsKeyring {
-    fn entry(id: &str) -> Result<keyring::Entry, String> {
-        keyring::Entry::new(KEYRING_SERVICE, &format!("data-source:{id}"))
-            .map_err(|e| e.to_string())
+/// The entries of one keyring service.
+struct ServiceKeyring(&'static str);
+
+impl ServiceKeyring {
+    fn entry(&self, id: &str) -> Result<keyring::Entry, String> {
+        keyring::Entry::new(self.0, &format!("data-source:{id}")).map_err(|e| e.to_string())
     }
 }
 
-impl SecretStore for OsKeyring {
+impl SecretStore for ServiceKeyring {
     fn get(&self, id: &str) -> Result<Option<String>, String> {
-        match Self::entry(id)?.get_password() {
+        match self.entry(id)?.get_password() {
             Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.to_string()),
         }
     }
     fn set(&self, id: &str, password: &str) -> Result<(), String> {
-        Self::entry(id)?
+        self.entry(id)?
             .set_password(password)
             .map_err(|e| e.to_string())
     }
     fn delete(&self, id: &str) -> Result<(), String> {
-        match Self::entry(id)?.delete_credential() {
+        match self.entry(id)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.to_string()),
         }
     }
 }
 
-/// Always unavailable: passwords go to the JSON file (`PROMETEO_NO_KEYRING=1`, tests).
+/// Reads `id` from `current`; when it has nothing, reads the 0.5.x entry from `legacy` and copies it to `current`
+/// (best effort: the password is returned even when the copy fails, and the legacy entry is left alone).
+fn adopt_legacy_secret(
+    current: &dyn SecretStore,
+    legacy: &dyn SecretStore,
+    id: &str,
+) -> Result<Option<String>, String> {
+    if let Some(p) = current.get(id)? {
+        return Ok(Some(p));
+    }
+    // an unreadable legacy entry is the same as none: the current service is the one that decides
+    let Ok(Some(p)) = legacy.get(id) else {
+        return Ok(None);
+    };
+    if let Err(e) = current.set(id, &p) {
+        tracing::warn!(
+            "could not copy a password from the 0.5.x keyring entry to the current one: {e}"
+        );
+    }
+    Ok(Some(p))
+}
+
+impl SecretStore for OsKeyring {
+    fn get(&self, id: &str) -> Result<Option<String>, String> {
+        adopt_legacy_secret(
+            &ServiceKeyring(KEYRING_SERVICE),
+            &ServiceKeyring(LEGACY_KEYRING_SERVICE),
+            id,
+        )
+    }
+    fn set(&self, id: &str, password: &str) -> Result<(), String> {
+        ServiceKeyring(KEYRING_SERVICE).set(id, password)
+    }
+    /// Removes the entry of the current service only: a 0.5.x entry belongs to the old app, which may still be
+    /// installed and using it.
+    fn delete(&self, id: &str) -> Result<(), String> {
+        ServiceKeyring(KEYRING_SERVICE).delete(id)
+    }
+}
+
+/// Always unavailable: passwords go to the JSON file (`DATUM_NO_KEYRING=1`, tests).
 pub struct NoKeyring;
 
 impl SecretStore for NoKeyring {
@@ -1139,11 +1187,15 @@ impl DataSourceStore {
 // ====================================================================== export / import
 
 /// `format` of an exported data sources file.
-pub const EXPORT_FORMAT: &str = "prometeo-datagrip/data-sources";
+pub const EXPORT_FORMAT: &str = "datum/data-sources";
+/// `format` of a data sources file exported by 0.5.x (Prometeo DataGrip); still accepted on import.
+const LEGACY_EXPORT_FORMAT: &str = "prometeo-datagrip/data-sources";
 /// `version` of an exported data sources file written by this build (older versions are read, newer ones refused).
 pub const EXPORT_VERSION: u32 = 1;
 /// `format` of an exported settings file (UI settings, keymap, color scheme, layout; no data sources, no secrets).
-pub const SETTINGS_FORMAT: &str = "prometeo-datagrip/settings";
+pub const SETTINGS_FORMAT: &str = "datum/settings";
+/// `format` of a settings file exported by 0.5.x (Prometeo DataGrip); still accepted on import.
+const LEGACY_SETTINGS_FORMAT: &str = "prometeo-datagrip/settings";
 /// `version` of an exported settings file written by this build.
 pub const SETTINGS_VERSION: u32 = 1;
 /// Largest export file the app reads back.
@@ -1371,22 +1423,27 @@ fn is_remote_path(p: &str) -> bool {
     }
 }
 
-/// Check the `format` and `version` of an export document and return it. `what` names the kind of file.
+/// Check the `format` (any of `formats`: the current one and the one of 0.5.x) and `version` of an export document
+/// and return it. `what` names the kind of file.
 fn check_export_header(
     text: &str,
-    format: &str,
+    formats: &[&str],
     max_version: u32,
     what: &str,
 ) -> Result<Value, String> {
     let doc: Value =
         serde_json::from_str(text).map_err(|e| format!("This is not a valid {what} file: {e}"))?;
-    if doc.get("format").and_then(Value::as_str) != Some(format) {
-        return Err(format!("This is not a Prometeo {what} file."));
+    if !doc
+        .get("format")
+        .and_then(Value::as_str)
+        .is_some_and(|f| formats.contains(&f))
+    {
+        return Err(format!("This is not a Datum {what} file."));
     }
     match doc.get("version").and_then(Value::as_u64) {
         Some(v) if (1..=u64::from(max_version)).contains(&v) => Ok(doc),
         Some(v) if v > u64::from(max_version) => Err(format!(
-            "This {what} file was written by a newer version of Prometeo (file format {v}; this version reads up to {max_version}). Update Prometeo to import it."
+            "This {what} file was written by a newer version of Datum (file format {v}; this version reads up to {max_version}). Update Datum to import it."
         )),
         _ => Err(format!("This {what} file has no valid version.")),
     }
@@ -1421,7 +1478,12 @@ impl DataSourceStore {
     /// secret. An entry that cannot be read is skipped and reported; a file of another format or a newer version
     /// is an error and changes nothing.
     pub fn import_json(&self, text: &str) -> Result<ImportSummary, String> {
-        let doc = check_export_header(text, EXPORT_FORMAT, EXPORT_VERSION, "data sources")?;
+        let doc = check_export_header(
+            text,
+            &[EXPORT_FORMAT, LEGACY_EXPORT_FORMAT],
+            EXPORT_VERSION,
+            "data sources",
+        )?;
         let entries = doc
             .get("dataSources")
             .and_then(Value::as_array)
@@ -1525,7 +1587,12 @@ pub fn settings_document(settings: Value) -> Result<String, String> {
 
 /// The `settings` object of a settings export file; refuses other files and newer versions.
 pub fn parse_settings_document(text: &str) -> Result<Value, String> {
-    let mut doc = check_export_header(text, SETTINGS_FORMAT, SETTINGS_VERSION, "settings")?;
+    let mut doc = check_export_header(
+        text,
+        &[SETTINGS_FORMAT, LEGACY_SETTINGS_FORMAT],
+        SETTINGS_VERSION,
+        "settings",
+    )?;
     match doc.get_mut("settings").map(Value::take) {
         Some(s) if s.is_object() => Ok(s),
         _ => Err("This settings file has no settings.".into()),
@@ -2276,7 +2343,7 @@ mod tests {
     #[test]
     fn the_windows_credential_manager_is_the_keyring() {
         // the environment of the automated runs says "no keyring": nothing to check then
-        if std::env::var_os("PROMETEO_NO_KEYRING").is_some() {
+        if std::env::var_os("DATUM_NO_KEYRING").is_some() {
             return;
         }
         /// Removes the entry even when an assertion fails.
@@ -2536,8 +2603,7 @@ mod tests {
                 .insert("db_credentials".into(), "credentials-7".into());
             u.options
                 .insert("proxy".into(), "https://px:option-pass-7@proxy/x".into());
-            u.options
-                .insert("application_name".into(), "prometeo".into());
+            u.options.insert("application_name".into(), "datum".into());
             store.save(u).unwrap();
             let (text, n) = store.export_json(None).unwrap();
             assert_eq!(n, 2);
@@ -2578,7 +2644,7 @@ mod tests {
             );
             assert_eq!(
                 doc["dataSources"][1]["options"]["application_name"],
-                "prometeo"
+                "datum"
             );
             assert_eq!(
                 doc["dataSources"][1]["options"]["proxy"],
@@ -2650,7 +2716,7 @@ mod tests {
         let e = store
             .import_json(r#"{"format":"something-else","version":1,"dataSources":[]}"#)
             .unwrap_err();
-        assert!(e.contains("not a Prometeo"), "{e}");
+        assert!(e.contains("not a Datum"), "{e}");
         let newer = format!(
             r#"{{"format":"{EXPORT_FORMAT}","version":{},"dataSources":[]}}"#,
             EXPORT_VERSION + 1
@@ -3016,10 +3082,53 @@ mod tests {
         let ds = format!(r#"{{"format":"{EXPORT_FORMAT}","version":1,"dataSources":[]}}"#);
         assert!(parse_settings_document(&ds)
             .unwrap_err()
-            .contains("not a Prometeo settings"));
-        assert!(
-            parse_settings_document(r#"{"format":"prometeo-datagrip/settings","version":1}"#)
-                .is_err()
+            .contains("not a Datum settings"));
+        assert!(parse_settings_document(r#"{"format":"datum/settings","version":1}"#).is_err());
+    }
+
+    #[test]
+    fn a_0_5_keyring_entry_is_adopted_on_first_read() {
+        let current = MemSecrets::default();
+        let legacy = MemSecrets::default();
+        legacy.set("a", "old password").unwrap();
+        // nothing under the new service: the legacy password is returned and copied over, the old entry stays
+        assert_eq!(
+            adopt_legacy_secret(&current, &legacy, "a")
+                .unwrap()
+                .as_deref(),
+            Some("old password")
         );
+        assert_eq!(current.get("a").unwrap().as_deref(), Some("old password"));
+        assert_eq!(legacy.get("a").unwrap().as_deref(), Some("old password"));
+        // the current entry wins once there is one
+        current.set("a", "new password").unwrap();
+        assert_eq!(
+            adopt_legacy_secret(&current, &legacy, "a")
+                .unwrap()
+                .as_deref(),
+            Some("new password")
+        );
+        // neither has it
+        assert_eq!(adopt_legacy_secret(&current, &legacy, "b").unwrap(), None);
+    }
+
+    #[test]
+    fn files_exported_by_0_5_still_import() {
+        // settings
+        let legacy =
+            r#"{"format":"prometeo-datagrip/settings","version":1,"settings":{"theme":"light"}}"#;
+        assert_eq!(
+            parse_settings_document(legacy).unwrap(),
+            serde_json::json!({ "theme": "light" })
+        );
+        // data sources
+        let dir = tempfile::tempdir().unwrap();
+        let store = DataSourceStore::load(dir.path().join("ds.json"), Arc::new(NoKeyring)).unwrap();
+        let legacy = r#"{"format":"prometeo-datagrip/data-sources","version":1,"dataSources":[{"name":"old","driver":"sqlite"}]}"#;
+        let summary = store.import_json(legacy).unwrap();
+        assert_eq!(summary.imported.len(), 1);
+        // new files carry the new name
+        assert_eq!(EXPORT_FORMAT, "datum/data-sources");
+        assert_eq!(SETTINGS_FORMAT, "datum/settings");
     }
 }

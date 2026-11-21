@@ -9,10 +9,17 @@ pub const PG_SEED: &str = include_str!("../fixtures/pg_seed.sql");
 pub const MYSQL_SEED: &str = include_str!("../fixtures/mysql_seed.sql");
 pub const ORACLE_SEED: &str = include_str!("../fixtures/oracle_seed.sql");
 
+/// The value of the variable `var` (`DATUM_<name>`), else of its 0.5.x name `PROMETEO_<name>`, so a shell that was
+/// set up for the old name does not silently skip the database tests. Empty counts as unset.
+pub fn env_url(var: &str) -> Option<String> {
+    let legacy = var.strip_prefix("DATUM_").map(|n| format!("PROMETEO_{n}"));
+    std::iter::once(var.to_string())
+        .chain(legacy)
+        .find_map(|v| std::env::var(v).ok().filter(|u| !u.is_empty()))
+}
+
 pub fn pg_cfg() -> Option<DataSourceConfig> {
-    let url = std::env::var("PROMETEO_PG_URL")
-        .ok()
-        .filter(|u| !u.is_empty())?;
+    let url = env_url("DATUM_PG_URL")?;
     Some(DataSourceConfig {
         id: "pg".into(),
         name: "pg".into(),
@@ -23,9 +30,7 @@ pub fn pg_cfg() -> Option<DataSourceConfig> {
 }
 
 pub fn mysql_cfg() -> Option<DataSourceConfig> {
-    let url = std::env::var("PROMETEO_MYSQL_URL")
-        .ok()
-        .filter(|u| !u.is_empty())?;
+    let url = env_url("DATUM_MYSQL_URL")?;
     Some(DataSourceConfig {
         id: "my".into(),
         name: "my".into(),
@@ -35,14 +40,14 @@ pub fn mysql_cfg() -> Option<DataSourceConfig> {
     })
 }
 
-/// `PROMETEO_ORACLE_URL=oracle://demo:prometeo@127.0.0.1:15219/FREEPDB1` (user:password@host:port/service name).
+/// `DATUM_ORACLE_URL=oracle://demo:datum@127.0.0.1:15219/FREEPDB1` (user:password@host:port/service name).
 pub fn oracle_cfg() -> Option<DataSourceConfig> {
-    oracle_cfg_from_env("PROMETEO_ORACLE_URL")
+    oracle_cfg_from_env("DATUM_ORACLE_URL")
 }
 
 /// Like `oracle_cfg`, from another environment variable.
 pub fn oracle_cfg_from_env(var: &str) -> Option<DataSourceConfig> {
-    let url = std::env::var(var).ok().filter(|u| !u.is_empty())?;
+    let url = env_url(var)?;
     let rest = url.strip_prefix("oracle://")?;
     let (cred, target) = rest.rsplit_once('@')?;
     let (user, password) = cred.split_once(':').unwrap_or((cred, ""));

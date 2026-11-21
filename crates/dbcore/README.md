@@ -1,6 +1,6 @@
 # dbcore
 
-Database core of Prometeo DataGrip: connections, introspection, query execution with
+Database core of Datum: connections, introspection, query execution with
 paging/cancellation, table editing, DDL, export and query history. No Tauri dependency;
 the Tauri layer wraps `ConnectionManager` (cheap to `clone`, `Send + Sync`, every public
 async method returns a `Send` future - checked at compile time by `tests/send.rs`).
@@ -75,7 +75,7 @@ so the assignment performs the length check: `varchar(5)` + 10 characters fails 
 `table_data` rejects a `where` / `order by` fragment with a statement separator (`;` outside
 quotes and comments). MySQL `TINYINT(1)` / `BOOLEAN` cells are integers (0 / 1 / 5; sqlx
 cannot tell them from `BOOL`), `BIT(n)` is a number. SQLite `:memory:` data sources use a
-named shared-cache database (`file:prometeo-<id>-<uuid>?mode=memory&cache=shared`) kept alive
+named shared-cache database (`file:datum-<id>-<uuid>?mode=memory&cache=shared`) kept alive
 by one connection until `disconnect`, so the pool and every console see the same database.
 
 Tree paths and folder keys are documented at the top of `src/introspect.rs`.
@@ -179,11 +179,11 @@ with a 100k-row `big_table` and an `all_types` table) on first use, and skip loa
 `big_table` already has 100000 rows. To force a reload drop `shop` (PG) / `big_table` (MySQL).
 
 ```sh
-docker run -d --name prometeo-pg -e POSTGRES_PASSWORD=prometeo -p 54329:5432 postgres:16
-docker run -d --name prometeo-mysql -e MYSQL_ROOT_PASSWORD=prometeo -e MYSQL_DATABASE=demo -p 33069:3306 mysql:8
+docker run -d --name datum-pg -e POSTGRES_PASSWORD=datum -p 54329:5432 postgres:16
+docker run -d --name datum-mysql -e MYSQL_ROOT_PASSWORD=datum -e MYSQL_DATABASE=demo -p 33069:3306 mysql:8
 
-export PROMETEO_PG_URL=postgres://postgres:prometeo@localhost:54329/postgres
-export PROMETEO_MYSQL_URL=mysql://root:prometeo@localhost:33069/demo
+export DATUM_PG_URL=postgres://postgres:datum@localhost:54329/postgres
+export DATUM_MYSQL_URL=mysql://root:datum@localhost:33069/demo
 cargo test -p dbcore -- --nocapture      # --nocapture prints the timing numbers
 ```
 

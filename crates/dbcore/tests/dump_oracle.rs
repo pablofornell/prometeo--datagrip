@@ -1,6 +1,6 @@
 //! Oracle whole-schema dump / restore round trip in the login user's own schema (no extra privileges): the
 //! objects are named with a prefix and removed at the start and at the end. Run with:
-//!   PROMETEO_ORACLE_URL=oracle://demo:prometeo@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test dump_oracle -- --nocapture
+//!   DATUM_ORACLE_URL=oracle://demo:datum@127.0.0.1:15219/FREEPDB1 cargo test -p dbcore --test dump_oracle -- --nocapture
 
 mod common;
 
@@ -517,7 +517,7 @@ async fn assert_behaviour(mgr: &ConnectionManager, s: &SessionId) {
 #[tokio::test]
 async fn tables_round_trip_with_every_literal_kind() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -615,7 +615,7 @@ async fn tables_round_trip_with_every_literal_kind() {
         );
 
         // the app's path: a file run statement by statement
-        let file = std::env::temp_dir().join(format!("prometeo-dump-oracle-{batch_size}.sql"));
+        let file = std::env::temp_dir().join(format!("datum-dump-oracle-{batch_size}.sql"));
         std::fs::write(&file, &text).unwrap();
         let sum = mgr
             .run_sql_file(
@@ -815,7 +815,7 @@ async fn assert_units_work(mgr: &ConnectionManager, s: &SessionId) {
 #[tokio::test]
 async fn views_routines_and_sequences_round_trip() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -931,7 +931,7 @@ async fn views_routines_and_sequences_round_trip() {
 #[tokio::test]
 async fn cancel_stops_the_dump_and_progress_names_the_table() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1041,7 +1041,7 @@ async fn partition_facts(mgr: &ConnectionManager, s: &SessionId) -> String {
 #[tokio::test]
 async fn partitions_and_local_indexes_round_trip() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1103,7 +1103,7 @@ async fn partitions_and_local_indexes_round_trip() {
         .await,
         "0"
     );
-    restore_file(mgr, &text, "prometeo-dump-oracle-partitions.sql").await;
+    restore_file(mgr, &text, "datum-dump-oracle-partitions.sql").await;
 
     assert_eq!(partition_facts(mgr, &s).await, facts);
     assert_eq!(one(mgr, &s, counts).await, rows_before);
@@ -1186,7 +1186,7 @@ async fn object_facts(mgr: &ConnectionManager, s: &SessionId) -> String {
 #[tokio::test]
 async fn object_types_xmltype_and_json_round_trip() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1261,7 +1261,7 @@ async fn object_types_xmltype_and_json_round_trip() {
     );
 
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &text, "prometeo-dump-oracle-types.sql").await;
+    restore_file(mgr, &text, "datum-dump-oracle-types.sql").await;
     assert_eq!(object_facts(mgr, &s).await, before);
     assert_eq!(
         one(mgr, &s, "select count(*) from zdw_coll where nums is null").await,
@@ -1279,7 +1279,7 @@ async fn object_types_xmltype_and_json_round_trip() {
     );
 
     // again over the existing types and tables
-    restore_file(mgr, &text, "prometeo-dump-oracle-types.sql").await;
+    restore_file(mgr, &text, "datum-dump-oracle-types.sql").await;
     assert_eq!(object_facts(mgr, &s).await, before);
 
     clean(mgr, &s, "ZDW").await;
@@ -1308,7 +1308,7 @@ commit;
 #[tokio::test]
 async fn materialized_views_and_synonyms_round_trip() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1369,7 +1369,7 @@ async fn materialized_views_and_synonyms_round_trip() {
     // restore the objects of this test only (the schema may hold others)
     let script = only_prefix(&text, "ZDW_");
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &script, "prometeo-dump-oracle-mviews.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-mviews.sql").await;
     // the fast one is restored with FORCE (its logs are not in the dump)
     assert_eq!(
         one(mgr, &s, mv_facts).await,
@@ -1401,7 +1401,7 @@ async fn materialized_views_and_synonyms_round_trip() {
     );
 
     // again over the existing objects (drop_if_exists drops the materialized views first)
-    restore_file(mgr, &script, "prometeo-dump-oracle-mviews.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-mviews.sql").await;
     assert_eq!(one(mgr, &s, "select count(*) from zdw_mv_v").await, "2");
     assert_eq!(one(mgr, &s, "select count(*) from zdw_mv_fast").await, "3");
 
@@ -1431,7 +1431,7 @@ commit;
 #[tokio::test]
 async fn reference_partitioned_child_restores_with_a_plain_index() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1476,7 +1476,7 @@ async fn reference_partitioned_child_restores_with_a_plain_index() {
     );
 
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &text, "prometeo-dump-oracle-reference.sql").await;
+    restore_file(mgr, &text, "datum-dump-oracle-reference.sql").await;
     assert_eq!(one(mgr, &s, counts).await, "2,2");
     assert_eq!(
         one(
@@ -1524,7 +1524,7 @@ async fn type_use_facts(mgr: &ConnectionManager, s: &SessionId, table: &str) -> 
 #[tokio::test]
 async fn full_restore_with_an_object_type_keeps_the_data_twice() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1546,11 +1546,11 @@ async fn full_restore_with_an_object_type_keeps_the_data_twice() {
     );
 
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &script, "prometeo-dump-oracle-type-drop.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-type-drop.sql").await;
     assert_eq!(type_use_facts(mgr, &s, "zdw_pt_tab").await, before);
     assert_eq!(one(mgr, &s, "select count(*) from zdw_pt_v").await, "3");
     // again over the existing objects
-    restore_file(mgr, &script, "prometeo-dump-oracle-type-drop.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-type-drop.sql").await;
     assert_eq!(type_use_facts(mgr, &s, "zdw_pt_tab").await, before);
     assert_eq!(one(mgr, &s, "select count(*) from zdw_pt_v").await, "3");
 
@@ -1563,7 +1563,7 @@ async fn full_restore_with_an_object_type_keeps_the_data_twice() {
 #[tokio::test]
 async fn restore_stops_rather_than_force_a_type_used_outside_the_dump() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1583,7 +1583,7 @@ async fn restore_stops_rather_than_force_a_type_used_outside_the_dump() {
          insert into zdw_pt_out values (1, zdw_pt(7, 'z')); commit;",
     )
     .await;
-    let file = std::env::temp_dir().join("prometeo-dump-oracle-type-outside.sql");
+    let file = std::env::temp_dir().join("datum-dump-oracle-type-outside.sql");
     std::fs::write(&file, &script).unwrap();
     let sum = mgr
         .run_sql_file(
@@ -1631,7 +1631,7 @@ end;
 #[tokio::test]
 async fn type_body_selecting_from_a_table_is_valid_after_restore() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1653,14 +1653,14 @@ async fn type_body_selecting_from_a_table_is_valid_after_restore() {
     assert!(spec < table && table < body, "{script}");
 
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &script, "prometeo-dump-oracle-type-body.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-type-body.sql").await;
     assert_eq!(one(mgr, &s, body_status).await, "VALID");
     assert_eq!(
         one(mgr, &s, "select zdw_bt(1).rows_cnt() from dual").await,
         "2"
     );
     // again over the existing objects
-    restore_file(mgr, &script, "prometeo-dump-oracle-type-body.sql").await;
+    restore_file(mgr, &script, "datum-dump-oracle-type-body.sql").await;
     assert_eq!(one(mgr, &s, body_status).await, "VALID");
 
     clean(mgr, &s, "ZDW").await;
@@ -1681,7 +1681,7 @@ commit;
 #[tokio::test]
 async fn subset_dump_warns_about_a_type_used_by_a_table_outside_it() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1735,7 +1735,7 @@ commit;
 #[tokio::test]
 async fn constraint_on_a_hidden_column_is_skipped_whole() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let _guard = LOCK.lock().await;
@@ -1762,7 +1762,7 @@ async fn constraint_on_a_hidden_column_is_skipped_whole() {
     assert!(text.contains("CONSTRAINT ZDW_HC_UB UNIQUE (B)"), "{text}");
 
     clean(mgr, &s, "ZDW").await;
-    restore_file(mgr, &text, "prometeo-dump-oracle-hidden.sql").await;
+    restore_file(mgr, &text, "datum-dump-oracle-hidden.sql").await;
     assert_eq!(
         one(
             mgr,

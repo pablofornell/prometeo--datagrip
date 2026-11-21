@@ -1,4 +1,4 @@
-//! Database core for Prometeo DataGrip (no Tauri dependency).
+//! Database core for Datum (no Tauri dependency).
 //!
 //! Entry point is [`ConnectionManager`]. See `README.md` for the API overview.
 

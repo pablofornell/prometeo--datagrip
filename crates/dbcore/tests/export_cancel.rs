@@ -1,6 +1,6 @@
 //! `export_query_with` and its cancel token: a slow query that has not returned a row yet is stopped (on the server too),
 //! and a cancelled export of an empty result is not a success. SQLite always runs; the other databases need their URL
-//! (`PROMETEO_PG_URL`, `PROMETEO_MYSQL_URL`, `PROMETEO_ORACLE_URL`, see `script_db.rs`).
+//! (`DATUM_PG_URL`, `DATUM_MYSQL_URL`, `DATUM_ORACLE_URL`, see `script_db.rs`).
 
 mod common;
 
@@ -121,7 +121,7 @@ async fn sqlite_progress_is_not_one_event_per_row() {
 #[tokio::test]
 async fn pg_a_slow_query_is_cancelled_on_the_server_too() {
     let Some(cfg) = pg_cfg() else {
-        eprintln!("PROMETEO_PG_URL not set: skipping");
+        eprintln!("DATUM_PG_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -137,7 +137,7 @@ async fn pg_a_slow_query_is_cancelled_on_the_server_too() {
 #[tokio::test]
 async fn mysql_a_slow_query_is_cancelled_on_the_server_too() {
     let Some(cfg) = mysql_cfg() else {
-        eprintln!("PROMETEO_MYSQL_URL not set: skipping");
+        eprintln!("DATUM_MYSQL_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;
@@ -152,7 +152,7 @@ async fn mysql_a_slow_query_is_cancelled_on_the_server_too() {
 #[tokio::test]
 async fn oracle_a_slow_query_is_cancelled() {
     let Some(cfg) = oracle_cfg() else {
-        eprintln!("PROMETEO_ORACLE_URL not set: skipping");
+        eprintln!("DATUM_ORACLE_URL not set: skipping");
         return;
     };
     let mgr = connected(&cfg).await;

@@ -1,4 +1,4 @@
--- Prometeo DataGrip test fixture for PostgreSQL. Idempotent: recreates schema "shop".
+-- Datum test fixture for PostgreSQL. Idempotent: recreates schema "shop".
 drop schema if exists shop cascade;
 create schema shop;
 comment on schema shop is 'Demo shop';
